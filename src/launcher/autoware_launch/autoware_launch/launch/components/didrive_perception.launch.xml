@@ -1,0 +1,138 @@
+<launch>
+  <arg name="base_frame" default="base_link" description="base frame"/>
+  <arg name="use_sim_time" default="true" description="use simulator time"/>
+  <arg name="pointcloud_container_name" default="perception_container" description="name of pointcloud container"/>
+  <arg name="use_pointcloud_container" default="false"/>
+  <arg name="enable_lane_detection" default="false" description="Enable lane detection module"/>
+  <arg name="pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="use simulator time"/>
+  <arg name="occupancy_grid_map_method" default="pointcloud_based_occupancy_grid_map" description="options: pointcloud_based_occupancy_grid_map, laserscan_based_occupancy_grid_map, multi_lidar_pointcloud_based_occupancy_grid_map"/>
+  <arg name="occupancy_grid_map_updater" default="binary_bayes_filter" description="options: binary_bayes_filter"/>
+  <arg name="occupancy_grid_map_param_path" default="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/$(var occupancy_grid_map_method).param.yaml"/>
+  <arg name="occupancy_grid_map_updater_param_path" default="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/$(var occupancy_grid_map_updater)_updater.param.yaml"/>
+  
+  <!--   
+  启动相机ros节点
+  <include file="$(find-pkg-share v4l2_camera)/launch/v4l2_camera.launch.xml">
+    <arg name="undistort_enabled" value="true"/>
+    <arg name="publish_rate" value="10.0"/>
+  </include>
+  -->
+
+  <!-- Perception module -->
+  <group>
+    <push-ros-namespace namespace="perception"/>
+    <group>
+      <!-- ground segmentation -->
+      <push-ros-namespace namespace="obstacle_segmentation"/>
+      <include file="$(find-pkg-share didrive_patchwork)/launch/patchworkpp.launch.py">
+        <arg name="base_frame" value="$(var base_frame)"/>
+        <arg name="input_pointcloud" value="$(var pointcloud)"/>
+        <arg name="use_mask" value="false"/>
+        <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+        <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+        <arg name="output_ground" value="/perception/obstacle_segmentation/ground"/>
+        <arg name="output_nonground" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="visualize" value="false"/>
+      </include>
+    </group>
+
+    <!-- 
+    lane detection
+    <group>
+      <push-ros-namespace namespace="lane_detection"/>
+      <include file="$(find-pkg-share didrive_ufld_ros)/launch/ufld.launch.py"
+              if="$(var enable_lane_detection)">
+        <arg name="output_topic" value="/perception/lane_detection/points"/>
+      </include>
+    </group>
+     -->
+
+    <!-- Occupancy grid map module -->
+    <group>
+      <push-ros-namespace namespace="occupancy_grid_map"/>
+      <include file="$(find-pkg-share autoware_launch)/launch/components/didrive_probabilistic_occupancy_grid_map.launch.xml">
+        <arg name="input/obstacle_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="input/raw_pointcloud" value="$(var pointcloud)"/>
+        <arg name="output" value="/perception/occupancy_grid_map/map"/>
+        <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+        <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+        <arg name="occupancy_grid_map_method" value="$(var occupancy_grid_map_method)"/>
+        <arg name="occupancy_grid_map_param_path" value="$(var occupancy_grid_map_param_path)"/>
+        <arg name="occupancy_grid_map_updater" value="$(var occupancy_grid_map_updater)"/>
+        <arg name="occupancy_grid_map_updater_param_path" value="$(var occupancy_grid_map_updater_param_path)"/>
+      </include>
+    </group>
+    
+    <!-- Object recogniton module -->
+    <group>
+      <push-ros-namespace namespace="object_recognition"/>
+      <!-- Detection module -->
+      <group>
+        <push-ros-namespace namespace="detection"/>
+        <group>
+          <!-- euclidean cluster -->
+          <include file="$(find-pkg-share didrive_euclidean_cluster)/launch/voxel_grid_based_euclidean_cluster.launch.py">
+            <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+            <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+            <arg name="input_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
+            <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/objects"/>
+          </include>
+        </group>
+      
+        <!--                 
+        <group>
+          bevfusion
+          <include file="$(find-pkg-share didrive_ros2_bevfusion_async)/launch/bevfusion.launch.py">
+            <arg name="model_path" value="$(find-pkg-share didrive_ros2_bevfusion_async)/models/resnet50_v1/onnx_int8"/>
+            <arg name="precision" value="int8"/>
+            <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
+            <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
+            <arg name="lidar_topic" value="/rslidar_points"/>
+            <arg name="detection_topic" value="/perception/object_recognition/detection/lidar_dnn/objects"/>
+          </include>
+        </group>
+        -->
+
+        <!--                 
+        <group>
+          object merge
+          <include file="$(find-pkg-share didrive_object_merger)/launch/object_association_merger.launch.xml">
+            <arg name="input/object0" value="/perception/object_recognition/detection/lidar_rule/objects"/>
+            <arg name="input/object1" value="/perception/object_recognition/detection/lidar_dnn/objects"/>
+            <arg name="output/object" value="/perception/object_recognition/detection/merged/objects"/>
+            <arg name="base_link_frame_id" value="$(var base_frame)"/>
+          </include>
+        </group>
+        -->
+
+        <group>
+          <!-- object validation -->
+          <include file="$(find-pkg-share didrive_detected_object_validation)/launch/object_lanelet_filter.launch.xml">
+            <arg name="input/object" value="/perception/object_recognition/detection/lidar_rule/objects"/>
+            <arg name="output/object" value="/perception/object_recognition/detection/objects"/>
+          </include>
+        </group>
+      </group>
+      
+      <!-- tracking module -->
+      <group>
+        <push-ros-namespace namespace="tracking"/>
+        <!-- tracker -->
+        <include file="$(find-pkg-share didrive_multi_object_tracker)/launch/multi_object_tracker.launch.xml">
+          <arg name="output" value="/perception/object_recognition/tracking/objects"/>
+        </include>
+      </group>
+      
+      <!-- Prediction module -->
+      <group>
+        <push-ros-namespace namespace="prediction"/>
+        <!-- prediction -->
+        <include file="$(find-pkg-share didrive_map_based_prediction)/launch/map_based_prediction.launch.xml">
+          <arg name="input_topic" value="/perception/object_recognition/tracking/objects"/>
+          <arg name="output_topic" value="/perception/object_recognition/objects"/>
+        </include>
+      </group>
+    </group>
+  </group>
+  
+</launch>

@@ -1,0 +1,8 @@
+/**:
+  ros__parameters:
+    min_longitudinal_offset: 0.0 # 后视镜后端到baselink
+    max_longitudinal_offset: 0.0 # 后视镜前端到baselink
+    min_lateral_offset: 0.0 # baselink到车体左侧
+    max_lateral_offset: 0.0 # baselink到车体右侧
+    min_height_offset: 0.0 # 车底到后视镜底部距离
+    max_height_offset: 0.0 # 车底到后视镜顶部距离

@@ -1,0 +1,2 @@
+# Disable Git LFS for this repository (override nested isaac_ros .gitattributes)
+* -filter -diff -merge

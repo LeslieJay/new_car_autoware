@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    dx: 0.06  #棋盘格宽度(m)
+    dy: 0.06  #棋盘格高度(m)
+    checkerboard_rows: 11  #棋盘格横向内点数
+    checkerboard_cols: 8  #棋盘格纵向内点数
+    min_points_on_plane: 150  #棋盘格平面最小点云数量
+    num_views: 20   #棋盘格需要的不同视角数量
+    no_of_initializations: 10    #优化轮数
+    initializations_file: initializations_file.txt  #记录每轮优化结果
+    result_file: result_file.txt  #记录最终外参矩阵
+    result_rpy_file: result_rpy_file.txt  #记录roll pitch yaw(degree) trans_x trans_y trans_z
+    x_min: -2.0   #截取点云，x方向最小值
+    x_max: 2.0    #截取点云，x方向最大值
+    y_min: -4.0   #截取点云，y方向最小值
+    y_max: -1.0   #截取点云，y方向最大值
+    z_min: -2.2   #截取点云，z方向最小值
+    z_max: 1.0    #截取点云，z方向最大值
+    ransac_threshold_: 0.01   #平面拟合阈值
+    sync_diff: 0.05   #点云和图像同步的最大时间误差（s)s

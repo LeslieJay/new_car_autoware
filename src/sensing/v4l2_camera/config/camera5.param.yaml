@@ -1,0 +1,31 @@
+/**:
+  ros__parameters:
+    # 通用参数
+    use_sensor_data_qos: true
+    publish_rate: 30.0  # 设置为-1.0表示使用相机的原生帧率
+    use_image_transport: false
+    hardware_id: "vi-output,_sgx-yuv-gmsl2_9-001b"
+    camera_frame_id: "camera_back/camera_optical_link"
+
+    # 诊断参数
+    min_ok_rate: 28.0
+    max_ok_rate: 32.0
+    min_warn_rate: 25.0
+    max_warn_rate: 35.0
+    observed_frames_transition: 5
+
+    # 后视摄像头
+    video_device: "/dev/video0"
+    output_encoding: "rgb8"
+    pixel_format: UYVY
+    # width, height
+    image_size: [3840, 2160]
+    time_per_frame: [1, 30]
+    # 模型输入idx 5
+    image_topic: "/sensing/camera/camera5/image_rect_color"
+    camera_info_url: "package://v4l2_camera/config/camera_back_calibration.yaml"
+    use_v4l2_buffer_timestamps: false
+    timestamp_offset: 0
+    undistort_enabled: true
+    fov: 120
+

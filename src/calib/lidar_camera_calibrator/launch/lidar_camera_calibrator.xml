@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="node_name" default="lidar_camera_calib_node"/>
+  <arg name="input/lidar" default="/rslidar_points"/>
+  <arg name="input/camera" default="/cam1/image_rect"/>
+  <arg name="camera_param_path" default="$(find-pkg-share lidar_camera_calibrator)/config/camera.param.yaml"/>
+  <arg name="lidar_camera_calib_param_path" default="$(find-pkg-share lidar_camera_calibrator)/config/lidar_camera_calib.param.yaml"/>
+
+  <node pkg="lidar_camera_calibrator" exec="lidar_camera_calib_node" name="$(var node_name)" output="screen">
+    <remap from="input/lidar" to="$(var input/lidar)"/>
+    <remap from="input/camera" to="$(var input/camera)"/>
+    <param from="$(var camera_param_path)"/>
+    <param from="$(var lidar_camera_calib_param_path)"/>
+  </node>
+</launch>

@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Parameters for geo_pose_projector",
+  "type": "object",
+  "definitions": {
+    "geo_pose_projector": {
+      "type": "object",
+      "properties": {
+        "publish_tf": {
+          "type": "boolean",
+          "description": "whether to publish tf",
+          "default": true
+        },
+        "parent_frame": {
+          "type": "string",
+          "description": "parent frame for published tf",
+          "default": "map"
+        },
+        "child_frame": {
+          "type": "string",
+          "description": "child frame for published tf",
+          "default": "pose_estimator_base_link"
+        },
+        "position_variance_fixed": {
+          "type": "number",
+          "description": "Position variance for RTK fixed solution (STATUS_FIX=4) in m^2. CEP95 < 10cm accuracy.",
+          "default": 0.01
+        },
+        "position_variance_float": {
+          "type": "number",
+          "description": "Position variance for RTK float solution (STATUS_SBAS_FIX=5) in m^2. Reduced accuracy.",
+          "default": 0.05
+        },
+        "position_variance_low": {
+          "type": "number",
+          "description": "Position variance for DGPS/SBAS (STATUS_GBAS_FIX=2) in m^2. Low accuracy.",
+          "default": 0.5
+        },
+        "position_variance_no_fix": {
+          "type": "number",
+          "description": "Position variance for no fix (STATUS_NO_FIX=0 or STATUS_FIX=1) in m^2. Very low accuracy.",
+          "default": 10.0
+        },
+        "orientation_variance": {
+          "type": "number",
+          "description": "Orientation variance in rad^2.",
+          "default": 0.01
+        }
+      },
+      "required": ["publish_tf", "parent_frame", "child_frame", "position_variance_fixed", "position_variance_float", "position_variance_low", "position_variance_no_fix", "orientation_variance"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "/**": {
+      "type": "object",
+      "properties": {
+        "ros__parameters": {
+          "$ref": "#/definitions/geo_pose_projector"
+        }
+      },
+      "required": ["ros__parameters"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["/**"],
+  "additionalProperties": false
+}

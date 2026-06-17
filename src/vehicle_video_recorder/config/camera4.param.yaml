@@ -1,0 +1,11 @@
+/**:
+  recorder_node_4:
+    ros__parameters:
+      # 摄像头设备节点
+      video_device: "/dev/video4"
+      # 相机 ID，用于区分输出目录 (camera_0, camera_1 等)
+      camera_id: 4
+      # 视频存储的根路径
+      data_dir: "/home/byd/vehicle_video_recorder/data/camera_4"
+      width: 1920
+      height: 1080

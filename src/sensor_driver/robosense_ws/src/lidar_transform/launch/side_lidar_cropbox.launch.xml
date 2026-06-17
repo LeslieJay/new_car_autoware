@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="sensor_crop_min_x" default="-3.0"/>
+  <arg name="sensor_crop_max_x" default="0.5"/>
+  <arg name="sensor_crop_min_y" default="-1.0"/>
+  <arg name="sensor_crop_max_y" default="1.5"/>
+  <arg name="sensor_crop_min_z" default="-0.5"/>
+  <arg name="sensor_crop_max_z" default="1.5"/>
+  <arg name="sensor_crop_radius" default="0.8"/>
+
+  <node pkg="lidar_transform" exec="side_lidar_cropbox_node" name="left_lidar_processor" output="screen">
+    <param name="input_topic" value="/rslidar_left/points"/>
+    <param name="output_topic" value="/sensing/lidar/left/outlier_filtered/pointcloud"/>
+    
+    <param name="transform_x" value="1.3654" type="float"/>
+    <param name="transform_y" value="0.5625" type="float"/>
+    <param name="transform_z" value="0.324" type="float"/>
+    <param name="transform_roll" value="3.14159265" type="float"/>
+    <param name="transform_pitch" value="0.0" type="float"/>
+    <param name="transform_yaw" value="0.0" type="float"/> 
+    
+    <param name="crop_min_x" value="$(var sensor_crop_min_x)" type="float"/>
+    <param name="crop_max_x" value="$(var sensor_crop_max_x)" type="float"/>
+    <param name="crop_min_y" value="$(var sensor_crop_min_y)" type="float"/>
+    <param name="crop_max_y" value="$(var sensor_crop_max_y)" type="float"/>
+    <param name="crop_min_z" value="$(var sensor_crop_min_z)" type="float"/>
+    <param name="crop_max_z" value="$(var sensor_crop_max_z)" type="float"/>
+    <param name="crop_radius" value="$(var sensor_crop_radius)" type="float"/>
+  </node>
+</launch>

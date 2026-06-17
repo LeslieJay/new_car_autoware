@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    # 车辆参数
+    wheel_base: 1.01           # 轴距 [m]
+    min_turning_radius: 2.0   # 最小转弯半径 [m]
+    vehicle_length: 1.894       # 车长 [m]
+    vehicle_width: 1.2        # 车宽 [m]
+
+    # 路径参数
+    path_resolution: 0.05     # 路径采样分辨率 [m] (室内AGV需要更精细的采样)
+    velocity_forward: 0.3     # 前进速度 [m/s] (室内低速)
+    velocity_reverse: -0.2    # 倒车速度 [m/s] (负值, 更慢更安全)
+    
+    # 规划参数
+    max_planning_time: 1.0    # 最大规划时间 [s]
+    enable_reverse_only: false # 是否仅使用倒车路径
+
+    # AGV充电对接优化参数
+    final_approach_distance: 1.0   # 最终直线倒车接近距离 [m] (确保充电插头对齐)
+    velocity_creep: 0.05           # 蠕行速度 [m/s] (最终接近段最低速度)
+    decel_distance: 1.5            # 终点减速区距离 [m] (进入此范围开始减速)
+    transition_decel_distance: 0.5 # 方向切换减速区距离 [m] (前进↔倒车切换减速区)
+    
+    # 发布频率
+    publish_rate: 10.0        # Hz

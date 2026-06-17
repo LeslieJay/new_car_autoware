@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    publish_tf: false  # Do NOT publish TF from geo_pose_projector; EKF localizer is responsible for map→base_link TF
+    # Covariance parameters for different GNSS states (unit: m^2)
+    # RTK box status codes: 0=invalid, 1=single, 2=DGNSS, 4=fixed, 5=float, 6=DR
+    # Derivation: CEP95 < 10cm => sigma_xy ≈ CEP95/2.45 ≈ 0.041m => variance ≈ 0.0017m^2
+    # 0.005 => sigma=0.0707m < threshold_gnss_stddev_xy_bound_lower(0.08m) => pure GNSS mode
+    position_variance_fixed: 0.0025  # status=4: RTK fixed solution: sigma=0.05m, pure GNSS mode
+    position_variance_float: 0.09    # status=5: RTK float solution: sigma=0.3m
+    position_variance_low: 1.0       # status=2: DGNSS / status=6: DR dead reckoning: sigma=1.0m
+    position_variance_no_fix: 100.0  # status=0: invalid / status=1: single point: sigma=10m
+    orientation_variance: 0.01     # Orientation variance (rad^2), sigma=0.05rad (~2.9deg)

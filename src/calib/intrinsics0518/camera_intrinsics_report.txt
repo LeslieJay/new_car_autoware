@@ -1,0 +1,56 @@
+======= Camera Bus 9 (KB Model) =======
+# id=0 前视
+Original Intrinsic Matrix (K):
+[[1126.134197    0.000000  960.367369]
+ [   0.000000 1126.121327  602.648625]
+ [   0.000000    0.000000    1.000000]]
+Fisheye Distortion Coefficients (D):
+[-0.044067  0.004050  0.000000  0.000000]
+New Intrinsic Matrix (P):
+[[1002.010255    0.000000  960.626682]
+ [   0.000000 1001.998804  603.335471]
+ [   0.000000    0.000000    1.000000]]
+Note: Using cv2.fisheye for 2nd-order Kannala-Brandt model
+
+======= Camera Bus 10 (KB Model) =======
+# id=1 右前
+Original Intrinsic Matrix (K):
+[[1127.953065    0.000000  959.450662]
+ [   0.000000 1127.770137  599.141262]
+ [   0.000000    0.000000    1.000000]]
+Fisheye Distortion Coefficients (D):
+[-0.043404  0.003349  0.000000  0.000000]
+New Intrinsic Matrix (P):
+[[1004.016101    0.000000  959.065059]
+ [   0.000000 1003.853272  598.919680]
+ [   0.000000    0.000000    1.000000]]
+Note: Using cv2.fisheye for 2nd-order Kannala-Brandt model
+
+======= Camera Bus 11 (KB Model) =======
+# id=2 左前
+Original Intrinsic Matrix (K):
+[[1131.985860    0.000000  965.791646]
+ [   0.000000 1131.481233  603.676144]
+ [   0.000000    0.000000    1.000000]]
+Fisheye Distortion Coefficients (D):
+[-0.044678  0.004657  0.000000  0.000000]
+New Intrinsic Matrix (P):
+[[1007.814212    0.000000  969.794584]
+ [   0.000000 1007.364940  604.616891]
+ [   0.000000    0.000000    1.000000]]
+Note: Using cv2.fisheye for 2nd-order Kannala-Brandt model
+
+======= Camera Bus 12 (KB Model) =======
+# id=3 后视
+Original Intrinsic Matrix (K):
+[[1122.216397    0.000000  961.126443]
+ [   0.000000 1121.736537  603.444996]
+ [   0.000000    0.000000    1.000000]]
+Fisheye Distortion Coefficients (D):
+[-0.044650  0.003806  0.000000  0.000000]
+New Intrinsic Matrix (P):
+[[996.869656   0.000000 961.936093]
+ [  0.000000 996.443394 604.350487]
+ [  0.000000   0.000000   1.000000]]
+Note: Using cv2.fisheye for 2nd-order Kannala-Brandt model
+

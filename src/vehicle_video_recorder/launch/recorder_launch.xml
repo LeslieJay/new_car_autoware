@@ -1,0 +1,55 @@
+<launch>
+
+  <!-- 为每路相机添加独立开关参数 -->
+  <arg name="camera0_enabled" default="True" />
+  <arg name="camera1_enabled" default="false" />
+  <arg name="camera2_enabled" default="false" />
+  <arg name="camera3_enabled" default="false" />
+  <arg name="camera4_enabled" default="false" />
+  <arg name="camera5_enabled" default="True" />
+  <arg name="camera6_enabled" default="false" />
+
+  <!--作为独立节点启动-->
+  <group if="$(var camera0_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_0" output="screen">
+        <param from="$(find-pkg-share vehicle_video_recorder)/config/camera0.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera1_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_1" output="screen">
+      <param from="$(find-pkg-share vehicle_video_recorder)/config/camera1.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera2_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_2" output="screen">
+        <param from="$(find-pkg-share vehicle_video_recorder)/config/camera2.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera3_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_3" output="screen">
+      <param from="$(find-pkg-share vehicle_video_recorder)/config/camera3.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera4_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_4" output="screen">
+      <param from="$(find-pkg-share vehicle_video_recorder)/config/camera4.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera5_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_5" output="screen">
+      <param from="$(find-pkg-share vehicle_video_recorder)/config/camera5.param.yaml" />
+    </node>
+  </group>
+
+  <group if="$(var camera6_enabled)">
+    <node pkg="vehicle_video_recorder" exec="recorder" name="recorder_node_6" output="screen">
+      <param from="$(find-pkg-share vehicle_video_recorder)/config/camera6.param.yaml" />
+    </node>
+  </group>
+
+</launch>

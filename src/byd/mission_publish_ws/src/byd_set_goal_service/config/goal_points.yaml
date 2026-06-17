@@ -1,0 +1,39 @@
+# Multiple goal points configuration for set_goal_node
+# The node will navigate to each goal sequentially, waiting at each point
+
+
+
+set_goal_node:
+  ros__parameters:
+    frame_id: 'map'
+    allow_goal_modification: false
+    loop: true  # Set to true to loop through goals continuously
+
+    # List of goal names (executed in order)
+    goal_names: ['A', 'B']
+
+    # Goal A configuration
+    ### 单向-双车道
+    goals:
+
+      # Goal B configuration
+      A:
+        x: -166.75697572081393
+        y: -84.12780794007236
+        z: 0.5922776638379166
+        orientation_x: 0.0009473683847744576
+        orientation_y: 0.00033535554962371337
+        orientation_z: -0.9788338857946326
+        orientation_w: 0.20465388843112373
+        wait_time: 5.0  # Wait 5 seconds after arriving at B
+      
+      B:
+        x: -40.232654737941
+        y: -22.523951920698988
+        z: 0.23063408818559059
+        orientation_x: 0.002218242693125891
+        orientation_y: 2.5180233688238627e-05
+        orientation_z: 0.24842656724985318
+        orientation_w: 0.96864819178573
+        wait_time: 5.0  # Wait 5 seconds after arriving at A
+        

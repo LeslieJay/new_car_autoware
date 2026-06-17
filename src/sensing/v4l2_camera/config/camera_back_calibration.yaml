@@ -1,0 +1,28 @@
+image_width: 1920
+image_height: 1080
+camera_name: vi-output,_sgx-yuv-gmsl2_9-001b
+# 相机内参矩阵
+camera_matrix:
+  rows: 3
+  cols: 3
+  # [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+  data: [573.5819802068095, 0.0, 837.6871878829941, 0.0, 948.4738773654049, 541.4755720884044, 0.0, 0.0, 1.0]
+# 畸变模型
+distortion_model: plumb_bob
+# 畸变系数
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  # [k1, k2, p1, p2, k3]
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+# 矫正矩阵（通常为单位矩阵）
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+# 投影矩阵
+projection_matrix:
+  rows: 3
+  cols: 4
+  # [fx', 0, cx', Tx, 0, fy', cy', Ty, 0, 0, 1, 0]
+  data: [573.5819802068095, 0.0, 837.6871878829941, 0.0, 0.0, 948.4738773654049, 541.475572088404, 0.0, 0.0, 0.0, 1.0, 0.0]

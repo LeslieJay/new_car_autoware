@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 只需要保留 RadiusOutlierFilter 参数 -->
+  <arg name="RadiusOutlierFilter" default="1.5"/>
+  <arg name="transform_x" default="0.99"/>
+  <arg name="transform_y"  default="0.0"/>
+  <arg name="transform_z"  default="2.08"/>
+  <arg name="transform_roll"  default="0.0"/>
+  <arg name="transform_pitch"  default="0.0"/>
+  <arg name="transform_yaw" default="0.0"/>
+  <!-- 启动点云处理节点 -->
+  <node pkg="lidar_transform" exec="lidar_transform_node" name="lidar_transform" output="screen">
+    <!-- 只保留 radius_outlier_filter 参数 -->
+    <param name="RadiusOutlierFilter" value="$(var RadiusOutlierFilter)"/>
+    <param name="transform_x" value="$(var transform_x)"/>
+    <param name="transform_y" value="$(var transform_y)"/>
+    <param name="transform_z" value="$(var transform_z)"/>
+    <param name="transform_roll" value="$(var transform_roll)"/>
+    <param name="transform_pitch" value="$(var transform_pitch)"/>
+    <param name="transform_yaw" value="$(var transform_yaw)"/>
+
+  </node>
+</launch>

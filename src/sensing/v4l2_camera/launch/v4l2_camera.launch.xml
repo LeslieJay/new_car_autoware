@@ -1,0 +1,227 @@
+<launch>
+  <!-- 基础参数 -->
+  <!-- path to the yaml file dir that contains parameters for v4l2_camera node -->
+  <arg name="v4l2_camera_param_dir" default="$(find-pkg-share v4l2_camera)/config" />
+  <!-- container naem that this ROS node to be loaded -->
+  <arg name="container_name" default="" />
+  <!-- flag to use ROS2 intra process -->
+  <arg name="use_intra_process" default="True" />
+  <!-- publish frame number per second. value <= 0 means no limitation on publish rate -->
+  <arg name="publish_rate" default="-1.0" />
+
+  <arg name="use_v4l2_buffer_timestamps" default="False" />
+  
+  <!-- 相机数量 -->
+  <arg name="camera_count" default="7" />
+  
+  <!-- 为每路相机添加独立开关参数 -->
+  <arg name="camera0_enabled" default="True" />
+  <arg name="image0_topic" default="/sensing/camera/camera0/image_rect_color" />
+
+  <arg name="camera1_enabled" default="True" />
+  <arg name="image1_topic" default="/sensing/camera/camera1/image_rect_color" />
+
+  <arg name="camera2_enabled" default="True" />
+  <arg name="image2_topic" default="/sensing/camera/camera2/image_rect_color" />
+
+  <arg name="camera3_enabled" default="True" />
+  <arg name="image3_topic" default="/sensing/camera/camera3/image_rect_color" />
+
+  <arg name="camera4_enabled" default="True" />
+  <arg name="image4_topic" default="/sensing/camera/camera4/image_rect_color" />
+
+  <arg name="camera5_enabled" default="True" />
+  <arg name="image5_topic" default="/sensing/camera/camera5/image_rect_color" />
+
+  <arg name="camera6_enabled" default="True" />
+  <arg name="image6_topic" default="/sensing/camera/camera6/image_rect_color" />
+
+  <!-- 为每路相机添加去畸变开关 -->
+  <arg name="undistort_enabled" default="True" />
+  
+  <!-- 判断是否使用组合节点 -->
+  <let name="empty_container_is_specified" value="$(eval 'not &quot;$(var container_name)&quot;')" />
+
+  <!-- 作为独立节点启动 -->
+  <group if="$(var empty_container_is_specified)">
+    <!-- 相机0 -->
+    <group if="$(var camera0_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_0">
+        <param from="$(var v4l2_camera_param_dir)/camera0.param.yaml" />
+        <!-- 覆盖参数文件中的undistort_enabled，使用全局开关 -->
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image0_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机1 -->
+    <group if="$(var camera1_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_1">
+        <param from="$(var v4l2_camera_param_dir)/camera1.param.yaml" />
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image1_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机2 -->
+    <group if="$(var camera2_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_2">
+        <param from="$(var v4l2_camera_param_dir)/camera2.param.yaml" />
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image2_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机3 -->
+    <group if="$(var camera3_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_3">
+        <param from="$(var v4l2_camera_param_dir)/camera3.param.yaml" />
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image3_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机4 -->
+    <group if="$(var camera4_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_4">
+        <param from="$(var v4l2_camera_param_dir)/camera4.param.yaml" />
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image4_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机5 -->
+    <group if="$(var camera5_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_5">
+        <param from="$(var v4l2_camera_param_dir)/camera5.param.yaml" />
+        <param name="undistort_enabled" value="$(var undistort_enabled)" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image5_topic)" />
+      </node>
+    </group>
+    
+    <!-- 相机6 -->
+    <group if="$(var camera6_enabled)">
+      <node pkg="v4l2_camera" exec="v4l2_camera_node" name="v4l2_camera_6">
+        <param from="$(var v4l2_camera_param_dir)/camera6.param.yaml" />
+        <param name="undistort_enabled" value="False" />
+        <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+        <param name="publish_rate" value="$(var publish_rate)" />
+        <param name="image_topic" value="$(var image6_topic)" />
+      </node>
+    </group>
+  </group>
+
+  <!-- 作为组合节点启动 -->
+  <group unless="$(var empty_container_is_specified)">
+    <!-- 相机0 -->
+    <group if="$(var camera0_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_0">
+          <param from="$(var v4l2_camera_param_dir)/camera0.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image0_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机1 -->
+    <group if="$(var camera1_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_1">
+          <param from="$(var v4l2_camera_param_dir)/camera1.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image1_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机2 -->
+    <group if="$(var camera2_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_2">
+          <param from="$(var v4l2_camera_param_dir)/camera2.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image2_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机3 -->
+    <group if="$(var camera3_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_3">
+          <param from="$(var v4l2_camera_param_dir)/camera3.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image3_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机4 -->
+    <group if="$(var camera4_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_4">
+          <param from="$(var v4l2_camera_param_dir)/camera4.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image4_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机5 -->
+    <group if="$(var camera5_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_5">
+          <param from="$(var v4l2_camera_param_dir)/camera5.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image5_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+    
+    <!-- 相机6 -->
+    <group if="$(var camera6_enabled)">
+      <load_composable_node target="$(var container_name)">
+        <composable_node pkg="v4l2_camera" plugin="v4l2_camera::V4L2Camera" name="v4l2_camera_6">
+          <param from="$(var v4l2_camera_param_dir)/camera6.param.yaml" />
+          <param name="undistort_enabled" value="$(var undistort_enabled)" />
+          <param name="use_v4l2_buffer_timestamps" value="$(var use_v4l2_buffer_timestamps)" />
+          <param name="publish_rate" value="$(var publish_rate)" />
+          <param name="image_topic" value="$(var image6_topic)" />
+          <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)" />
+        </composable_node>
+      </load_composable_node>
+    </group>
+  </group>
+</launch>
+

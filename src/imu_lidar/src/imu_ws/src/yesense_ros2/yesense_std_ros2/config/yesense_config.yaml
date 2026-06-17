@@ -1,0 +1,11 @@
+yesense_pub:
+    ros__parameters:
+        serial_port: "/dev/ttyACM0"
+        baud_rate: 460800
+        frame_id: "tamagawa/imu_link"
+        driver_type: "ros_serial"
+        imu_topic_ros: "sensing/imu/tamagawa/imu_raw"
+        imu_topic: "imu"
+
+
+

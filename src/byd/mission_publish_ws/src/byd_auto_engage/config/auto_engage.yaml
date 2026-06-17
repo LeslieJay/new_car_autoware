@@ -1,0 +1,3 @@
+auto_engage_node:
+  ros__parameters:
+    enabled: true

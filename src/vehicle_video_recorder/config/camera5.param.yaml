@@ -1,0 +1,11 @@
+/**:
+  recorder_node_5:
+    ros__parameters:
+      # 摄像头设备节点
+      video_device: "/dev/video5"
+      # 相机 ID，用于区分输出目录 (camera_0, camera_1 等)
+      camera_id: 5
+      # 视频存储的根路径
+      data_dir: "/home/byd/vehicle_video_recorder/data/camera_5"
+      width: 1920
+      height: 1536

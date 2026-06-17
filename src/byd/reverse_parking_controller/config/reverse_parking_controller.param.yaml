@@ -1,0 +1,37 @@
+/**:
+  ros__parameters:
+    # 控制频率
+    control_rate: 30.0           # Hz
+
+    # 车辆参数
+    wheel_base: 1.01              # 轴距 [m]
+
+    # Pure Pursuit 横向控制参数
+    lookahead_distance: 0.8      # 基础前视距离 [m] (室内缩短)
+    min_lookahead_distance: 0.3  # 最小前视距离 [m] (室内缩短)
+    lookahead_ratio: 2.0         # 前视距离 = ratio * |velocity|
+
+    # PID 纵向控制参数
+    pid:
+      kp: 1.5                   # 比例增益 (提高响应)
+      ki: 0.1                   # 积分增益
+      kd: 0.08                  # 微分增益 (增加阻尼抑制震荡)
+      integral_max: 3.0         # 积分上限 (收窄避免低速积分饱和)
+
+    # 加速度限幅
+    max_acceleration: 0.5        # 最大加速度 [m/s^2] (室内降低)
+    max_deceleration: -1.0       # 最大减速度 [m/s^2] (室内降低)
+
+    # 到达终点判定阈值 (充电对接需要更严格的阈值)
+    goal_distance_threshold: 0.05 # 距离阈值 [m] (5cm精度)
+    goal_yaw_threshold: 0.03      # 航向阈值 [rad] (~1.7°)
+    stop_velocity_threshold: 0.02 # 停车速度阈值 [m/s]
+
+    # 转向限幅
+    max_steering_angle: 0.6      # 最大转向角 [rad] (~34°)
+
+    # AGV充电对接优化参数
+    reverse_lookahead_distance: 0.4  # 倒车前视距离 [m] (比前进更短, 精度更高)
+    stanley_gain: 1.5                # Stanley横向误差修正增益 (近距离纠偏)
+    final_approach_distance: 1.0     # 最终接近距离 [m] (进入此范围启用精确控制)
+    final_approach_speed: 0.05       # 最终接近速度 [m/s] (蠕行速度)

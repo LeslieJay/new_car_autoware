@@ -1,0 +1,76 @@
+{
+  "version": "3.1.1",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "yellow-dash",
+      "score": null,
+      "points": [
+        [
+          1726.2499999999998,
+          1405.5555555555557
+        ],
+        [
+          1679.0277777777776,
+          1470.8333333333335
+        ],
+        [
+          1592.9166666666665,
+          1579.1666666666667
+        ],
+        [
+          1337.3611111111109,
+          1911.111111111111
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "linestrip",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    },
+    {
+      "label": "yellow-solid",
+      "score": null,
+      "points": [
+        [
+          1987.5,
+          1389.6590909090908
+        ],
+        [
+          2044.3181818181818,
+          1430.5681818181818
+        ],
+        [
+          2147.7272727272725,
+          1496.4772727272725
+        ],
+        [
+          2259.090909090909,
+          1572.6136363636363
+        ],
+        [
+          2447.7272727272725,
+          1699.8863636363635
+        ],
+        [
+          2891.25,
+          2011.25
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "difficult": false,
+      "shape_type": "linestrip",
+      "flags": {},
+      "attributes": {},
+      "kie_linking": []
+    }
+  ],
+  "imagePath": "1746689220133pingxing.jpg",
+  "imageData": null,
+  "imageHeight": 2160,
+  "imageWidth": 3840
+}

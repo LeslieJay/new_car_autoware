@@ -1,0 +1,29 @@
+/**:
+  ros__parameters:
+    
+    # 预处理参数
+    target_width: 800
+    target_height: 288
+    mean: [0.416956, 0.419838, 0.402038]
+    std: [0.205873, 0.203590, 0.219311]
+    
+    # 后处理参数
+    griding_num: 200
+    num_lanes: 6
+    num_styles: 15
+    camera_height: 2.0
+    pitch_angle: -20.0
+    max_distance: 40.0
+    resample_points: 40
+    
+    # 可视化保存路径
+    visualization_path: "./output_visualization.png"
+    #visualization3d_path: "./output_visualization_3d.png"
+    
+    # 数据集配置
+    dataset: "CULane"
+    row_anchors: [121, 131, 141, 150, 160, 170, 180, 189, 199, 209, 219, 228, 238, 248, 258, 267, 277, 287]
+    
+    # 相机内参
+    camera_intrinsics:
+      K: [572.992280243004, 0.0, 955.7230203750975, 0.00000000e+00, 837.3788504712606, 544.6436770113373, 0.0, 0.0, 1.0]
