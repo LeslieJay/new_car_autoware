@@ -1,0 +1,17 @@
+<launch>
+  <arg name="input_image_topic" default="/camera1/image_raw"/>
+  <arg name="input_rois_topic" default="/perception/object_recognition/detection/rois0"/>
+  <arg name="output_warning_topic" default="/control/rear_warning_level"/>
+  <arg name="output_debug_image_topic" default="/perception/rear_pedestrian_warning/debug_image"/>
+
+  <arg name="param_file" default="$(find-pkg-share didrive_rear_pedestrian_warning)/config/bounds.param.yaml"/>
+
+  <node pkg="didrive_rear_pedestrian_warning" exec="rear_pedestrian_warning_node" name="rear_pedestrian_warning_node" output="screen">
+    <param from="$(var param_file)"/>
+
+    <remap from="/cam1/image_rect" to="$(var input_image_topic)"/>
+    <remap from="/perception/object_recognition/detection/rois0" to="$(var input_rois_topic)"/>
+    <remap from="/control/rear_warning_level" to="$(var output_warning_topic)"/>
+    <remap from="/perception/rear_pedestrian_warning/debug_image" to="$(var output_debug_image_topic)"/>
+  </node>
+</launch>

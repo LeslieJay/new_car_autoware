@@ -1,0 +1,24 @@
+<!-- <launch>
+  <arg name="param_path" default="$(find-pkg-share didrive_yolo_detector)/config/yolo26_detector.param.yaml"/>
+
+  <node pkg="didrive_yolo_detector" exec="yolo_detector_node" name="yolo26_detector_node" output="screen">
+    <param from="$(var param_path)"/>
+  </node>
+</launch> -->
+
+<launch>
+  <arg name="param_path" default="$(find-pkg-share didrive_yolo_detector)/config/yolo26_detector.param.yaml"/>
+  <arg name="input_image" default="/cam1/image_rect"/>
+  <arg name="output_objects" default="/perception/object_recognition/detection/rois0"/>
+  <arg name="output_image" default="/perception/object_recognition/detection/debug_image"/>
+
+  <node pkg="didrive_yolo_detector" exec="yolo_detector_node" name="yolo_detector_node" output="screen">
+    <param from="$(var param_path)"/>
+
+    <remap from="~/in/image" to="$(var input_image)"/>
+    
+    <remap from="~/out/objects" to="$(var output_objects)"/>
+    
+    <remap from="~/out/image" to="$(var output_image)"/>
+  </node>
+</launch>

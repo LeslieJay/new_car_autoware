@@ -1,0 +1,22 @@
+/rear_pedestrian_warning_node:
+  ros__parameters:
+    # 图像中的相机圆心坐标 (以1280x720分辨率为例，车尾中点在底部中央)
+    center_x: 405
+    center_y: 1080
+
+    # 扇形扫描角度 (OpenCV坐标系：正右为0, 正下为90, 正左为180, 正上/正后为270)
+    # 210度到330度代表以正后方为中心，向左右各扩展60度（总张角120度）
+    start_angle: 180.0
+    end_angle: 360.0
+
+    # 停车区 (STOP Zone) 像素半径范围
+    stop_min_radius: 0
+    stop_max_radius: 150
+
+    # 减速/注意区 (CAUTION Zone) 像素半径范围
+    caution_min_radius: 150
+    caution_max_radius: 350
+
+    # 预警区 (WARNING Zone) 像素半径范围
+    warning_min_radius: 350
+    warning_max_radius: 600
