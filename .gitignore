@@ -42,6 +42,19 @@ src/sensing/isaac_ros_nitros/**/*.a
 **/resources/**/*.bag
 trtexec_x86_64
 
-# src/byd/all_can_ws/*
-# src/byd/ROS2_DEV_MQTT-3-23/*
-src/didrive_perception/*
+# BYD MQTT/CAN recorded data (keep locally, do not version)
+src/byd/ROS2_DEV_MQTT-3-23/**/can_data.json
+src/byd/ROS2_DEV_MQTT-3-23/**/static_data.json
+src/byd/ROS2_DEV_MQTT-3-23/**/instant_data.json
+
+# BYD RTK/CAN logs
+src/byd/all_can_ws/rtk_can_ws/*_log.txt
+src/byd/all_can_ws/rtk_can_ws/can_log.txt
+src/byd/all_can_ws/rtk_can_ws/atti_quat_log.txt
+
+# Perception model weights and build artifacts (download/build locally)
+src/didrive_perception/**/*.pth
+src/didrive_perception/**/*.trt
+src/didrive_perception/**/*.onnx
+src/didrive_perception/**/*.plan
+src/didrive_perception/**/lib/*.so
