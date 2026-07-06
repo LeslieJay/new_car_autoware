@@ -1,0 +1,2 @@
+float64 tray_height
+float64 tray_rotation

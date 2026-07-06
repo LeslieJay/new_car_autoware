@@ -1,0 +1,17 @@
+string edge_id
+int32 sequence_id
+string edge_description
+bool released
+string start_node_id
+string end_node_id
+float64 max_speed
+float64 max_height
+float64 orientation
+string orientation_type
+string direction
+bool rotation_allowed
+float64 max_rotation_speed
+float64 length
+int32 obstacle_avoidance_channel
+Trajectory trajectory
+Actions[] actions

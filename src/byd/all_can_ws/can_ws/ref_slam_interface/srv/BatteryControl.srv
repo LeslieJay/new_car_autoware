@@ -1,0 +1,6 @@
+# request date
+int32 charging
+---
+#response date
+int32 battery_status
+int32 charging_status

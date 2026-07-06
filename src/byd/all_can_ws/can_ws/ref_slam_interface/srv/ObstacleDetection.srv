@@ -1,0 +1,3 @@
+int16 obstacle_status
+---
+int16 ignore

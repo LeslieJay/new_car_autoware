@@ -28,4 +28,4 @@ ros2 bag record \
 /planning/scenario_planning/trajectory \
 -o path_record
 
-ros2 bag record -e "^/planning($|/)" -o planning_topics_bag
+ros2 bag record -e "^/(planning|control|vehicle|external)($|/)|^/localization/kinematic_state$" -o ~/autoware/log/0626/01_bag/

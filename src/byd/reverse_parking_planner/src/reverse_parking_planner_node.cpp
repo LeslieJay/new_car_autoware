@@ -11,8 +11,11 @@
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
+#include <memory>
 
 namespace reverse_parking_planner
 {
@@ -20,66 +23,83 @@ namespace reverse_parking_planner
 ReverseParkingPlannerNode::ReverseParkingPlannerNode(const rclcpp::NodeOptions & options)
 : Node("reverse_parking_planner", options)
 {
-  // 声明并获取参数
+  // 规划参数
   wheel_base_ = declare_parameter<double>("wheel_base", 1.0);
-  min_turning_radius_ = declare_parameter<double>("min_turning_radius", 2.0);
-  vehicle_length_ = declare_parameter<double>("vehicle_length", 1.8);
-  vehicle_width_ = declare_parameter<double>("vehicle_width", 1.2);
   path_resolution_ = declare_parameter<double>("path_resolution", 0.1);
-  velocity_forward_ = declare_parameter<double>("velocity_forward", 0.5);
   velocity_reverse_ = declare_parameter<double>("velocity_reverse", -0.3);
-  publish_rate_ = declare_parameter<double>("publish_rate", 10.0);
-  enable_reverse_only_ = declare_parameter<bool>("enable_reverse_only", false);
-  final_approach_distance_ = declare_parameter<double>("final_approach_distance", 1.0);
+  publish_rate_ = declare_parameter<double>("publish_rate", 10.0);  // Trajectory/Marker 发布频率
   velocity_creep_ = declare_parameter<double>("velocity_creep", 0.1);
   decel_distance_ = declare_parameter<double>("decel_distance", 1.5);
-  transition_decel_distance_ = declare_parameter<double>("transition_decel_distance", 0.5);
-  
-  // 初始化规划器
-  planner_ = std::make_unique<ReedsSheppPlanner>(min_turning_radius_);
-  
-  // TF
-  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-  
-  // 创建订阅者
+  max_straight_lateral_error_ = declare_parameter<double>("max_straight_lateral_error", 0.3);
+  max_straight_yaw_error_ = declare_parameter<double>("max_straight_yaw_error", 0.35);
+  min_reverse_distance_ = declare_parameter<double>("min_reverse_distance", 0.2);
+  max_reverse_driving_distance_ = declare_parameter<double>("max_reverse_driving_distance", 10.0);
+
+  // 控制参数
+  control_rate_ = declare_parameter<double>("control_rate", 30.0);
+  lookahead_distance_ = declare_parameter<double>("lookahead_distance", 1.0);
+  min_lookahead_distance_ = declare_parameter<double>("min_lookahead_distance", 0.5);
+  lookahead_ratio_ = declare_parameter<double>("lookahead_ratio", 2.0);
+  kp_ = declare_parameter<double>("pid.kp", 1.0);
+  ki_ = declare_parameter<double>("pid.ki", 0.1);
+  kd_ = declare_parameter<double>("pid.kd", 0.05);
+  max_acceleration_ = declare_parameter<double>("max_acceleration", 1.0);
+  max_deceleration_ = declare_parameter<double>("max_deceleration", -2.0);
+  pid_integral_max_ = declare_parameter<double>("pid.integral_max", 5.0);
+  goal_distance_threshold_ = declare_parameter<double>("goal_distance_threshold", 0.3);
+  goal_yaw_threshold_ = declare_parameter<double>("goal_yaw_threshold", 0.1);
+  stop_velocity_threshold_ = declare_parameter<double>("stop_velocity_threshold", 0.05);
+  max_steering_angle_ = declare_parameter<double>("max_steering_angle", 0.6);
+  reverse_lookahead_distance_ = declare_parameter<double>("reverse_lookahead_distance", 0.5);
+  stanley_gain_ = declare_parameter<double>("stanley_gain", 1.5);
+  final_approach_distance_ = declare_parameter<double>("final_approach_distance", 1.0);
+  final_approach_speed_ = declare_parameter<double>("final_approach_speed", 0.1);
+
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     "~/input/odometry", 1,
     std::bind(&ReverseParkingPlannerNode::onOdometry, this, std::placeholders::_1));
-  
-  // 创建发布者
+
   traj_pub_ = create_publisher<autoware_planning_msgs::msg::Trajectory>(
     "~/output/trajectory", 1);
-    
   marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
     "~/output/path_markers", 1);
-  
-  // 创建服务：设置目标位姿并规划
+  control_cmd_pub_ = create_publisher<autoware_control_msgs::msg::Control>(
+    "~/output/control_cmd", 1);
+  gear_cmd_pub_ = create_publisher<autoware_vehicle_msgs::msg::GearCommand>(
+    "~/output/gear_cmd", 1);
+  turn_indicator_cmd_pub_ = create_publisher<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>(
+    "~/output/turn_indicators_cmd", 1);
+  hazard_light_cmd_pub_ = create_publisher<autoware_vehicle_msgs::msg::HazardLightsCommand>(
+    "~/output/hazard_lights_cmd", 1);
+  debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/debug/markers", 1);
+
   set_goal_srv_ = create_service<SetGoalPose>(
     "~/set_goal_pose",
     std::bind(&ReverseParkingPlannerNode::onSetGoalPose, this,
               std::placeholders::_1, std::placeholders::_2));
 
-  // 创建服务：仅触发重新规划
   trigger_srv_ = create_service<std_srvs::srv::Trigger>(
     "~/trigger_planning",
     std::bind(&ReverseParkingPlannerNode::onTriggerPlanning, this,
               std::placeholders::_1, std::placeholders::_2));
-  
-  // 创建定时器
-  const auto period = std::chrono::duration<double>(1.0 / publish_rate_);
+
+  const auto period = std::chrono::duration<double>(1.0 / control_rate_);
   timer_ = create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
     std::bind(&ReverseParkingPlannerNode::onTimer, this));
-  
-  RCLCPP_INFO(get_logger(), "Reverse Parking Planner initialized");
-  RCLCPP_INFO(get_logger(), "  - Turning radius: %.2f m", min_turning_radius_);
+
+  RCLCPP_INFO(get_logger(), "Reverse Parking Unified Node initialized");
   RCLCPP_INFO(get_logger(), "  - Path resolution: %.2f m", path_resolution_);
-  RCLCPP_INFO(get_logger(), "  - Forward velocity: %.2f m/s", velocity_forward_);
   RCLCPP_INFO(get_logger(), "  - Reverse velocity: %.2f m/s", velocity_reverse_);
-  RCLCPP_INFO(get_logger(), "  - Final approach distance: %.2f m", final_approach_distance_);
-  RCLCPP_INFO(get_logger(), "  - Decel distance: %.2f m", decel_distance_);
-  RCLCPP_INFO(get_logger(), "  - Creep velocity: %.2f m/s", velocity_creep_);
+  RCLCPP_INFO(get_logger(), "  - Control rate: %.1f Hz", control_rate_);
+  RCLCPP_INFO(get_logger(), "  - Trajectory publish rate: %.1f Hz", publish_rate_);
+  if (max_reverse_driving_distance_ > 0.0) {
+    RCLCPP_INFO(
+      get_logger(), "  - Max reverse driving distance: %.2f m", max_reverse_driving_distance_);
+  } else {
+    RCLCPP_INFO(get_logger(), "  - Max reverse driving distance: disabled");
+  }
 }
 
 void ReverseParkingPlannerNode::onTimer()
@@ -88,13 +108,23 @@ void ReverseParkingPlannerNode::onTimer()
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Waiting for odometry...");
     return;
   }
-  
-  // 如果有规划好的路径，持续发布
-  if (!current_path_.empty()) {
-    auto trajectory = convertToTrajectory(current_path_);
-    traj_pub_->publish(trajectory);
+  if (current_trajectory_ && !current_path_.empty()) {
+    const auto current_wall_time = std::chrono::steady_clock::now();
+    const double publish_period = (publish_rate_ > 0.0) ? (1.0 / publish_rate_) : 0.0;
+    const bool should_publish =
+      publish_period <= 0.0 || !last_traj_publish_initialized_ ||
+      std::chrono::duration<double>(current_wall_time - last_traj_publish_wall_time_).count() >=
+      publish_period;
+    if (should_publish) {
+      current_trajectory_->header.stamp = now();
+      traj_pub_->publish(*current_trajectory_);
+      last_traj_publish_wall_time_ = current_wall_time;
+      last_traj_publish_initialized_ = true;
+    }
     publishVisualization(current_path_);
   }
+
+  runControlLoop();
 }
 
 void ReverseParkingPlannerNode::onOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
@@ -124,14 +154,14 @@ void ReverseParkingPlannerNode::onSetGoalPose(
   
   if (planPath()) {
     response->success = true;
-    response->message = "Path planned successfully";
+    response->message = "Straight reverse path planned successfully";
     response->path_points_num = static_cast<uint32_t>(current_path_.size());
     RCLCPP_INFO(get_logger(), "Path planned successfully with %zu points", current_path_.size());
   } else {
     response->success = false;
-    response->message = "Failed to plan path to goal";
+    response->message = "Failed to plan straight reverse path to goal";
     response->path_points_num = 0;
-    RCLCPP_WARN(get_logger(), "Failed to plan path to goal");
+    RCLCPP_WARN(get_logger(), "Failed to plan straight reverse path");
   }
 }
 
@@ -153,7 +183,7 @@ void ReverseParkingPlannerNode::onTriggerPlanning(
   
   if (planPath()) {
     response->success = true;
-    response->message = "Path planned successfully with " + 
+    response->message = "Path planned successfully with " +
                         std::to_string(current_path_.size()) + " points";
   } else {
     response->success = false;
@@ -166,94 +196,90 @@ bool ReverseParkingPlannerNode::planPath()
   if (!current_odom_ || !has_goal_) {
     return false;
   }
-  
-  // 获取当前位姿
-  double x0 = current_odom_->pose.pose.position.x;
-  double y0 = current_odom_->pose.pose.position.y;
-  double yaw0 = tf2::getYaw(current_odom_->pose.pose.orientation);
-  
-  // 获取目标位姿
-  double xg = goal_pose_.pose.position.x;
-  double yg = goal_pose_.pose.position.y;
-  double yawg = tf2::getYaw(goal_pose_.pose.orientation);
-  
-  RCLCPP_INFO(get_logger(), "Planning from (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f)",
-              x0, y0, yaw0, xg, yg, yawg);
-  
-  std::vector<PathPoint> path_points;
-  
-  // ========= 带最终直线倒车接近段的规划（充电对接关键优化）=========
-  // 设计思路：先通过 Reeds-Shepp 到达“预接近点”，然后由预接近点直线倒车进入充电位
-  // 这保证了最后一段始终是直线倒车，确保充电插头精确对准
-  if (final_approach_distance_ > path_resolution_) {
-    // 预接近点：在目标前方（沿目标朝向）偏移 final_approach_distance_
-    // 车辆将先到达此点，再直线倒车进入充电位
-    double x_pre = xg + final_approach_distance_ * std::cos(yawg);
-    double y_pre = yg + final_approach_distance_ * std::sin(yawg);
-    
-    RCLCPP_INFO(get_logger(), "Pre-approach point: (%.2f, %.2f), approach distance: %.2f m",
-                x_pre, y_pre, final_approach_distance_);
-    
-    ReedsSheppPath rs_path = planner_->planPath(x0, y0, yaw0, x_pre, y_pre, yawg);
-    
-    if (rs_path.valid()) {
-      path_points = planner_->samplePath(rs_path, x0, y0, yaw0, path_resolution_);
-      
-      // 添加最终直线倒车接近段
-      int approach_steps = static_cast<int>(std::ceil(final_approach_distance_ / path_resolution_));
-      for (int i = 1; i <= approach_steps; ++i) {
-        double t = static_cast<double>(i) / approach_steps;
-        double px = x_pre + t * (xg - x_pre);
-        double py = y_pre + t * (yg - y_pre);
-        path_points.emplace_back(px, py, yawg, true, 0.0);  // 直线倒车, 曲率=0
-      }
-      
-      RCLCPP_INFO(get_logger(), "Path with final approach: RS=%zu + approach=%d points",
-                  path_points.size() - approach_steps, approach_steps);
-    } else {
-      RCLCPP_WARN(get_logger(), "Failed to plan to pre-approach point, trying direct path");
-    }
-  }
-  
-  // 回退：直接规划到目标
+
+  auto path_points = generateStraightReversePath();
   if (path_points.empty()) {
-    ReedsSheppPath rs_path = planner_->planPath(x0, y0, yaw0, xg, yg, yawg);
-    if (!rs_path.valid()) {
-      RCLCPP_ERROR(get_logger(), "No valid Reeds-Shepp path found");
-      return false;
-    }
-    RCLCPP_INFO(get_logger(), "Reeds-Shepp path length: %.2f m",
-                rs_path.length() * min_turning_radius_);
-    path_points = planner_->samplePath(rs_path, x0, y0, yaw0, path_resolution_);
-  }
-  
-  if (path_points.empty()) {
+    current_path_.clear();
+    current_trajectory_.reset();
     return false;
   }
-  
-  // 统计前进/倒车段
-  int reverse_count = 0, forward_count = 0;
-  for (const auto& pt : path_points) {
-    if (pt.is_reverse) reverse_count++;
-    else forward_count++;
-  }
-  
-  if (enable_reverse_only_ && forward_count > 0) {
-    RCLCPP_WARN(get_logger(),
-      "enable_reverse_only is set but path contains %d forward points. "
-      "Consider repositioning the vehicle for a pure-reverse approach.", forward_count);
-  }
-  
+
   current_path_ = path_points;
-  
-  RCLCPP_INFO(get_logger(), "Path planned: %zu points (%d forward, %d reverse)",
-              current_path_.size(), forward_count, reverse_count);
-  
+  current_trajectory_ = std::make_shared<autoware_planning_msgs::msg::Trajectory>(
+    convertToTrajectory(current_path_));
+  pid_error_integral_ = 0.0;
+  pid_prev_error_ = 0.0;
+  prev_control_time_initialized_ = false;
+  is_goal_reached_ = false;
+  is_distance_limit_reached_ = false;
+  reverse_driven_distance_ = 0.0;
+  prev_reverse_odom_initialized_ = false;
+
+  RCLCPP_INFO(get_logger(), "Straight reverse path planned with %zu points", current_path_.size());
   return true;
 }
 
+std::vector<ReverseParkingPlannerNode::PathPoint> ReverseParkingPlannerNode::generateStraightReversePath() const
+{
+  const double x0 = current_odom_->pose.pose.position.x;
+  const double y0 = current_odom_->pose.pose.position.y;
+  const double yaw0 = tf2::getYaw(current_odom_->pose.pose.orientation);
+  const double xg = goal_pose_.pose.position.x;
+  const double yg = goal_pose_.pose.position.y;
+  const double yawg = tf2::getYaw(goal_pose_.pose.orientation);
+
+  const double dx = xg - x0;
+  const double dy = yg - y0;
+  const double total_dist = std::hypot(dx, dy);
+  if (total_dist < min_reverse_distance_) {
+    RCLCPP_WARN(get_logger(), "Goal too close for reverse planning (dist=%.3f m)", total_dist);
+    return {};
+  }
+
+  const double reverse_dir_x = -std::cos(yawg);
+  const double reverse_dir_y = -std::sin(yawg);
+  const double longitudinal = dx * reverse_dir_x + dy * reverse_dir_y;
+  const double lateral = std::abs(-reverse_dir_y * dx + reverse_dir_x * dy);
+  const double yaw_error = std::abs(normalizeAngle(yaw0 - yawg));
+
+  if (longitudinal <= 0.0) {
+    RCLCPP_WARN(get_logger(), "Straight reverse rejected: goal is not behind vehicle heading");
+    return {};
+  }
+  if (lateral > max_straight_lateral_error_) {
+    RCLCPP_WARN(
+      get_logger(), "Straight reverse rejected: lateral error %.2f > %.2f",
+      lateral, max_straight_lateral_error_);
+    return {};
+  }
+  if (yaw_error > max_straight_yaw_error_) {
+    RCLCPP_WARN(
+      get_logger(), "Straight reverse rejected: yaw error %.2f rad > %.2f rad",
+      yaw_error, max_straight_yaw_error_);
+    return {};
+  }
+
+  const int steps = std::max(2, static_cast<int>(std::ceil(total_dist / path_resolution_)) + 1);
+  const double yaw_delta = normalizeAngle(yawg - yaw0);
+  std::vector<PathPoint> path_points;
+  path_points.reserve(static_cast<size_t>(steps));
+
+  for (int i = 0; i < steps; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(steps - 1);
+    PathPoint pt;
+    pt.x = x0 + t * dx;
+    pt.y = y0 + t * dy;
+    pt.yaw = yaw0 + t * yaw_delta;
+    pt.is_reverse = true;
+    pt.curvature = 0.0;
+    path_points.push_back(pt);
+  }
+
+  return path_points;
+}
+
 autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTrajectory(
-  const std::vector<PathPoint>& path_points) const
+  const std::vector<PathPoint> & path_points) const
 {
   autoware_planning_msgs::msg::Trajectory trajectory;
   trajectory.header.stamp = now();
@@ -272,17 +298,8 @@ autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTraj
   }
   double total_dist = cumulative_dist.back();
   
-  // 检测方向变化点（前进↔倒车切换处）
-  std::vector<double> direction_change_dists;
-  for (size_t i = 1; i < n; ++i) {
-    if (path_points[i].is_reverse != path_points[i-1].is_reverse) {
-      direction_change_dists.push_back(cumulative_dist[i]);
-    }
-  }
-  
   for (size_t i = 0; i < n; ++i) {
-    const auto& pt = path_points[i];
-    
+    const auto & pt = path_points[i];
     autoware_planning_msgs::msg::TrajectoryPoint traj_pt;
     traj_pt.pose.position.x = pt.x;
     traj_pt.pose.position.y = pt.y;
@@ -292,14 +309,10 @@ autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTraj
     q.setRPY(0, 0, pt.yaw);
     traj_pt.pose.orientation = tf2::toMsg(q);
     
-    // ========= 梯形速度规划 =========
-    double base_velocity = pt.is_reverse ? velocity_reverse_ : velocity_forward_;
+    double base_velocity = pt.is_reverse ? velocity_reverse_ : std::abs(velocity_reverse_);
     double velocity_scale = 1.0;
-    
+
     double dist_to_end = total_dist - cumulative_dist[i];
-    
-    // 1. 终点减速区：在 decel_distance_ 范围内平滑减速
-    //    使用平方根曲线实现更平滑的减速过渡
     if (dist_to_end < decel_distance_ && decel_distance_ > 0.0) {
       double ratio = dist_to_end / decel_distance_;
       double creep_ratio = (base_velocity != 0.0) ?
@@ -307,18 +320,7 @@ autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTraj
       double goal_scale = creep_ratio + (1.0 - creep_ratio) * std::sqrt(ratio);
       velocity_scale = std::min(velocity_scale, goal_scale);
     }
-    
-    // 2. 方向切换减速区：在换向点附近线性减速到0
-    //    避免倒车↔前进切换时的冲击
-    for (double cd : direction_change_dists) {
-      double dist_to_change = std::abs(cumulative_dist[i] - cd);
-      if (dist_to_change < transition_decel_distance_ && transition_decel_distance_ > 0.0) {
-        double trans_scale = dist_to_change / transition_decel_distance_;
-        velocity_scale = std::min(velocity_scale, trans_scale);
-      }
-    }
-    
-    // 3. 终点速度为0
+
     if (i == n - 1) {
       velocity_scale = 0.0;
     }
@@ -328,8 +330,6 @@ autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTraj
     traj_pt.acceleration_mps2 = 0.0;
     traj_pt.heading_rate_rps = 0.0;
     
-    // 使用曲率计算前轮转角：δ = atan(L * κ)
-    // 相比原来的简化计算，基于曲率的方法更精确，不受采样率影响
     traj_pt.front_wheel_angle_rad = static_cast<float>(
       std::atan(wheel_base_ * pt.curvature));
     
@@ -339,14 +339,14 @@ autoware_planning_msgs::msg::Trajectory ReverseParkingPlannerNode::convertToTraj
   return trajectory;
 }
 
-void ReverseParkingPlannerNode::publishVisualization(const std::vector<PathPoint>& path_points)
+void ReverseParkingPlannerNode::publishVisualization(const std::vector<PathPoint> & path_points)
 {
   auto markers = createPathMarkers(path_points);
   marker_pub_->publish(markers);
 }
 
 visualization_msgs::msg::MarkerArray ReverseParkingPlannerNode::createPathMarkers(
-  const std::vector<PathPoint>& path_points) const
+  const std::vector<PathPoint> & path_points) const
 {
   visualization_msgs::msg::MarkerArray markers;
   
@@ -361,14 +361,13 @@ visualization_msgs::msg::MarkerArray ReverseParkingPlannerNode::createPathMarker
   line_marker.scale.x = 0.05;
   line_marker.color.a = 1.0;
   
-  for (const auto& pt : path_points) {
+  for (const auto & pt : path_points) {
     geometry_msgs::msg::Point p;
     p.x = pt.x;
     p.y = pt.y;
     p.z = 0.1;
     line_marker.points.push_back(p);
     
-    // 倒车段用红色，前进段用绿色
     std_msgs::msg::ColorRGBA color;
     color.a = 1.0;
     if (pt.is_reverse) {
@@ -385,10 +384,9 @@ visualization_msgs::msg::MarkerArray ReverseParkingPlannerNode::createPathMarker
   
   markers.markers.push_back(line_marker);
   
-  // 方向箭头（每隔几个点画一个）
   int arrow_id = 0;
   for (size_t i = 0; i < path_points.size(); i += 10) {
-    const auto& pt = path_points[i];
+    const auto & pt = path_points[i];
     
     visualization_msgs::msg::Marker arrow;
     arrow.header.stamp = now();
@@ -403,7 +401,6 @@ visualization_msgs::msg::MarkerArray ReverseParkingPlannerNode::createPathMarker
     arrow.pose.position.z = 0.1;
     
     tf2::Quaternion q;
-    // 倒车时箭头反向
     double display_yaw = pt.is_reverse ? pt.yaw + M_PI : pt.yaw;
     q.setRPY(0, 0, display_yaw);
     arrow.pose.orientation = tf2::toMsg(q);
@@ -469,19 +466,314 @@ visualization_msgs::msg::MarkerArray ReverseParkingPlannerNode::createPathMarker
   return markers;
 }
 
+void ReverseParkingPlannerNode::runControlLoop()
+{
+  if (!current_odom_ || !current_trajectory_ || current_trajectory_->points.empty()) {
+    return;
+  }
+
+  const auto & current_pose = current_odom_->pose.pose;
+
+  if (!is_goal_reached_ && !is_distance_limit_reached_) {
+    if (prev_reverse_odom_initialized_) {
+      const double dx = current_pose.position.x - prev_reverse_odom_x_;
+      const double dy = current_pose.position.y - prev_reverse_odom_y_;
+      reverse_driven_distance_ += std::hypot(dx, dy);
+    }
+    prev_reverse_odom_x_ = current_pose.position.x;
+    prev_reverse_odom_y_ = current_pose.position.y;
+    prev_reverse_odom_initialized_ = true;
+
+    if (max_reverse_driving_distance_ > 0.0 &&
+      reverse_driven_distance_ >= max_reverse_driving_distance_)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Reverse driving distance limit reached (%.2f m >= %.2f m). Forcing stop.",
+        reverse_driven_distance_, max_reverse_driving_distance_);
+      is_distance_limit_reached_ = true;
+    }
+  }
+
+  if (!is_goal_reached_ && !is_distance_limit_reached_ &&
+    isGoalReached(current_pose, *current_trajectory_))
+  {
+    RCLCPP_INFO(get_logger(), "Goal reached! Holding stop command.");
+    is_goal_reached_ = true;
+  }
+
+  if (is_goal_reached_ || is_distance_limit_reached_) {
+    // vehicle_cmd_gate 会锁存最后一次 external control_cmd；必须持续发布 vel=0，
+    // 否则 gate 仍输出倒车时的恒定速度，导致终点抖动。
+    publishControlCmd(0.0, max_deceleration_, 0.0);
+    publishGearCmd(false);
+    publishIndicatorCmds(false, true);
+    return;
+  }
+
+  const double constant_velocity = std::abs(velocity_reverse_);
+  publishControlCmd(0.0, 0.0, constant_velocity);
+  publishGearCmd(true);
+  publishIndicatorCmds(true, false);
+}
+
+double ReverseParkingPlannerNode::calcSteeringAngle(
+  const geometry_msgs::msg::Pose & current_pose,
+  const autoware_planning_msgs::msg::Trajectory & trajectory,
+  size_t lookahead_idx, bool is_reverse) const
+{
+  const auto & target_pt = trajectory.points[lookahead_idx];
+  const double dx = target_pt.pose.position.x - current_pose.position.x;
+  const double dy = target_pt.pose.position.y - current_pose.position.y;
+  const double current_yaw = tf2::getYaw(current_pose.orientation);
+
+  const double local_x = std::cos(-current_yaw) * dx - std::sin(-current_yaw) * dy;
+  const double local_y = std::sin(-current_yaw) * dx + std::cos(-current_yaw) * dy;
+  const double distance = std::sqrt(local_x * local_x + local_y * local_y);
+  if (distance < 1e-6) {
+    return 0.0;
+  }
+
+  double alpha = is_reverse ? std::atan2(-local_y, -local_x) : std::atan2(local_y, local_x);
+  double steering = std::atan2(2.0 * wheel_base_ * std::sin(alpha), distance);
+  if (is_reverse) {
+    steering = -steering;
+  }
+  return std::clamp(steering, -max_steering_angle_, max_steering_angle_);
+}
+
+double ReverseParkingPlannerNode::calcAcceleration(double target_velocity, double current_velocity)
+{
+  const auto current_time = std::chrono::steady_clock::now();
+  if (!prev_control_time_initialized_) {
+    prev_control_time_ = current_time;
+    prev_control_time_initialized_ = true;
+    return 0.0;
+  }
+
+  const double dt =
+    std::chrono::duration<double>(current_time - prev_control_time_).count();
+  prev_control_time_ = current_time;
+
+  if (dt <= 0.0 || dt > 1.0) {
+    return 0.0;
+  }
+
+  const double error = target_velocity - current_velocity;
+  pid_error_integral_ += error * dt;
+  pid_error_integral_ = std::clamp(pid_error_integral_, -pid_integral_max_, pid_integral_max_);
+  const double error_derivative = (error - pid_prev_error_) / dt;
+  pid_prev_error_ = error;
+
+  double acceleration = kp_ * error + ki_ * pid_error_integral_ + kd_ * error_derivative;
+  return std::clamp(acceleration, max_deceleration_, max_acceleration_);
+}
+
+size_t ReverseParkingPlannerNode::findNearestIndex(
+  const geometry_msgs::msg::Pose & current_pose,
+  const autoware_planning_msgs::msg::Trajectory & trajectory) const
+{
+  double min_dist = std::numeric_limits<double>::max();
+  size_t nearest_idx = 0;
+
+  for (size_t i = 0; i < trajectory.points.size(); ++i) {
+    const double dx = trajectory.points[i].pose.position.x - current_pose.position.x;
+    const double dy = trajectory.points[i].pose.position.y - current_pose.position.y;
+    const double dist = dx * dx + dy * dy;
+    if (dist < min_dist) {
+      min_dist = dist;
+      nearest_idx = i;
+    }
+  }
+  return nearest_idx;
+}
+
+size_t ReverseParkingPlannerNode::findLookaheadIndex(
+  const geometry_msgs::msg::Pose & current_pose,
+  const autoware_planning_msgs::msg::Trajectory & trajectory,
+  size_t nearest_idx, double lookahead_distance) const
+{
+  double accumulated_dist = 0.0;
+  size_t lookahead_idx = nearest_idx;
+
+  for (size_t i = nearest_idx; i + 1 < trajectory.points.size(); ++i) {
+    const double dx =
+      trajectory.points[i + 1].pose.position.x - trajectory.points[i].pose.position.x;
+    const double dy =
+      trajectory.points[i + 1].pose.position.y - trajectory.points[i].pose.position.y;
+    accumulated_dist += std::sqrt(dx * dx + dy * dy);
+    lookahead_idx = i + 1;
+    if (accumulated_dist >= lookahead_distance) {
+      break;
+    }
+  }
+
+  const double dx = trajectory.points[lookahead_idx].pose.position.x - current_pose.position.x;
+  const double dy = trajectory.points[lookahead_idx].pose.position.y - current_pose.position.y;
+  const double direct_dist = std::sqrt(dx * dx + dy * dy);
+  if (direct_dist < min_lookahead_distance_ && lookahead_idx + 1 < trajectory.points.size()) {
+    lookahead_idx = std::min(lookahead_idx + 1, trajectory.points.size() - 1);
+  }
+  return lookahead_idx;
+}
+
+bool ReverseParkingPlannerNode::isGoalReached(
+  const geometry_msgs::msg::Pose & current_pose,
+  const autoware_planning_msgs::msg::Trajectory & trajectory) const
+{
+  if (trajectory.points.empty()) {
+    return false;
+  }
+
+  const auto & goal = trajectory.points.back();
+  const double dx = goal.pose.position.x - current_pose.position.x;
+  const double dy = goal.pose.position.y - current_pose.position.y;
+  const double distance = std::sqrt(dx * dx + dy * dy);
+  const double current_yaw = tf2::getYaw(current_pose.orientation);
+  const double goal_yaw = tf2::getYaw(goal.pose.orientation);
+  const double yaw_diff = std::abs(normalizeAngle(current_yaw - goal_yaw));
+
+  return (distance < goal_distance_threshold_ && yaw_diff < goal_yaw_threshold_);
+}
+
+void ReverseParkingPlannerNode::publishControlCmd(
+  double steering_angle, double acceleration, double target_velocity)
+{
+  autoware_control_msgs::msg::Control cmd;
+  cmd.stamp = now();
+  cmd.lateral.steering_tire_angle = static_cast<float>(steering_angle);
+  cmd.lateral.steering_tire_rotation_rate = 0.0f;
+  cmd.longitudinal.velocity = static_cast<float>(std::abs(target_velocity));
+  cmd.longitudinal.acceleration = static_cast<float>(acceleration);
+  cmd.longitudinal.jerk = 0.0f;
+  control_cmd_pub_->publish(cmd);
+}
+
+void ReverseParkingPlannerNode::publishGearCmd(bool is_reverse)
+{
+  autoware_vehicle_msgs::msg::GearCommand gear_cmd;
+  gear_cmd.stamp = now();
+
+  if (is_goal_reached_ || is_distance_limit_reached_) {
+    gear_cmd.command = autoware_vehicle_msgs::msg::GearCommand::PARK;
+  } else if (is_reverse) {
+    gear_cmd.command = autoware_vehicle_msgs::msg::GearCommand::REVERSE;
+  } else {
+    gear_cmd.command = autoware_vehicle_msgs::msg::GearCommand::DRIVE;
+  }
+
+  gear_cmd_pub_->publish(gear_cmd);
+}
+
+void ReverseParkingPlannerNode::publishIndicatorCmds(bool is_reverse, bool is_stopped)
+{
+  autoware_vehicle_msgs::msg::TurnIndicatorsCommand turn_cmd;
+  turn_cmd.stamp = now();
+  turn_cmd.command = autoware_vehicle_msgs::msg::TurnIndicatorsCommand::NO_COMMAND;
+  turn_indicator_cmd_pub_->publish(turn_cmd);
+
+  autoware_vehicle_msgs::msg::HazardLightsCommand hazard_cmd;
+  hazard_cmd.stamp = now();
+  if (is_reverse || is_stopped) {
+    hazard_cmd.command = autoware_vehicle_msgs::msg::HazardLightsCommand::ENABLE;
+  } else {
+    hazard_cmd.command = autoware_vehicle_msgs::msg::HazardLightsCommand::DISABLE;
+  }
+  hazard_light_cmd_pub_->publish(hazard_cmd);
+}
+
+void ReverseParkingPlannerNode::publishDebugMarkers(
+  const geometry_msgs::msg::Pose & current_pose,
+  size_t nearest_idx, size_t lookahead_idx)
+{
+  if (!current_trajectory_ || current_trajectory_->points.empty()) {
+    return;
+  }
+
+  visualization_msgs::msg::MarkerArray markers;
+
+  visualization_msgs::msg::Marker nearest_marker;
+  nearest_marker.header.stamp = now();
+  nearest_marker.header.frame_id = "map";
+  nearest_marker.ns = "nearest_point";
+  nearest_marker.id = 0;
+  nearest_marker.type = visualization_msgs::msg::Marker::SPHERE;
+  nearest_marker.action = visualization_msgs::msg::Marker::ADD;
+  nearest_marker.pose = current_trajectory_->points[nearest_idx].pose;
+  nearest_marker.pose.position.z += 0.5;
+  nearest_marker.scale.x = 0.3;
+  nearest_marker.scale.y = 0.3;
+  nearest_marker.scale.z = 0.3;
+  nearest_marker.color.r = 1.0;
+  nearest_marker.color.g = 1.0;
+  nearest_marker.color.b = 0.0;
+  nearest_marker.color.a = 1.0;
+  nearest_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+  markers.markers.push_back(nearest_marker);
+
+  visualization_msgs::msg::Marker lookahead_marker;
+  lookahead_marker.header.stamp = now();
+  lookahead_marker.header.frame_id = "map";
+  lookahead_marker.ns = "lookahead_point";
+  lookahead_marker.id = 0;
+  lookahead_marker.type = visualization_msgs::msg::Marker::SPHERE;
+  lookahead_marker.action = visualization_msgs::msg::Marker::ADD;
+  lookahead_marker.pose = current_trajectory_->points[lookahead_idx].pose;
+  lookahead_marker.pose.position.z += 0.5;
+  lookahead_marker.scale.x = 0.4;
+  lookahead_marker.scale.y = 0.4;
+  lookahead_marker.scale.z = 0.4;
+  lookahead_marker.color.r = 0.0;
+  lookahead_marker.color.g = 0.0;
+  lookahead_marker.color.b = 1.0;
+  lookahead_marker.color.a = 1.0;
+  lookahead_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+  markers.markers.push_back(lookahead_marker);
+
+  visualization_msgs::msg::Marker line_marker;
+  line_marker.header.stamp = now();
+  line_marker.header.frame_id = "map";
+  line_marker.ns = "lookahead_line";
+  line_marker.id = 0;
+  line_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+  line_marker.action = visualization_msgs::msg::Marker::ADD;
+  line_marker.scale.x = 0.05;
+  line_marker.color.r = 0.0;
+  line_marker.color.g = 1.0;
+  line_marker.color.b = 1.0;
+  line_marker.color.a = 0.8;
+  line_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+  geometry_msgs::msg::Point p1;
+  p1.x = current_pose.position.x;
+  p1.y = current_pose.position.y;
+  p1.z = current_pose.position.z + 0.3;
+  line_marker.points.push_back(p1);
+  geometry_msgs::msg::Point p2;
+  p2.x = current_trajectory_->points[lookahead_idx].pose.position.x;
+  p2.y = current_trajectory_->points[lookahead_idx].pose.position.y;
+  p2.z = current_trajectory_->points[lookahead_idx].pose.position.z + 0.3;
+  line_marker.points.push_back(p2);
+  markers.markers.push_back(line_marker);
+
+  debug_marker_pub_->publish(markers);
+}
+
+double ReverseParkingPlannerNode::calcDistanceToGoal(const geometry_msgs::msg::Pose & current_pose) const
+{
+  if (!current_trajectory_ || current_trajectory_->points.empty()) {
+    return std::numeric_limits<double>::max();
+  }
+  const auto & goal = current_trajectory_->points.back();
+  const double dx = goal.pose.position.x - current_pose.position.x;
+  const double dy = goal.pose.position.y - current_pose.position.y;
+  return std::sqrt(dx * dx + dy * dy);
+}
+
 double ReverseParkingPlannerNode::normalizeAngle(double angle) const
 {
   while (angle > M_PI) angle -= 2.0 * M_PI;
   while (angle < -M_PI) angle += 2.0 * M_PI;
   return angle;
-}
-
-std::optional<geometry_msgs::msg::Pose> ReverseParkingPlannerNode::getCurrentPose() const
-{
-  if (!current_odom_) {
-    return std::nullopt;
-  }
-  return current_odom_->pose.pose;
 }
 
 }  // namespace reverse_parking_planner

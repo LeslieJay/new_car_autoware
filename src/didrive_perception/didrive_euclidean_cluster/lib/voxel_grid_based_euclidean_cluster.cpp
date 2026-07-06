@@ -134,6 +134,10 @@ bool VoxelGridBasedEuclideanCluster::cluster(
   pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud(
       new pcl::PointCloud<pcl::PointXYZ>);
   pcl::fromROSMsg(*pointcloud_msg, *pointcloud);
+  if (pointcloud->empty()) {
+    objects.header = pointcloud_msg->header;
+    return true;
+  }
   pcl::PointCloud<pcl::PointXYZ>::Ptr voxel_map_ptr(
       new pcl::PointCloud<pcl::PointXYZ>);
   voxel_grid_.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, 100000.0);
@@ -153,6 +157,10 @@ bool VoxelGridBasedEuclideanCluster::cluster(
   //   pointcloud_2d_ptr->push_back(point2d);
   // }
   pointcloud_2d_ptr = voxel_map_ptr;
+  if (pointcloud_2d_ptr->empty()) {
+    objects.header = pointcloud_msg->header;
+    return true;
+  }
   // create tree
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(
       new pcl::search::KdTree<pcl::PointXYZ>);
@@ -242,6 +250,10 @@ bool VoxelGridBasedEuclideanCluster::cluster(
       new pcl::PointCloud<pcl::PointXYZ>);
   int point_step = pointcloud_msg->point_step;
   pcl::fromROSMsg(*pointcloud_msg, *pointcloud);
+  if (pointcloud->empty()) {
+    objects.header = pointcloud_msg->header;
+    return true;
+  }
   pcl::PointCloud<pcl::PointXYZ>::Ptr voxel_map_ptr(
       new pcl::PointCloud<pcl::PointXYZ>);
   voxel_grid_.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, 100000.0);
@@ -259,6 +271,10 @@ bool VoxelGridBasedEuclideanCluster::cluster(
     point2d.y = point.y;
     point2d.z = 0.0;
     pointcloud_2d_ptr->push_back(point2d);
+  }
+  if (pointcloud_2d_ptr->empty()) {
+    objects.header = pointcloud_msg->header;
+    return true;
   }
   // create tree
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(

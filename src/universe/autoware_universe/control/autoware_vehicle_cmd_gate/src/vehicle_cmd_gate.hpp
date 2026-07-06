@@ -209,6 +209,7 @@ private:
   // Service
   rclcpp::Service<EngageSrv>::SharedPtr srv_engage_;
   rclcpp::Service<SetEmergency>::SharedPtr srv_external_emergency_;
+  rclcpp::Service<Trigger>::SharedPtr srv_toggle_control_mode_;
   rclcpp::Publisher<Emergency>::SharedPtr pub_external_emergency_;
   void onEngageService(
     const EngageSrv::Request::SharedPtr request, const EngageSrv::Response::SharedPtr response);
@@ -216,6 +217,9 @@ private:
     const std::shared_ptr<rmw_request_id_t> request_header,
     const SetEmergency::Request::SharedPtr request,
     const SetEmergency::Response::SharedPtr response);
+  void onToggleControlModeService(
+    const std::shared_ptr<rmw_request_id_t> request_header, const Trigger::Request::SharedPtr request,
+    const Trigger::Response::SharedPtr response);
 
   // TODO(Takagi, Isamu): deprecated
   rclcpp::Subscription<EngageMsg>::SharedPtr engage_sub_;

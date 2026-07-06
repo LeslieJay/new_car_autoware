@@ -1,0 +1,2 @@
+string e_stop
+bool field_violation

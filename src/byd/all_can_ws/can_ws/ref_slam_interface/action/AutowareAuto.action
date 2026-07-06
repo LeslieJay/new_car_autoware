@@ -1,0 +1,10 @@
+# Goal: 单个目标位姿
+geometry_msgs/PoseStamped goal_pose
+---
+# Result: 执行结果（例如是否成功到达）
+bool success
+string message
+---
+# Feedback: 当前位姿 + 剩余待执行位姿数量（若支持多目标点可扩展）
+geometry_msgs/PoseStamped current_pose
+int32 number_of_poses_remaining

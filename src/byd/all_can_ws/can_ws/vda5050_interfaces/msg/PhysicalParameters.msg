@@ -1,0 +1,7 @@
+float64 speed_min
+float64 speed_max
+float64 acceleration_max
+float64 deceleration_max
+float64 height_max
+float64 width
+float64 length

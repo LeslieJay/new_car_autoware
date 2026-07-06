@@ -1,0 +1,13 @@
+# request date
+int16 from_ipc_signal2
+int16 to_fork_signal
+int16 fork_goal_height
+int16 operation_mode
+int16 current_order_mode
+int16 current_nav_method
+---
+# finally response
+bool finish
+---
+# continuous feedback
+int16 fork_height

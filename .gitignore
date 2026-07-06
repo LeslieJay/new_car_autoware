@@ -42,5 +42,6 @@ src/sensing/isaac_ros_nitros/**/*.a
 **/resources/**/*.bag
 trtexec_x86_64
 
-src/byd/all_can_ws/*
-src/byd/ROS2_DEV_MQTT-3-23/*
+# src/byd/all_can_ws/*
+# src/byd/ROS2_DEV_MQTT-3-23/*
+src/didrive_perception/*

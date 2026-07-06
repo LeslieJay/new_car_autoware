@@ -1,0 +1,455 @@
+[INFO] [1776229752.000210726] [my_node]: Main thread TID (LWP): 13732
+[INFO] [1776229752.002028154] [All_ROS2_nodes]: 创建all_nodes
+[INFO] [1776229752.002058332] [All_ROS2_nodes]: created a order subscriber
+[INFO] [1776229752.003410427] [All_ROS2_nodes]: created a order subscriber
+[INFO] [1776229752.004346145] [All_ROS2_nodes]: MQTT客户端初始化完成，服务器地址: tcp://agv.byd.com:1883
+[INFO] [1776229752.004364889] [All_ROS2_nodes]: MQTT消息处理器已初始化
+[INFO] [1776229752.004370170] [All_ROS2_nodes]: ✓ 已启用MQTT订阅者用于order和instant action消息
+[INFO] [1776229752.006460446] [All_ROS2_nodes]: ✓ 创建激光SLAM位姿订阅者
+[INFO] [1776229752.006484903] [All_ROS2_nodes]: created a battery subscriber!
+[INFO] [1776229752.007440626] [All_ROS2_nodes]: created a velocity subscriber!
+[INFO] [1776229752.008554925] [All_ROS2_nodes]: created a CAN data subscriber!
+[INFO] [1776229752.009618566] [All_ROS2_nodes]: ✓ 创建CAN数据订阅者（IO数据、错误数据、硬件数据）
+[INFO] [1776229752.009639229] [All_ROS2_nodes]: created an obstacle server!
+[INFO] [1776229752.009908590] [All_ROS2_nodes]: created obstacle channels publisher!
+[INFO] [1776229752.009923176] [All_ROS2_nodes]: created a publishers_agv_state
+[INFO] [1776229755.011179104] [All_ROS2_nodes]: MQTT客户端初始化完成，服务器地址: tcp://agv.byd.com:1883
+[INFO] [1776229755.011293027] [All_ROS2_nodes]: 已设置MQTT遗嘱信息 - 主题: uagv/v1/BYD/qqa0001/connection, QoS: 1, 保留: 否
+[INFO] [1776229755.011307448] [All_ROS2_nodes]: 正在连接到MQTT代理 agv.byd.com:1883
+[INFO] [1776229755.751748451] [All_ROS2_nodes]: MQTT连接成功: connect onSuccess called
+[INFO] [1776229755.751755616] [All_ROS2_nodes]: MQTT连接成功，最大缓冲区消息数: 1000
+[INFO] [1776229755.751974856] [All_ROS2_nodes]: MQTT客户端初始化成功
+[INFO] [1776229755.751992155] [All_ROS2_nodes]: ✓ MQTT发布功能已启用，数据将同时通过ROS和MQTT发布
+[INFO] [1776229755.752005158] [All_ROS2_nodes]:   MQTT发布Topics:
+[INFO] [1776229755.752015273] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/connection
+[INFO] [1776229755.752026258] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/state
+[INFO] [1776229755.752046349] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/visualization
+[INFO] [1776229755.752056036] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/factsheet
+[INFO] [1776229755.752087184] [All_ROS2_nodes]: 正在连接到MQTT代理 agv.byd.com:1883
+[INFO] [1776229756.830050488] [All_ROS2_nodes]: MQTT连接成功: connect onSuccess called
+[INFO] [1776229756.830129474] [All_ROS2_nodes]: MQTT连接成功，最大缓冲区消息数: 1000
+[INFO] [1776229756.891814568] [All_ROS2_nodes]: 成功订阅主题: uagv/v1/BYD/qqa0001/order (QoS: 1)
+[INFO] [1776229756.950318686] [All_ROS2_nodes]: 成功订阅主题: uagv/v1/BYD/qqa0001/instantActions (QoS: 1)
+[INFO] [1776229756.950359927] [All_ROS2_nodes]: ✓ MQTT消息接收功能已启用（使用回调模式）
+[INFO] [1776229756.950366042] [All_ROS2_nodes]: ✓ MQTT订阅功能已启用
+[INFO] [1776229756.950370792] [All_ROS2_nodes]:   MQTT订阅Topics:
+[INFO] [1776229756.950374515] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/order
+[INFO] [1776229756.950378197] [All_ROS2_nodes]:   - uagv/v1/BYD/qqa0001/instantActions
+线程阻塞，等待激活！
+调用 publish_agv_state 完成
+准备调用 publish_agv_state(ONLINE)111
+[INFO] [1776229756.953483199] [All_ROS2_nodes]: create fork action client!
+[INFO] [1776229756.954067435] [All_ROS2_nodes]: create a battery control client!
+[INFO] [1776229756.954210728] [rclcpp]: Enter connect_server
+[INFO] [1776229756.954219376] [rclcpp]: Before wait_for_service loop
+[INFO] [1776229757.830477301] [All_ROS2_nodes]: 开始重新订阅 2 个主题...
+[INFO] [1776229757.887182414] [All_ROS2_nodes]: 重新订阅成功: uagv/v1/BYD/qqa0001/order (QoS: 1)
+[INFO] [1776229757.937423561] [All_ROS2_nodes]: 重新订阅成功: uagv/v1/BYD/qqa0001/instantActions (QoS: 1)
+[INFO] [1776229757.937480345] [All_ROS2_nodes]: 重新订阅完成: 成功 2 个, 失败 0 个
+[INFO] [1776229757.950862833] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229757.951173826] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229758.950896106] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229758.951093856] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229759.950736124] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229759.951658870] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229759.951910565] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229760.951209758] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229760.951428675] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229761.951195593] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229761.951460070] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229761.952091482] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229762.127749724] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229762.127983815] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229762.128014143] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=328ab273-44fa-4aeb-bb4a-73e190b52066
+[INFO] [1776229762.128039562] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2221
+timestamp: 2026-04-15T13:09:22.109219
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 328ab273-44fa-4aeb-bb4a-73e190b52066
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229762.128092606] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229762.128105830] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229762.951185835] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229762.951469202] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229763.951136483] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229763.951398173] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229764.950651303] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229764.950889566] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229765.951217675] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229765.951485885] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229766.951521602] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229766.951738140] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229766.952226274] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229766.954414651] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229766.954461869] [rclcpp]: Inside loop, service not available
+[INFO] [1776229766.954469738] [rclcpp]: connecting with server!
+[INFO] [1776229767.469682333] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229767.469942375] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229767.469959144] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=3888549f-203b-4d82-bbd4-2b035e21c0f3
+[INFO] [1776229767.469984178] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2222
+timestamp: 2026-04-15T13:09:27.365796
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 3888549f-203b-4d82-bbd4-2b035e21c0f3
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229767.470049821] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229767.470063163] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229767.951237790] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229767.951601325] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229768.951162189] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229768.951440618] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229769.951071788] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229769.951490796] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229770.951194098] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229770.951467068] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229771.951351622] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229771.951637175] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229771.952245566] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229772.410723908] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229772.410825721] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229772.410833151] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=8a40d52f-c872-4ea2-8e96-563cb19d201b
+[INFO] [1776229772.410842450] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2223
+timestamp: 2026-04-15T13:09:32.411265
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 8a40d52f-c872-4ea2-8e96-563cb19d201b
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229772.410861256] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229772.410866331] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229772.950868344] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229772.950953173] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229773.951280831] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229773.951498500] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229774.951298096] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229774.951562784] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229775.951249174] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229775.951472704] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229776.951227578] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229776.951335930] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229776.951619272] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229776.954650268] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229776.954689326] [rclcpp]: Inside loop, service not available
+[INFO] [1776229776.954693929] [rclcpp]: connecting with server!
+[INFO] [1776229777.523701048] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229777.523811234] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229777.523817649] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=fc96d872-e374-48b7-b062-193c7d3695a5
+[INFO] [1776229777.523826961] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2224
+timestamp: 2026-04-15T13:09:37.504542
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: fc96d872-e374-48b7-b062-193c7d3695a5
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229777.523851528] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229777.523856399] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229777.951255831] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229777.951460456] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229778.951050902] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229778.951351459] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229779.951329268] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229779.951560338] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229780.950727233] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229780.950808798] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229781.951318965] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229781.951446036] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229781.951910576] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229782.564916870] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229782.565206211] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229782.565225211] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=08f6ab53-32d9-46b7-9b99-a6e382b349bc
+[INFO] [1776229782.565252258] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2225
+timestamp: 2026-04-15T13:09:42.534250
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 08f6ab53-32d9-46b7-9b99-a6e382b349bc
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229782.565333625] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229782.565347062] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229782.951245549] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229782.951452849] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229783.951309777] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229783.951585878] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229784.951290092] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229784.951558681] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229785.951883470] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229785.952137843] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229786.951758033] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229786.951991993] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229786.952591794] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229786.955029851] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229786.955080865] [rclcpp]: Inside loop, service not available
+[INFO] [1776229786.955090230] [rclcpp]: connecting with server!
+[INFO] [1776229787.613071005] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229787.613269779] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229787.613284628] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=3d82fbb8-9db5-4f54-9ac7-86946526b99f
+[INFO] [1776229787.613302568] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2226
+timestamp: 2026-04-15T13:09:47.611105
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 3d82fbb8-9db5-4f54-9ac7-86946526b99f
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229787.613349983] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229787.613360057] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229787.951334407] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229787.951528536] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229788.951530225] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229788.951724587] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229789.950769298] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229789.951532830] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229789.951680348] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229790.951016515] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229790.951076689] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229791.951495646] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229791.951777266] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229791.952266175] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229792.734155296] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229792.734284483] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229792.734293097] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=ab23d650-c6f3-45fc-9a4d-e3932828ad73
+[INFO] [1776229792.734305135] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2227
+timestamp: 2026-04-15T13:09:52.703906
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: ab23d650-c6f3-45fc-9a4d-e3932828ad73
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229792.734334991] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229792.734342133] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229792.951439200] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229792.951636854] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229793.950854607] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229793.950933464] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229794.951662582] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229794.952015093] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229795.950939433] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229795.951032648] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229796.951881710] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229796.952099313] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229796.952940828] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229796.955305756] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229796.955363188] [rclcpp]: Inside loop, service not available
+[INFO] [1776229796.955373126] [rclcpp]: connecting with server!
+[INFO] [1776229797.797111039] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229797.797336288] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229797.797354797] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=26662849-6821-43db-b5b4-ec51a935d070
+[INFO] [1776229797.797393145] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2228
+timestamp: 2026-04-15T13:09:57.736435
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 26662849-6821-43db-b5b4-ec51a935d070
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229797.797437276] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229797.797449077] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229797.951135285] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229797.951264426] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229798.951104314] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229798.951227085] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229799.951577548] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229799.951808372] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229800.951497236] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229800.951762018] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229801.951515961] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229801.951785160] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229801.952404971] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229802.813358956] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229802.813467293] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229802.813473805] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=db0b4d3f-99fd-463c-ae7d-dce268d743a6
+[INFO] [1776229802.813483370] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2229
+timestamp: 2026-04-15T13:10:02.811133
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: db0b4d3f-99fd-463c-ae7d-dce268d743a6
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229802.813503050] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229802.813508306] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229802.951254997] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229802.951332781] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229803.950916461] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229803.950968936] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229804.950910197] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229804.950967624] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229805.951078805] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229805.951152263] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229806.951168683] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229806.951249509] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229806.951546838] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229806.955657718] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229806.955715028] [rclcpp]: Inside loop, service not available
+[INFO] [1776229806.955751677] [rclcpp]: connecting with server!
+[INFO] [1776229807.850474573] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229807.850754116] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229807.850776280] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=9bc718b3-7ab6-43e1-9db3-8561c5f6b62c
+[INFO] [1776229807.850803947] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2230
+timestamp: 2026-04-15T13:10:07.814619
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: 9bc718b3-7ab6-43e1-9db3-8561c5f6b62c
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229807.850878891] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229807.850894526] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229807.951013147] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229807.951090486] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229808.951508373] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229808.951682814] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229809.951422575] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229809.951643575] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229810.951441241] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229810.951662475] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229811.951548331] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229811.951779136] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229811.952341234] [All_ROS2_nodes]: 发布小车状态: agv_state=unknown, status=1, battery=0.0%, task=, location=(-130000.00,-69000.00,3.14)
+[INFO] [1776229812.911816397] [All_ROS2_nodes]: 收到MQTT instant action消息
+[INFO] [1776229812.911972844] [All_ROS2_nodes]: ✓ 解析VDA5050 instant action: 1个动作
+[INFO] [1776229812.911984852] [All_ROS2_nodes]:   首个动作: 类型=heartbeat_ack, ID=af76444c-0c85-4078-8259-875545bc10e7
+[INFO] [1776229812.912002027] [All_ROS2_nodes]: 正在同步MQTT消息到InstantActionsListener...
+
+===== AGVInstantActions Message =====
+header_id: 2231
+timestamp: 2026-04-15T13:10:12.904240
+version: v1
+manufacturer: BYD
+serial_number: qqa0001
+actions count: 1
+  Action[0]:
+    action_type: heartbeat_ack
+    action_id: af76444c-0c85-4078-8259-875545bc10e7
+    action_description: 
+    blocking_type: NONE
+    action_parameters count: 0
+=====================================
+
+[INFO] [1776229812.912047005] [All_ROS2_nodes]: 持续连接中！
+DEBUG: instant_action_callback() 调用成功
+[INFO] [1776229812.912057064] [All_ROS2_nodes]: ✓ MQTT消息已同步到InstantActionsListener成功
+[INFO] [1776229812.951471195] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229812.951724895] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229813.951625792] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229813.951876326] [All_ROS2_nodes]: state_timer_callback回调启动！
+[INFO] [1776229814.951766166] [All_ROS2_nodes]: connection_timer_callback回调启动！
+[INFO] [1776229814.951977945] [All_ROS2_nodes]: state_timer_callback回调启动！
+捕获到异常信号： 2 ！
+[INFO] [1776229815.463229519] [rclcpp]: Before wait_for_service loop, service_ready = 0
+[INFO] [1776229815.463288072] [rclcpp]: Inside loop, service not available
+[INFO] [1776229815.463301028] [rclcpp]: rclcpp::ok false, exiting
+[ERROR] [1776229815.463310505] [rclcpp]: Connection to charging_client failed!
+[INFO] [1776229815.463332559] [All_ROS2_nodes]: create a end guide client!
+terminate called after throwing an instance of 'rclcpp::exceptions::RCLError'
+  what():  could not create client: rcl node's context is invalid, at ./src/rcl/node.c:428
+捕获到异常信号： 6 ！
+[ros2run]: Aborted

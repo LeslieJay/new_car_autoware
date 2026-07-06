@@ -1,0 +1,5 @@
+string action_type
+string action_id
+string action_description
+string blocking_type
+ActionParameters[] action_parameters

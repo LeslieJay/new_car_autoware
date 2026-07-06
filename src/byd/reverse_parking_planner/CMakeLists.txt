@@ -18,7 +18,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # Create library
 ament_auto_add_library(${PROJECT_NAME}_node SHARED
   src/reverse_parking_planner_node.cpp
-  src/reeds_shepp.cpp
 )
 
 # Link generated service interfaces to the node library
@@ -28,6 +27,10 @@ target_link_libraries(${PROJECT_NAME}_node ${cpp_typesupport_target})
 rclcpp_components_register_node(${PROJECT_NAME}_node
   PLUGIN "reverse_parking_planner::ReverseParkingPlannerNode"
   EXECUTABLE ${PROJECT_NAME}_node_exe
+)
+
+install(PROGRAMS scripts/smoke_check_reverse_parking.sh
+  DESTINATION share/${PROJECT_NAME}/scripts
 )
 
 if(BUILD_TESTING)

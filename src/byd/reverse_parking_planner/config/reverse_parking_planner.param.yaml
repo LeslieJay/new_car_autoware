@@ -1,25 +1,43 @@
 /**:
   ros__parameters:
-    # 车辆参数
-    wheel_base: 1.01           # 轴距 [m]
-    min_turning_radius: 2.0   # 最小转弯半径 [m]
-    vehicle_length: 1.894       # 车长 [m]
-    vehicle_width: 1.2        # 车宽 [m]
+    # 统一节点频率
+    control_rate: 30.0
+    publish_rate: 10.0
 
-    # 路径参数
-    path_resolution: 0.05     # 路径采样分辨率 [m] (室内AGV需要更精细的采样)
-    velocity_forward: 0.3     # 前进速度 [m/s] (室内低速)
-    velocity_reverse: -0.2    # 倒车速度 [m/s] (负值, 更慢更安全)
-    
-    # 规划参数
-    max_planning_time: 1.0    # 最大规划时间 [s]
-    enable_reverse_only: false # 是否仅使用倒车路径
+    # 车辆与轨迹参数
+    wheel_base: 1.01
+    path_resolution: 0.05
+    velocity_reverse: -1.0
+    velocity_creep: 0.05
+    decel_distance: 1.5
 
-    # AGV充电对接优化参数
-    final_approach_distance: 1.0   # 最终直线倒车接近距离 [m] (确保充电插头对齐)
-    velocity_creep: 0.05           # 蠕行速度 [m/s] (最终接近段最低速度)
-    decel_distance: 1.5            # 终点减速区距离 [m] (进入此范围开始减速)
-    transition_decel_distance: 0.5 # 方向切换减速区距离 [m] (前进↔倒车切换减速区)
-    
-    # 发布频率
-    publish_rate: 10.0        # Hz
+    # 最简直线倒车准入约束（不满足时拒绝规划）
+    max_straight_lateral_error: 1.0
+    max_straight_yaw_error: 1.0
+    min_reverse_distance: 0.20
+    # 倒车累计行驶距离上限（米），超过后立即停车发 0 速度；0 表示不限制
+    max_reverse_driving_distance: 0.0
+
+    # Pure Pursuit 横向参数
+    lookahead_distance: 0.8
+    min_lookahead_distance: 0.3
+    lookahead_ratio: 2.0
+    reverse_lookahead_distance: 0.4
+    max_steering_angle: 0.6
+    stanley_gain: 1.5
+
+    # PID 纵向参数
+    pid:
+      kp: 1.5
+      ki: 0.1
+      kd: 0.08
+      integral_max: 3.0
+    max_acceleration: 0.5
+    max_deceleration: -1.0
+
+    # 终点判定与最终接近
+    goal_distance_threshold: 0.05
+    goal_yaw_threshold: 0.03
+    stop_velocity_threshold: 0.02
+    final_approach_distance: 1.0
+    final_approach_speed: 0.05

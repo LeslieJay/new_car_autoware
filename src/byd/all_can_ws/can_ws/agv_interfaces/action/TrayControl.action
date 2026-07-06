@@ -1,0 +1,12 @@
+# request date
+int16 to_tray_signal
+int16 tray_goal_height
+int16 tray_goal_rotation
+---
+# finally response
+bool height_finish
+bool rotation_finish
+---
+# continuous feedback
+int16 tray_height
+int16 tray_rotation

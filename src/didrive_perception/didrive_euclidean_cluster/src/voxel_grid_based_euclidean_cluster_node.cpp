@@ -193,9 +193,8 @@ void VoxelGridBasedEuclideanClusterNode::onPointCloud(
 
   // convert ros to pcl
   if (input_msg->data.empty()) {
-    // NOTE: prevent pcl log spam
-    RCLCPP_WARN_STREAM_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                                "Empty sensor points!");
+    RCLCPP_DEBUG(get_logger(), "Empty point cloud received, skipping processing");
+    return;
   }
   // cluster and build output msg
 //   tier4_perception_msgs::msg::DetectedObjectsWithFeature output;
@@ -204,6 +203,10 @@ void VoxelGridBasedEuclideanClusterNode::onPointCloud(
     sensor_msgs::msg::PointCloud2::SharedPtr filtered_input_msg =
         std::make_shared<sensor_msgs::msg::PointCloud2>();
     crop_box_filter(input_msg, filtered_input_msg);
+    if (filtered_input_msg->data.empty()) {
+      RCLCPP_DEBUG(get_logger(), "Empty point cloud after crop filter, skipping processing");
+      return;
+    }
     cluster_->cluster(filtered_input_msg, output);
   } else {
     cluster_->cluster(input_msg, output);

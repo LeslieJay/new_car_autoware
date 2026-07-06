@@ -1,0 +1,6 @@
+string series_name
+string agv_kinematic
+string agv_class
+float64 max_load_mass
+string localization_types
+string navigation_types

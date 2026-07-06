@@ -1,0 +1,7 @@
+int32 header_id
+string timestamp
+string version
+string manufacturer
+string serial_number
+TypeSpecification type_specification
+PhysicalParameters physical_parameters

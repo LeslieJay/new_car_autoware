@@ -1,0 +1,5 @@
+# request date
+geometry_msgs/PoseStamped goal_pose
+---
+#response date
+bool response

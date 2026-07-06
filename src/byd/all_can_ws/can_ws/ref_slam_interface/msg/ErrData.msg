@@ -1,0 +1,43 @@
+bool cvc_can_err
+bool driver_controller_can_err
+bool steer_controller_can_err
+bool pump_controller_can_err
+bool bms_can_err
+bool height_encode_can_err
+bool left_laser_can_err
+bool right_laser_can_err
+bool head_laser_can_err
+bool back_laser_can_err
+bool turning_encode_can_err
+bool ele_cylinder_can_err
+bool charger_can_err
+
+bool driver_controller_err
+bool steer_controller_err
+bool back_laser_sensor_err
+bool head_laser_sensor_err
+bool left_laser_err
+bool right_laser_err
+bool height_detect_sensor_err
+bool charger_err
+bool cvc_controller_err
+bool remote_err
+bool battery_bms_err
+bool speed_over_limit1
+bool forklift_over_time
+bool fork_drop_over_time
+bool ele_cylinder_err
+
+uint8 left_laser_fault_code
+uint8 right_laser_fault_code
+uint8 head_laser_fault_code
+uint8 back_laser_fault_code
+
+uint16 driver_controller_err_code1
+uint16 driver_controller_err_code2
+uint16 steer_controller_err_code1
+uint16 steer_controller_err_code2
+
+uint16 ele_cylinder_controller_err_code1
+uint16 ele_cylinder_controller_err_code2
+

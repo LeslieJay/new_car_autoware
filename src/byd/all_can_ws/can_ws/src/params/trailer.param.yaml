@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    # 挂车数量
+    n: 5
+    

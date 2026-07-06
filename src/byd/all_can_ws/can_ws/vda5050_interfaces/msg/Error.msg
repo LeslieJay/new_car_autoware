@@ -1,0 +1,5 @@
+string error_type
+string error_description
+string error_hint
+string error_level
+ErrorReference[] error_references

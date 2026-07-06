@@ -44,6 +44,17 @@ const char * getGateModeName(const GateMode::_data_type & gate_mode)
   return "NOT_SUPPORTED";
 }
 
+const char * getControlModeDisplayName(const GateMode::_data_type & gate_mode)
+{
+  if (gate_mode == GateMode::AUTO) {
+    return "auto";
+  }
+  if (gate_mode == GateMode::EXTERNAL) {
+    return "local";
+  }
+  return "NOT_SUPPORTED";
+}
+
 }  // namespace
 
 VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
@@ -193,7 +204,7 @@ VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
     filter_on_transition_.setParam(p);
   }
 
-  // Set default value
+  // Default control mode: auto (GateMode::AUTO)
   current_gate_mode_.data = GateMode::AUTO;
   current_operation_mode_.mode = OperationModeState::STOP;
 
@@ -203,6 +214,9 @@ VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
   srv_external_emergency_ = create_service<SetEmergency>(
     "~/service/external_emergency",
     std::bind(&VehicleCmdGate::onExternalEmergencyStopService, this, _1, _2, _3));
+  srv_toggle_control_mode_ = create_service<Trigger>(
+    "~/service/toggle_control_mode",
+    std::bind(&VehicleCmdGate::onToggleControlModeService, this, _1, _2, _3));
   srv_external_emergency_stop_ = create_service<Trigger>(
     "~/service/external_emergency_stop",
     std::bind(&VehicleCmdGate::onSetExternalEmergencyStopService, this, _1, _2, _3));
@@ -811,6 +825,36 @@ void VehicleCmdGate::onEngageService(
 {
   is_engaged_ = request->engage;
   response->status = tier4_api_utils::response_success();
+}
+
+void VehicleCmdGate::onToggleControlModeService(
+  [[maybe_unused]] const std::shared_ptr<rmw_request_id_t> request_header,
+  [[maybe_unused]] const Trigger::Request::SharedPtr request,
+  const Trigger::Response::SharedPtr response)
+{
+  const auto prev_gate_mode = current_gate_mode_.data;
+  if (current_gate_mode_.data == GateMode::AUTO) {
+    current_gate_mode_.data = GateMode::EXTERNAL;
+  } else {
+    current_gate_mode_.data = GateMode::AUTO;
+  }
+
+  gate_mode_pub_->publish(current_gate_mode_);
+
+  RCLCPP_INFO(
+    get_logger(), "Control mode toggled: %s -> %s",
+    getControlModeDisplayName(prev_gate_mode),
+    getControlModeDisplayName(current_gate_mode_.data));
+
+  if (current_gate_mode_.data == GateMode::AUTO) {
+    publishControlCommands(auto_commands_);
+  } else {
+    publishControlCommands(remote_commands_);
+  }
+
+  response->success = true;
+  response->message =
+    std::string("Switched to ") + getControlModeDisplayName(current_gate_mode_.data) + " mode";
 }
 
 void VehicleCmdGate::onMrmState(MrmState::ConstSharedPtr msg)

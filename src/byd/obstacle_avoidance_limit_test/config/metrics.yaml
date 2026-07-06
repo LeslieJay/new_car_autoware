@@ -1,0 +1,45 @@
+# 绕障极限测试判定指标
+
+# 路径偏移阈值，对应 static_obstacle_avoidance.param.yaml 中 th_avoid_execution
+min_shift_length_m: 0.09
+
+# PlanningFactor behavior 常量 (tier4_planning_msgs/PlanningFactor)
+shift_behaviors:
+  - 4  # SHIFT_LEFT
+  - 5  # SHIFT_RIGHT
+
+stop_behavior: 3  # STOP
+
+# 失败原因关键词（来自 avoidance_debug_message_array.failed_reason）
+failure_keywords:
+  - INSUFFICIENT_DRIVABLE_SPACE
+  - INSUFFICIENT_LONGITUDINAL_DISTANCE
+  - NOT_PARKING_OBJECT
+  - MOVING_OBJECT
+  - OUT_OF_TARGET_AREA
+
+# 采样时序
+timing:
+  setup_wait_sec: 5.0     # 发布 initialpose/goal 后等待规划稳定
+  settle_sec: 3.0         # 放置障碍物后等待感知+规划收敛
+  sample_sec: 2.0         # 每个测试点采样时长
+  publish_rate_hz: 10.0   # 重复发布障碍物防丢失
+
+# 横向 sweep（路肩边缘侵入车道距离）
+lateral_sweep:
+  start_m: 0.0
+  stop_m: 1.5
+  step_m: 0.2
+
+# 纵向 sweep（可选第二轮，固定侵入量下测最短可绕距离）
+longitudinal_sweep:
+  enabled: false
+  distances_m: [20.0, 30.0, 40.0, 50.0]
+  fixed_intrusion_m: 0.6
+
+# 结果分类
+result_labels:
+  success: SUCCESS          # 生成稳定绕障路径
+  partial: PARTIAL          # allow_avoidance 但无有效偏移 / 仅停车等待
+  fail: FAIL                  # 明确无法绕障或被过滤
+  no_object: NO_OBJECT        # 感知未收到障碍物

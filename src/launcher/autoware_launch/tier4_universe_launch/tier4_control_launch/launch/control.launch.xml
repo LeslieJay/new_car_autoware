@@ -83,7 +83,6 @@
         <composable_node pkg="autoware_shift_decider" plugin="autoware::shift_decider::ShiftDecider" name="autoware_shift_decider">
           <remap from="input/control_cmd" to="/control/trajectory_follower/control_cmd"/>
           <remap from="input/state" to="/autoware/state"/>
-          <remap from="input/current_gear" to="/vehicle/status/gear_status"/>
           <remap from="output/gear_cmd" to="/control/shift_decider/gear_cmd"/>
           <param from="$(var shift_decider_param_path)"/>
           <extra_arg name="use_intra_process_comms" value="$(var use_intra_process)"/>
@@ -121,6 +120,7 @@
           <remap from="output/operation_mode" to="/control/vehicle_cmd_gate/operation_mode"/>
           <remap from="~/service/engage" to="/api/autoware/set/engage"/>
           <remap from="~/service/external_emergency" to="/api/autoware/set/emergency"/>
+          <remap from="~/service/toggle_control_mode" to="/control/vehicle_cmd_gate/toggle_control_mode"/>
           <!-- TODO(Takagi, Isamu): deprecated -->
           <remap from="input/engage" to="/autoware/engage"/>
           <remap from="~/service/external_emergency_stop" to="~/external_emergency_stop"/>

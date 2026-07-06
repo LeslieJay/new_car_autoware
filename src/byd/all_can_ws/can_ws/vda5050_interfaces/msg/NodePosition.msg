@@ -1,0 +1,7 @@
+float64 x
+float64 y
+float64 theta
+string map_id
+string map_description
+float64 allowed_deviation_xy
+float64 allowed_deviation_theta

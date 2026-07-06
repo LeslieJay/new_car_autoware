@@ -1,0 +1,35 @@
+bool epec_all_ok
+bool vcu_watch_dog_out
+bool steer_enabled
+bool drive_enabled
+bool pump_enabled
+bool fork_loaded
+bool epec_ems
+bool low_power_alarm
+
+bool vcu_pause
+bool vehicle_have_fault
+bool safety_contact_switch
+bool l_fork_sensor_stop
+bool r_fork_sensor_stop
+bool charge_fail
+bool low_power_shutup
+bool allow_move
+
+bool auto_manual_switch
+bool do_power_control_relay
+bool do_driver_controller_power_relay
+bool do_vehicle_power_control
+bool do_steer_controller_power_relay
+bool do_down_valve
+bool brake_signal
+bool charge_contactor_power
+bool bms_relay_power
+bool charge_wifi_power
+bool charger_push_back
+bool sevenday_charge
+
+uint8 ipc_ems_callback
+
+uint8 screen_set_load_status
+bool screen_req_blackbox

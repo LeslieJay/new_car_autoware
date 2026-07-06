@@ -1,0 +1,6 @@
+int32 header_id
+string timestamp
+string version
+string manufacturer
+string serial_number
+string connection_state

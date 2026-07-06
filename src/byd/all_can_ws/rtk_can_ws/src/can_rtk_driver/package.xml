@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>can_rtk_driver</name>
+  <version>0.0.1</version>
+  <description>A ROS 2 node for CAN communication using SocketCAN.</description>
+
+  <maintainer email="dxy@todo.todo">dxy</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 依赖项 -->
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>libsocketcan-dev</exec_depend> <!-- 可选，用于编译依赖 -->
+  
+  <build_depend>rclcpp</build_depend>
+  <depend>autoware_control_msgs</depend>
+  <depend>tier4_external_api_msgs</depend>
+  <depend>agv_interfaces</depend>
+  <depend>autoware_vehicle_msgs</depend>
+  <depend>autoware_sensing_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>rosidl_typesupport_cpp</depend>
+  <build_depend>ament_cmake</build_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

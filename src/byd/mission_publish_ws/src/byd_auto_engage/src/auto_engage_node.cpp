@@ -13,10 +13,13 @@ AutoEngageNode::AutoEngageNode()
   declare_parameter<bool>("enabled", true);
   enabled_ = get_parameter("enabled").as_bool();
 
+  // Goal is published by RViz / routing_adaptor with volatile QoS; mission_loop uses
+  // transient_local, which is compatible with a volatile subscriber.
+  const auto qos_goal = rclcpp::QoS(10).reliable();
   const auto qos_transient = rclcpp::QoS(1).transient_local();
 
   goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-    "/planning/mission_planning/goal", qos_transient,
+    "/planning/mission_planning/goal", qos_goal,
     std::bind(&AutoEngageNode::goal_callback, this, std::placeholders::_1));
 
   route_state_sub_ = create_subscription<autoware_adapi_v1_msgs::msg::RouteState>(

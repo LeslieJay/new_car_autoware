@@ -1,0 +1,1 @@
+bool automatic_status

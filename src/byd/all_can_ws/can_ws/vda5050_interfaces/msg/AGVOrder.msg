@@ -1,0 +1,10 @@
+int32 header_id
+string timestamp
+string version
+string manufacturer
+string serial_number
+string order_id
+int32 order_update_id
+string zone_set_id
+Nodes[] nodes
+Edges[] edges

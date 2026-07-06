@@ -1,0 +1,4 @@
+float64 battery_level
+float64 battery_status
+float64 total_voltage
+float64 total_current

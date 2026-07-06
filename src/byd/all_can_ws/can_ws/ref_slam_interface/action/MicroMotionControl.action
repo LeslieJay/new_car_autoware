@@ -1,0 +1,12 @@
+# Goal
+bool en_rot           # 是否激活旋转控制 -> cur_active
+bool en_mov           # 是否激活移动控制 -> move_active
+float64 target_ang    # 目标角度(弧度)   -> curvature_angle
+float64 target_dis    # 移动距离(米)     -> move_distance
+---
+# Result
+bool is_reached       # 是否到达目标
+---
+# Feedback
+float64 ang_current   # 当前角度(弧度)   -> current_angle 
+float64 dis_traveled  # 已移动距离(米)   -> current_distance

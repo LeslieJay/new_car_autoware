@@ -1,0 +1,61 @@
+vehicle_type: "laser"	# "laser" "qr"
+max_linear_velocity: 2.5
+max_angular_velocity: 0.5
+min_battery_level: 20
+max_offset: 50000
+high_distance_precision: 0.05
+high_angle_precision: 0.1
+low_distance_precision: 0.1
+low_angle_precision: 0.2
+PI: 3.14159265358979323846
+can_channels: 2
+can0_frames: 2000
+can1_frames: 1200
+gap: [2000, 1200]
+static_file_path: "/home/nvidia/autoware/src/byd/ROS2_DEV_MQTT-3-23/ROS2_DEV_MQTT-3-23/static_data.json"
+instant_file_path: "/home/nvidia/autoware/src/byd/ROS2_DEV_MQTT-3-23/ROS2_DEV_MQTT-3-23/instant_data.json"
+candata_file_path: "/home/nvidia/autoware/src/byd/ROS2_DEV_MQTT-3-23/ROS2_DEV_MQTT-3-23/can_data.json"
+file_path_prefix: "/home/nvidia/autoware/src/byd/ROS2_DEV_MQTT-3-23/"
+record_batch_size: 100
+version: "v1"
+manufacturer: "BYD"
+serial_number: "qqa0001"
+type_specification:
+  series_name: "AF"
+  agv_kinematic: "DIFE"
+  agv_class: "FORKLIFT"
+  max_load_mass: 2000
+  navigation_types: "VIRTUAL_LINE_GUIDED"
+physical_parameters:
+  speed_min: 0.5
+  speed_max: 2
+  acceleration_max: 2
+  deceleration_max: 2
+  height_max: 0.5
+  width: 0.8
+  length: 1.2
+agv_position:
+  map_id: ""
+  position_initialized: true
+operating_mode: "AUTOMATIC"  # MANUAL
+fork_running_height: 0
+fork_action_height: 100
+record_duration: 6000	# 单位：秒；表示一次运行记录最新多少秒内的数据
+sites:  # 地图中的站点位置信息
+  - [-3.5, -3.5]
+  - [-14, -1.5]
+  - [-12, 3.5]
+sites_num: 3
+micro_distance: 0.05
+max_pause_time: 600	# 最大暂停时长
+
+# 通信配置
+communication_mode: "ros2_only"  # "ros2_only", "mqtt_only", "dual_channel"
+enable_mqtt_subscription: true
+mqtt_broker_host: "agv.byd.com"  # "10.28.25.114"
+mqtt_broker_port: 1883
+mqtt_username: "root"  # MQTT用户名（为空表示不需要认证）
+mqtt_password: "Root1234#$"  # MQTT密码（为空表示不需要认证）
+mqtt_order_topic: "uagv/v1/BYD/qqa0001/order"
+mqtt_instant_action_topic: "uagv/v1/BYD/qqa0001/instantActions"
+

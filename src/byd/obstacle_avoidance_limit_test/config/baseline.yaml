@@ -1,0 +1,41 @@
+# 仿真绕障极限测试基线场景
+# 地图: /home/nvidia/autoware_map/9_out/ (parking.osm)
+# 启动: ./run_planning_simulator.sh
+
+frame_id: map
+
+# 自车初始位姿（map 坐标系）
+ego:
+  x: -150.0
+  y: -77.0
+  z: 5.04
+  yaw: 0.35  # rad，沿目标车道方向，请按实际地图微调
+
+# 目标点（障碍物前方同车道，保证参考路径稳定）
+goal:
+  x: -137.84
+  y: -76.60
+  z: 5.04
+  yaw: 0.35
+
+# 障碍物放置基准：以 ego 为 longitudinal 零点，沿 lane_yaw 前进
+obstacle:
+  lane_yaw: 0.35        # rad，与 ego.yaw 一致
+  lane_width: 3.5       # m，车道宽度
+  shoulder_side: right  # right | left，路肩在车道哪一侧
+  longitudinal_distance_m: 35.0  # 障碍物中心距 ego 的前向距离 [m]
+  length: 4.0
+  width: 1.8
+  height: 2.0
+  velocity: 0.0         # 必须为 0，否则 static_obstacle_avoidance 会忽略
+
+# DummyObject 发布 topic
+topics:
+  dummy_object: /simulation/dummy_perception_publisher/object_info
+  initial_pose: /initialpose
+  goal: /planning/mission_planning/goal
+  avoidance_debug: /planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/debug/avoidance_debug_message_array
+  planning_factors: /planning/planning_factors/static_obstacle_avoidance
+  path_reference: /planning/path_reference/static_obstacle_avoidance
+  path_with_lane_id: /planning/scenario_planning/lane_driving/behavior_planning/path_with_lane_id
+  predicted_objects: /perception/object_recognition/objects

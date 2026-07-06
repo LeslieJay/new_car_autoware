@@ -1,0 +1,73 @@
+{
+  "header_id": 1,
+  "timestamp": "2026-04-21T08:00:00.000000+08:00",
+  "version": "v1",
+  "manufacturer": "BYD",
+  "serial_number": "AGV-001",
+  "order_id": "task_20260421_p2p_001",
+  "order_update_id": 0,
+  "zone_set_id": "map_floor_1",
+  "nodes": [
+    {
+      "node_id": "10",
+      "sequence_id": 0,
+      "released": true,
+      "node_position": {
+        "x": 1.000,
+        "y": 2.000,
+        "theta": 0.0
+      },
+      "actions": []
+    },
+    {
+      "node_id": "11",
+      "sequence_id": 2,
+      "released": true,
+      "node_position": {
+        "x": 5.000,
+        "y": 2.000,
+        "theta": 0.0
+      },
+      "actions": []
+    },
+    {
+      "node_id": "12",
+      "sequence_id": 4,
+      "released": true,
+      "node_position": {
+        "x": 10.000,
+        "y": 2.000,
+        "theta": 0.0
+      },
+      "actions": []
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "edge_10_11",
+      "start_node_id": "10",
+      "end_node_id": "11",
+      "sequence_id": 1,
+      "released": true,
+      "max_speed": 1.0,
+      "trajectory": {
+        "degree": 1,
+        "knot_vector": [],
+        "control_points": []
+      }
+    },
+    {
+      "edge_id": "edge_11_12",
+      "start_node_id": "11",
+      "end_node_id": "12",
+      "sequence_id": 3,
+      "released": true,
+      "max_speed": 1.0,
+      "trajectory": {
+        "degree": 1,
+        "knot_vector": [],
+        "control_points": []
+      }
+    }
+  ]
+}

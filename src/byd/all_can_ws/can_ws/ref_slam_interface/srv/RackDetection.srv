@@ -1,0 +1,7 @@
+# request date
+int32 detecting
+---
+#response date
+int32 current_status
+int32 racks_size
+Racks[] racks

@@ -37,6 +37,7 @@
 
     <remap from="~/service/engage" to="/api/autoware/set/engage"/>
     <remap from="~/service/external_emergency" to="/api/autoware/set/emergency"/>
+    <remap from="~/service/toggle_control_mode" to="/control/vehicle_cmd_gate/toggle_control_mode"/>
 
     <!-- TODO(Takagi, Isamu): deprecated -->
     <remap from="input/engage" to="/autoware/engage"/>

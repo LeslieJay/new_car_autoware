@@ -9,22 +9,22 @@
 #ifndef REVERSE_PARKING_PLANNER__REVERSE_PARKING_PLANNER_NODE_HPP_
 #define REVERSE_PARKING_PLANNER__REVERSE_PARKING_PLANNER_NODE_HPP_
 
-#include "reverse_parking_planner/reeds_shepp.hpp"
-
 #include <rclcpp/rclcpp.hpp>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#include <autoware_control_msgs/msg/control.hpp>
 #include <autoware_planning_msgs/msg/trajectory.hpp>
+#include <autoware_vehicle_msgs/msg/gear_command.hpp>
+#include <autoware_vehicle_msgs/msg/hazard_lights_command.hpp>
+#include <autoware_vehicle_msgs/msg/turn_indicators_command.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include "reverse_parking_planner/srv/set_goal_pose.hpp"
 
+#include <chrono>
 #include <memory>
-#include <optional>
+#include <vector>
 
 namespace reverse_parking_planner
 {
@@ -32,12 +32,12 @@ namespace reverse_parking_planner
 using SetGoalPose = reverse_parking_planner::srv::SetGoalPose;
 
 /**
- * @brief 倒车停车规划器节点
- * 
+ * @brief 倒车停车统一节点（规划 + 控制）
+ *
  * 功能：
- * 1. 通过服务接收目标停车位姿并自动规划路径
- * 2. 使用Reeds-Shepp曲线规划包含倒车的路径
- * 3. 发布轨迹供控制器跟踪
+ * 1. 通过服务接收目标位姿并生成直线倒车轨迹
+ * 2. 执行 Pure Pursuit + PID 路径跟踪
+ * 3. 发布控制指令到 vehicle_cmd_gate 外部输入
  */
 class ReverseParkingPlannerNode : public rclcpp::Node
 {
@@ -45,7 +45,16 @@ public:
   explicit ReverseParkingPlannerNode(const rclcpp::NodeOptions & options);
 
 private:
-  // 回调函数
+  struct PathPoint
+  {
+    double x{};
+    double y{};
+    double yaw{};
+    bool is_reverse{true};
+    double curvature{};
+  };
+
+  // 规划与控制回调函数
   void onTimer();
   void onOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
 
@@ -61,56 +70,110 @@ private:
   
   // 规划函数
   bool planPath();
-  autoware_planning_msgs::msg::Trajectory convertToTrajectory(
-    const std::vector<PathPoint>& path_points) const;
+  autoware_planning_msgs::msg::Trajectory convertToTrajectory(const std::vector<PathPoint> & path_points)
+    const;
+  std::vector<PathPoint> generateStraightReversePath() const;
   
   // 可视化
-  void publishVisualization(const std::vector<PathPoint>& path_points);
-  visualization_msgs::msg::MarkerArray createPathMarkers(
-    const std::vector<PathPoint>& path_points) const;
+  void publishVisualization(const std::vector<PathPoint> & path_points);
+  visualization_msgs::msg::MarkerArray createPathMarkers(const std::vector<PathPoint> & path_points) const;
   
-  // 工具函数
+  // 控制函数
+  void runControlLoop();
+  double calcSteeringAngle(
+    const geometry_msgs::msg::Pose & current_pose,
+    const autoware_planning_msgs::msg::Trajectory & trajectory,
+    size_t lookahead_idx, bool is_reverse) const;
+  double calcAcceleration(double target_velocity, double current_velocity);
+  size_t findNearestIndex(
+    const geometry_msgs::msg::Pose & current_pose,
+    const autoware_planning_msgs::msg::Trajectory & trajectory) const;
+  size_t findLookaheadIndex(
+    const geometry_msgs::msg::Pose & current_pose,
+    const autoware_planning_msgs::msg::Trajectory & trajectory,
+    size_t nearest_idx, double lookahead_distance) const;
+  bool isGoalReached(
+    const geometry_msgs::msg::Pose & current_pose,
+    const autoware_planning_msgs::msg::Trajectory & trajectory) const;
+  void publishControlCmd(double steering_angle, double acceleration, double target_velocity);
+  void publishGearCmd(bool is_reverse);
+  void publishIndicatorCmds(bool is_reverse, bool is_stopped);
+  void publishDebugMarkers(
+    const geometry_msgs::msg::Pose & current_pose,
+    size_t nearest_idx, size_t lookahead_idx);
+  double calcDistanceToGoal(const geometry_msgs::msg::Pose & current_pose) const;
+
   double normalizeAngle(double angle) const;
-  std::optional<geometry_msgs::msg::Pose> getCurrentPose() const;
 
   // ROS通信
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+
   rclcpp::Publisher<autoware_planning_msgs::msg::Trajectory>::SharedPtr traj_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Publisher<autoware_control_msgs::msg::Control>::SharedPtr control_cmd_pub_;
+  rclcpp::Publisher<autoware_vehicle_msgs::msg::GearCommand>::SharedPtr gear_cmd_pub_;
+  rclcpp::Publisher<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>::SharedPtr turn_indicator_cmd_pub_;
+  rclcpp::Publisher<autoware_vehicle_msgs::msg::HazardLightsCommand>::SharedPtr hazard_light_cmd_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
   rclcpp::Service<SetGoalPose>::SharedPtr set_goal_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr trigger_srv_;
   rclcpp::TimerBase::SharedPtr timer_;
 
-  // TF
-  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-
-  // 规划器
-  std::unique_ptr<ReedsSheppPlanner> planner_;
-  
-  // 状态
+  // 规划状态
   nav_msgs::msg::Odometry::ConstSharedPtr current_odom_;
+  autoware_planning_msgs::msg::Trajectory::SharedPtr current_trajectory_;
   geometry_msgs::msg::PoseStamped goal_pose_;
   bool has_goal_{false};
-  bool planning_triggered_{false};
   std::vector<PathPoint> current_path_;
 
-  // 参数
+  // 控制状态
+  bool is_goal_reached_{false};
+  bool is_distance_limit_reached_{false};
+  double reverse_driven_distance_{0.0};
+  double prev_reverse_odom_x_{0.0};
+  double prev_reverse_odom_y_{0.0};
+  bool prev_reverse_odom_initialized_{false};
+  bool prev_is_reverse_{false};
+  double pid_error_integral_{0.0};
+  double pid_prev_error_{0.0};
+  std::chrono::steady_clock::time_point prev_control_time_;
+  bool prev_control_time_initialized_{false};
+  std::chrono::steady_clock::time_point last_traj_publish_wall_time_;
+  bool last_traj_publish_initialized_{false};
+
+  // 规划参数
   double wheel_base_;
-  double min_turning_radius_;
-  double vehicle_length_;
-  double vehicle_width_;
   double path_resolution_;
-  double velocity_forward_;
   double velocity_reverse_;
   double publish_rate_;
-  bool enable_reverse_only_;
+  double velocity_creep_;
+  double decel_distance_;
 
-  // AGV充电对接优化参数
-  double final_approach_distance_;    // 最终直线倒车接近距离 [m]
-  double velocity_creep_;             // 蠕行速度（最终接近段最低速度）[m/s]
-  double decel_distance_;             // 终点减速区距离 [m]
-  double transition_decel_distance_;  // 方向切换减速区距离 [m]
+  // 直线倒车准入条件
+  double max_straight_lateral_error_;
+  double max_straight_yaw_error_;
+  double min_reverse_distance_;
+  double max_reverse_driving_distance_;
+
+  // 控制参数
+  double control_rate_;
+  double lookahead_distance_;
+  double min_lookahead_distance_;
+  double lookahead_ratio_;
+  double kp_;
+  double ki_;
+  double kd_;
+  double max_acceleration_;
+  double max_deceleration_;
+  double pid_integral_max_;
+  double goal_distance_threshold_;
+  double goal_yaw_threshold_;
+  double stop_velocity_threshold_;
+  double max_steering_angle_;
+  double reverse_lookahead_distance_;
+  double stanley_gain_;
+  double final_approach_distance_;
+  double final_approach_speed_;
 };
 
 }  // namespace reverse_parking_planner

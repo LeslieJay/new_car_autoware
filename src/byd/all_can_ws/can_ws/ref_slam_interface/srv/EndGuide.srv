@@ -1,0 +1,8 @@
+# request date
+bool is_target      # 表示前进
+bool is_terminus    # 表示返回
+---
+#response date
+bool is_reached         # 表示是否已经到达目标
+bool is_out_of_error    # 表示是否满足精度要求
+

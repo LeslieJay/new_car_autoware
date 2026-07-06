@@ -1,0 +1,12 @@
+# goal message
+Poses[] pose # 目标点集
+---
+# result message
+bool success # 执行成功标志
+bool preempt # 抢占标志
+bool time_out # 超时标志
+---
+# feedback message
+int64 current_target # 当前目标点
+int64 current_label # 当前点标签
+float64 current_angle # 当前点角度
