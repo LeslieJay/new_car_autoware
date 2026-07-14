@@ -230,6 +230,8 @@ private:
 
   void applyStopApproachingVelocity(TrajectoryPoints & traj) const;
 
+  void applyTerminalApproachVelocity(TrajectoryPoints & traj, const size_t stop_idx) const;
+
   void overwriteStopPoint(const TrajectoryPoints & input, TrajectoryPoints & output) const;
 
   double calcTravelDistance() const;

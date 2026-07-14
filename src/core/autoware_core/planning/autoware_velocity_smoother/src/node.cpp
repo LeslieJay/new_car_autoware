@@ -502,11 +502,12 @@ void VelocitySmootherNode::onCurrentTrajectory(const Trajectory::ConstSharedPtr 
     flipVelocity(input_points);
   }
 
-  const auto output = calcTrajectoryVelocity(input_points);
+  auto output = calcTrajectoryVelocity(input_points);
   if (output.empty()) {
     RCLCPP_WARN(get_logger(), "Output Point is empty");
     return;
   }
+  applyStopApproachingVelocity(output);
 
   // Note that output velocity is resampled by linear interpolation
   auto output_resampled = resampling::resampleTrajectory(
@@ -518,6 +519,7 @@ void VelocitySmootherNode::onCurrentTrajectory(const Trajectory::ConstSharedPtr 
   if (!output_resampled.empty()) {
     output_resampled.back().longitudinal_velocity_mps = 0.0;
   }
+  applyStopApproachingVelocity(output_resampled);
 
   // update previous step infomation
   updatePrevValues(output);
@@ -695,6 +697,7 @@ bool VelocitySmootherNode::smoothVelocity(
 
   // Set 0 velocity after input-stop-point
   overwriteStopPoint(clipped, traj_smoothed);
+  applyStopApproachingVelocity(traj_smoothed);
 
   traj_smoothed.insert(
     traj_smoothed.begin(), traj_resampled.begin(), traj_resampled.begin() + traj_resampled_closest);
@@ -703,6 +706,7 @@ bool VelocitySmootherNode::smoothVelocity(
   if (!traj_smoothed.empty()) {
     traj_smoothed.back().longitudinal_velocity_mps = 0.0;
   }
+  applyStopApproachingVelocity(traj_smoothed);
 
   // Max velocity filter for safety
   trajectory_utils::applyMaximumVelocityLimit(
@@ -987,11 +991,21 @@ void VelocitySmootherNode::applyStopApproachingVelocity(TrajectoryPoints & traj)
   autoware_utils_debug::ScopedTimeTrack st(__func__, *time_keeper_);
 
   const auto stop_idx = autoware::motion_utils::searchZeroVelocityIndex(traj);
-  if (!stop_idx) {
+  if (!stop_idx || *stop_idx == 0) {
     return;  // no stop point.
   }
+  applyTerminalApproachVelocity(traj, *stop_idx);
+}
+
+void VelocitySmootherNode::applyTerminalApproachVelocity(
+  TrajectoryPoints & traj, const size_t stop_idx) const
+{
+  if (traj.empty() || stop_idx == 0 || stop_idx >= traj.size()) {
+    return;
+  }
+
   double distance_sum = 0.0;
-  for (size_t i = *stop_idx - 1; i < traj.size(); --i) {  // search backward
+  for (size_t i = stop_idx - 1; i < traj.size(); --i) {  // search backward
     distance_sum += autoware_utils_geometry::calc_distance2d(traj.at(i), traj.at(i + 1));
     if (distance_sum > node_param_.stopping_distance) {
       break;

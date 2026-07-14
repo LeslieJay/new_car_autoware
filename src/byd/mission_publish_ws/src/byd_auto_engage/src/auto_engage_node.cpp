@@ -5,7 +5,9 @@ AutoEngageNode::AutoEngageNode()
   enabled_(true),
   require_autonomous_available_(false),
   goal_pending_(false),
+  local_mode_pending_(false),
   auto_engage_in_progress_(false),
+  local_mode_in_progress_(false),
   route_state_(0),
   operation_mode_(0),
   is_autoware_control_enabled_(false),
@@ -28,6 +30,10 @@ AutoEngageNode::AutoEngageNode()
     "/planning/mission_planning/goal", qos_goal,
     std::bind(&AutoEngageNode::goal_callback, this, std::placeholders::_1));
 
+  reverse_goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+    "/planning/parking/goal", qos_goal,
+    std::bind(&AutoEngageNode::reverse_goal_callback, this, std::placeholders::_1));
+
   route_state_sub_ = create_subscription<autoware_adapi_v1_msgs::msg::RouteState>(
     "/api/routing/state", qos_transient,
     std::bind(&AutoEngageNode::route_state_callback, this, std::placeholders::_1));
@@ -40,6 +46,10 @@ AutoEngageNode::AutoEngageNode()
     create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
       "/api/operation_mode/change_to_autonomous");
 
+  change_to_local_client_ =
+    create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
+      "/api/operation_mode/change_to_local");
+
   enable_autoware_control_client_ =
     create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
       "/api/operation_mode/enable_autoware_control");
@@ -51,7 +61,8 @@ AutoEngageNode::AutoEngageNode()
   RCLCPP_INFO(
     get_logger(),
     "Auto engage node started (enabled=%s, require_autonomous_available=%s, retry=%.1fs). "
-    "Waiting for goal on /planning/mission_planning/goal and route on /api/routing/state",
+    "Waiting for forward goal on /planning/mission_planning/goal, reverse goal on "
+    "/planning/parking/goal, and route on /api/routing/state",
     enabled_ ? "true" : "false",
     require_autonomous_available_ ? "true" : "false",
     retry_period_sec_);
@@ -70,6 +81,22 @@ void AutoEngageNode::goal_callback(const geometry_msgs::msg::PoseStamped::Shared
     msg->pose.position.x, msg->pose.position.y);
 
   try_auto_engage();
+}
+
+void AutoEngageNode::reverse_goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+  if (!enabled_) {
+    return;
+  }
+
+  local_mode_pending_ = true;
+  goal_pending_ = false;
+  RCLCPP_INFO(
+    get_logger(),
+    "Reverse parking goal received: (%.2f, %.2f), switching operation mode to LOCAL...",
+    msg->pose.position.x, msg->pose.position.y);
+
+  try_switch_to_local();
 }
 
 void AutoEngageNode::route_state_callback(
@@ -102,10 +129,19 @@ void AutoEngageNode::operation_mode_callback(
     RCLCPP_INFO(get_logger(), "Autonomous mode is now available, retrying auto engage...");
     try_auto_engage();
   }
+
+  if (local_mode_pending_) {
+    try_switch_to_local();
+  }
 }
 
 void AutoEngageNode::on_retry_timer()
 {
+  if (local_mode_pending_) {
+    try_switch_to_local();
+    return;
+  }
+
   if (goal_pending_) {
     try_auto_engage();
   }
@@ -113,7 +149,10 @@ void AutoEngageNode::on_retry_timer()
 
 void AutoEngageNode::try_auto_engage()
 {
-  if (!enabled_ || !goal_pending_ || route_state_ != ROUTE_STATE_SET || auto_engage_in_progress_) {
+  if (
+    !enabled_ || !goal_pending_ || local_mode_pending_ || route_state_ != ROUTE_STATE_SET ||
+    auto_engage_in_progress_ || local_mode_in_progress_)
+  {
     return;
   }
 
@@ -145,6 +184,28 @@ void AutoEngageNode::try_auto_engage()
   call_change_to_autonomous();
 }
 
+void AutoEngageNode::try_switch_to_local()
+{
+  if (!enabled_ || !local_mode_pending_ || local_mode_in_progress_ || auto_engage_in_progress_) {
+    return;
+  }
+
+  if (operation_mode_ == MODE_LOCAL) {
+    if (is_autoware_control_enabled_) {
+      RCLCPP_INFO(get_logger(), "Already in LOCAL mode with Autoware control enabled");
+      local_mode_pending_ = false;
+      return;
+    }
+
+    local_mode_in_progress_ = true;
+    call_enable_autoware_control_for_local();
+    return;
+  }
+
+  local_mode_in_progress_ = true;
+  call_change_to_local();
+}
+
 void AutoEngageNode::call_change_to_autonomous()
 {
   if (!change_to_autonomous_client_->service_is_ready()) {
@@ -162,6 +223,23 @@ void AutoEngageNode::call_change_to_autonomous()
     std::bind(&AutoEngageNode::on_change_to_autonomous_response, this, std::placeholders::_1));
 }
 
+void AutoEngageNode::call_change_to_local()
+{
+  if (!change_to_local_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 3000,
+      "Service /api/operation_mode/change_to_local is not ready");
+    local_mode_in_progress_ = false;
+    return;
+  }
+
+  RCLCPP_INFO(get_logger(), "Calling /api/operation_mode/change_to_local ...");
+  auto request = std::make_shared<autoware_adapi_v1_msgs::srv::ChangeOperationMode::Request>();
+  change_to_local_client_->async_send_request(
+    request,
+    std::bind(&AutoEngageNode::on_change_to_local_response, this, std::placeholders::_1));
+}
+
 void AutoEngageNode::call_enable_autoware_control()
 {
   if (!enable_autoware_control_client_->service_is_ready()) {
@@ -175,6 +253,23 @@ void AutoEngageNode::call_enable_autoware_control()
   enable_autoware_control_client_->async_send_request(
     request,
     std::bind(&AutoEngageNode::on_enable_autoware_control_response, this, std::placeholders::_1));
+}
+
+void AutoEngageNode::call_enable_autoware_control_for_local()
+{
+  if (!enable_autoware_control_client_->service_is_ready()) {
+    RCLCPP_WARN(get_logger(), "Service /api/operation_mode/enable_autoware_control is not ready");
+    local_mode_in_progress_ = false;
+    return;
+  }
+
+  RCLCPP_INFO(get_logger(), "Calling /api/operation_mode/enable_autoware_control for LOCAL ...");
+  auto request = std::make_shared<autoware_adapi_v1_msgs::srv::ChangeOperationMode::Request>();
+  enable_autoware_control_client_->async_send_request(
+    request,
+    std::bind(
+      &AutoEngageNode::on_enable_autoware_control_for_local_response, this,
+      std::placeholders::_1));
 }
 
 void AutoEngageNode::on_change_to_autonomous_response(
@@ -197,6 +292,26 @@ void AutoEngageNode::on_change_to_autonomous_response(
   }
 }
 
+void AutoEngageNode::on_change_to_local_response(
+  rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedFuture future)
+{
+  try {
+    const auto response = future.get();
+    if (response->status.success) {
+      RCLCPP_INFO(get_logger(), "change_to_local succeeded");
+      call_enable_autoware_control_for_local();
+    } else {
+      RCLCPP_WARN(
+        get_logger(), "change_to_local failed: %s (will retry)",
+        response->status.message.c_str());
+      local_mode_in_progress_ = false;
+    }
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(get_logger(), "change_to_local service call failed: %s", e.what());
+    local_mode_in_progress_ = false;
+  }
+}
+
 void AutoEngageNode::on_enable_autoware_control_response(
   rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedFuture future)
 {
@@ -214,6 +329,25 @@ void AutoEngageNode::on_enable_autoware_control_response(
     RCLCPP_ERROR(get_logger(), "enable_autoware_control service call failed: %s", e.what());
   }
   auto_engage_in_progress_ = false;
+}
+
+void AutoEngageNode::on_enable_autoware_control_for_local_response(
+  rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedFuture future)
+{
+  try {
+    const auto response = future.get();
+    if (response->status.success) {
+      RCLCPP_INFO(get_logger(), "enable_autoware_control succeeded, LOCAL mode switch complete");
+      local_mode_pending_ = false;
+    } else {
+      RCLCPP_ERROR(
+        get_logger(), "enable_autoware_control for LOCAL failed: %s (will retry)",
+        response->status.message.c_str());
+    }
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(get_logger(), "enable_autoware_control for LOCAL service call failed: %s", e.what());
+  }
+  local_mode_in_progress_ = false;
 }
 
 int main(int argc, char * argv[])

@@ -31,8 +31,8 @@
     stop_dist_to_prohibit_engage: 0.05  # if the stop point is in this distance, the speed is set to 0 not to move the vehicle [m]
 
     # stop velocity
-    stopping_velocity: 0.5  # change target velocity to this value before v=0 point [m/s]
-    stopping_distance: 5.0    # distance for the stopping_velocity [m]. 0 means the stopping velocity is not applied.
+    stopping_velocity: 0.3  # change target velocity to this value before v=0 point [m/s]
+    stopping_distance: 8.0    # distance for the stopping_velocity [m]. 0 means the stopping velocity is not applied.
 
     # path extraction parameters
     extract_ahead_dist: 100.0         # forward trajectory distance used for planning [m]
