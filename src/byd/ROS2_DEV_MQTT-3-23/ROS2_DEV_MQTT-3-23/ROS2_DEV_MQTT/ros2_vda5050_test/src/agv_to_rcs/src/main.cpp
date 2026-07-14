@@ -70,26 +70,31 @@ using vda5050_interfaces::msg::AGVConnection;
 // 定义全局函数用于日志输出和状态转换处理
 NodeStatus LogStateTransition(const TreeNode &node)
 {
-    std::cout << "1111111111111111111111111!" << std::endl;
-
-    // 从节点配置中获取黑板指针
     auto blackboard = node.config().blackboard;
 
     std::string last_state, current_state;
     bool success = blackboard->get("last_state", last_state);
     success = success && blackboard->get("current_state", current_state);
-    std::cout << "退出 " << last_state << ", AGV进入 " << current_state << "\n";
-
-    if (success)
-        return NodeStatus::SUCCESS;
-    else
+    if (!success) {
+        RCLCPP_WARN(rclcpp::get_logger("agv_to_rcs_main"), "State transition: blackboard keys missing");
         return NodeStatus::FAILURE;
+    }
+
+    // 仅在状态真正变化时打印，避免行为树周期刷屏
+    static std::string logged_transition;
+    const std::string transition = last_state + "->" + current_state;
+    if (transition != logged_transition) {
+        logged_transition = transition;
+        RCLCPP_INFO(
+            rclcpp::get_logger("agv_to_rcs_main"),
+            "State transition: %s -> %s", last_state.c_str(), current_state.c_str());
+    }
+    return NodeStatus::SUCCESS;
 }
 
 // 定义条件节点的回调函数
 NodeStatus IsCurrentState(const TreeNode &node, const std::string &state)
 {
-    std::cout << "进入IsCurrentStateInit!" << std::endl; std::cout.flush();
     std::string current_state;
     bool success = node.config().blackboard->get("current_state", current_state);
     if (current_state == state && success)

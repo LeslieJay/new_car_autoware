@@ -255,7 +255,7 @@ private:
   // Algorithm
   Control prev_control_cmd_;
   Control createStopControlCmd() const;
-  Longitudinal createLongitudinalStopControlCmd() const;
+  Longitudinal createLongitudinalStopControlCmd(double acceleration) const;
   Control createEmergencyStopControlCmd() const;
 
   std::shared_ptr<rclcpp::Time> prev_time_;

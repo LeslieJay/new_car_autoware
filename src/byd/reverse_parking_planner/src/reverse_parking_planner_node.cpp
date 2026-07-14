@@ -59,10 +59,17 @@ ReverseParkingPlannerNode::ReverseParkingPlannerNode(const rclcpp::NodeOptions &
     "~/input/odometry", 1,
     std::bind(&ReverseParkingPlannerNode::onOdometry, this, std::placeholders::_1));
 
+  rear_warning_level_sub_ = create_subscription<std_msgs::msg::UInt8>(
+    "~/input/rear_warning_level", 1,
+    std::bind(&ReverseParkingPlannerNode::onRearWarningLevel, this, std::placeholders::_1));
+
   traj_pub_ = create_publisher<autoware_planning_msgs::msg::Trajectory>(
     "~/output/trajectory", 1);
   marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
     "~/output/path_markers", 1);
+  // transient_local: 晚启动的状态节点也能收到最近一次倒车 goal
+  goal_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
+    "~/output/goal", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
   control_cmd_pub_ = create_publisher<autoware_control_msgs::msg::Control>(
     "~/output/control_cmd", 1);
   gear_cmd_pub_ = create_publisher<autoware_vehicle_msgs::msg::GearCommand>(
@@ -132,18 +139,31 @@ void ReverseParkingPlannerNode::onOdometry(const nav_msgs::msg::Odometry::ConstS
   current_odom_ = msg;
 }
 
+void ReverseParkingPlannerNode::onRearWarningLevel(
+  const std_msgs::msg::UInt8::ConstSharedPtr msg)
+{
+  rear_warning_level_ = msg->data;
+}
+
 void ReverseParkingPlannerNode::onSetGoalPose(
   const std::shared_ptr<SetGoalPose::Request> request,
   std::shared_ptr<SetGoalPose::Response> response)
 {
   goal_pose_ = request->goal_pose;
+  if (goal_pose_.header.stamp.sec == 0 && goal_pose_.header.stamp.nanosec == 0) {
+    goal_pose_.header.stamp = now();
+  }
+  if (goal_pose_.header.frame_id.empty()) {
+    goal_pose_.header.frame_id = "map";
+  }
   has_goal_ = true;
-  
+  goal_pub_->publish(goal_pose_);
+
   RCLCPP_INFO(get_logger(), "Service: Received goal pose: (%.2f, %.2f, %.2f)",
               goal_pose_.pose.position.x,
               goal_pose_.pose.position.y,
               tf2::getYaw(goal_pose_.pose.orientation));
-  
+
   if (!current_odom_) {
     response->success = false;
     response->message = "No odometry available, goal saved but planning deferred";
@@ -508,6 +528,16 @@ void ReverseParkingPlannerNode::runControlLoop()
     publishControlCmd(0.0, max_deceleration_, 0.0);
     publishGearCmd(false);
     publishIndicatorCmds(false, true);
+    return;
+  }
+
+  if (rear_warning_level_ == kRearWarningCaution) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Rear warning level CAUTION: publishing zero velocity");
+    publishControlCmd(0.0, max_deceleration_, 0.0);
+    publishGearCmd(true);
+    publishIndicatorCmds(true, true);
     return;
   }
 

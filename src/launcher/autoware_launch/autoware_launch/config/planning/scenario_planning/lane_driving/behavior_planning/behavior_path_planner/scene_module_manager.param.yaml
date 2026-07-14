@@ -15,7 +15,9 @@
     slot2:
       - "side_shift"
       - "avoidance_by_lane_change"
+      - "simple_lane_change_avoidance"
       - "static_obstacle_avoidance"
+      - "simple_avoidance"
       - "lane_change_left"
       - "lane_change_right"
       - "external_request_lane_change_left"
@@ -66,9 +68,19 @@
       enable_simultaneous_execution_as_approved_module: true
       enable_simultaneous_execution_as_candidate_module: false
 
+    simple_avoidance:
+      enable_rtc: false
+      enable_simultaneous_execution_as_approved_module: true
+      enable_simultaneous_execution_as_candidate_module: false
+
     avoidance_by_lane_change:
       enable_rtc: false
       enable_simultaneous_execution_as_approved_module: false
+      enable_simultaneous_execution_as_candidate_module: false
+
+    simple_lane_change_avoidance:
+      enable_rtc: false
+      enable_simultaneous_execution_as_approved_module: true
       enable_simultaneous_execution_as_candidate_module: false
 
     dynamic_obstacle_avoidance:

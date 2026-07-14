@@ -17,7 +17,8 @@
   <depend>tf2_geometry_msgs REQUIRED</depend>
   <depend>behaviortree_cpp</depend>
   <depend>yaml-cpp</depend>
-
+  <depend>reverse_parking_planner</depend>
+  <depend>autoware_system_msgs</depend>
   <build_depend>ref_slam_interface</build_depend>
   <exec_depend>ref_slam_interface</exec_depend>
   <build_depend>agv_interfaces</build_depend>

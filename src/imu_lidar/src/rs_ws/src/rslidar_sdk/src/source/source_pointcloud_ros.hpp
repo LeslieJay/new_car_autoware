@@ -437,6 +437,11 @@ public:
 #endif
   virtual ~DestinationPointCloudRos() = default;
 
+  void setNode(const rclcpp::Node::SharedPtr& node)
+  {
+    node_ptr_ = node;
+  }
+
 private:
   std::shared_ptr<rclcpp::Node> node_ptr_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_;
@@ -467,11 +472,13 @@ inline void DestinationPointCloudRos::init(const YAML::Node& config)
   size_t ros_queue_length;
   yamlRead<size_t>(config["ros"], "ros_queue_length", ros_queue_length, 100);
 
-  static int node_index = 0;
-  std::stringstream node_name;
-  node_name << "rslidar_points_destination_" << node_index++;
-
-  node_ptr_.reset(new rclcpp::Node(node_name.str()));
+  if (!node_ptr_)
+  {
+    static int node_index = 0;
+    std::stringstream node_name;
+    node_name << "rslidar_points_destination_" << node_index++;
+    node_ptr_.reset(new rclcpp::Node(node_name.str()));
+  }
 
   pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(ros_send_topic, ros_queue_length);
 

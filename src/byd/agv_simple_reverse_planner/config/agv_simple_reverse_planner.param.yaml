@@ -1,0 +1,38 @@
+/**:
+  ros__parameters:
+    control_rate: 30.0
+    publish_rate: 10.0
+
+    wheel_base: 1.01
+    path_resolution: 0.05
+    velocity_reverse: -1.0
+    velocity_creep: 0.05
+    decel_distance: 1.5
+    final_approach_distance: 1.0
+    final_approach_speed: 0.05
+
+    max_straight_lateral_error: 1.0
+    max_straight_yaw_error: 1.0
+    min_reverse_distance: 0.2
+    max_reverse_driving_distance: 0.0
+    # RS planner params
+    rs_turning_radius: 2.0
+    rs_step_size: 0.1
+    rs_reverse_only: true
+    rs_lookahead_distance: 0.7
+    # Kept for compatibility, straight fallback is disabled in current implementation
+
+    goal_distance_threshold: 0.05
+    goal_yaw_threshold: 0.03
+    stop_velocity_threshold: 0.02
+
+    max_steering_angle: 0.6
+    lat_kp: 0.4
+    yaw_kp: 0.8
+    pid:
+      kp: 1.5
+      ki: 0.0
+      kd: 0.0
+      integral_max: 0.0
+    max_acceleration: 0.5
+    max_deceleration: -1.0

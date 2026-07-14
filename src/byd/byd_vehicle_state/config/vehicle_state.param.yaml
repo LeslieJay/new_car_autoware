@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    update_rate: 10.0
+    # 到达判定阈值
+    arrive_distance_threshold: 0.1   # [m]
+    arrive_yaw_threshold: 0.1        # [rad]
+    arrive_speed_threshold: 0.05     # [m/s]
+    arrive_hold_time: 1.0            # 满足条件后持续多久才宣布 ARRIVED_GOAL [s]
+    arrived_to_unset_timeout: 2.0    # 宣布到达后多久清 goal，回到 WaitingForRoute [s]
+    # 前进模式是否额外采纳 /api/routing/state == ARRIVED
+    use_route_state_for_forward: true

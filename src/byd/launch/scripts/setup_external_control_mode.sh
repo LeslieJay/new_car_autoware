@@ -4,10 +4,19 @@
 
 set -eo pipefail
 
-source /opt/ros/humble/setup.bash
-if [ -f /home/nvidia/autoware/install/setup.bash ]; then
+if [ -z "${ROS_DISTRO:-}" ]; then
   # shellcheck disable=SC1091
-  source /home/nvidia/autoware/install/setup.bash
+  source /opt/ros/humble/setup.bash
+fi
+
+if [ -f "${HOME}/autoware/install/setup.bash" ]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/autoware/install/setup.bash"
+elif [ -n "${AMENT_PREFIX_PATH:-}" ]; then
+  :
+else
+  echo "[setup_external_control] workspace setup.bash not found" >&2
+  exit 1
 fi
 
 wait_for_service() {

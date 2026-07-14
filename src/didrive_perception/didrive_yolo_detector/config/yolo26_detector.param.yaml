@@ -3,7 +3,7 @@
     # 你的 TensorRT 模型路径
     model_path: "/home/nvidia/autoware_data/yolo/yolo26s.engine"
     # 输入的相机图像话题（对应你 1920x1200 的相机流）
-    input_topic: "/camera1/image_raw"
+    input_topic: "/camera3/image_raw"
     # # 发布的 Autoware ROI 感知结果话题
     # output_topic: "/perception/object_recognition/detection/rois0"
     # 置信度过滤阈值

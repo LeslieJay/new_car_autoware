@@ -519,7 +519,7 @@ int main(int argc, char *argv[])
 
                 // 发送目标位姿
                 std::vector<Point> multi_poses = {goal_points.back()}; // 发给多点导航的点集只需要头尾即可
-                send_multi_pose->send_goal(multi_poses);
+                send_multi_pose->send_goal(multi_poses, true);
 
                 send_multi_pose->flag_finish = false;
 
@@ -567,7 +567,7 @@ int main(int argc, char *argv[])
                         std::cout << "(" << goal_points[i].x << "," << goal_points[i].y << "," << goal_points[i].theta << ")" << std::endl;
                     }
 
-                    send_multi_pose->send_goal(goal_points);
+                    send_multi_pose->send_goal(goal_points, true);
                 }
                 else
                 {

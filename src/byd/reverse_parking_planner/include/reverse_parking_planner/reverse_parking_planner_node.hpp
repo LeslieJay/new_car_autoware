@@ -19,6 +19,7 @@
 #include <autoware_vehicle_msgs/msg/gear_command.hpp>
 #include <autoware_vehicle_msgs/msg/hazard_lights_command.hpp>
 #include <autoware_vehicle_msgs/msg/turn_indicators_command.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include "reverse_parking_planner/srv/set_goal_pose.hpp"
 
@@ -54,9 +55,16 @@ private:
     double curvature{};
   };
 
+  // 与 didrive_rear_pedestrian_warning 一致的倒车后方危险等级
+  static constexpr uint8_t kRearWarningSafe = 0;
+  static constexpr uint8_t kRearWarningWarning = 1;
+  static constexpr uint8_t kRearWarningCaution = 2;
+  static constexpr uint8_t kRearWarningStop = 3;
+
   // 规划与控制回调函数
   void onTimer();
   void onOdometry(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  void onRearWarningLevel(const std_msgs::msg::UInt8::ConstSharedPtr msg);
 
   // 服务回调：设置目标位姿并触发规划
   void onSetGoalPose(
@@ -107,9 +115,11 @@ private:
 
   // ROS通信
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr rear_warning_level_sub_;
 
   rclcpp::Publisher<autoware_planning_msgs::msg::Trajectory>::SharedPtr traj_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<autoware_control_msgs::msg::Control>::SharedPtr control_cmd_pub_;
   rclcpp::Publisher<autoware_vehicle_msgs::msg::GearCommand>::SharedPtr gear_cmd_pub_;
   rclcpp::Publisher<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>::SharedPtr turn_indicator_cmd_pub_;
@@ -127,6 +137,7 @@ private:
   std::vector<PathPoint> current_path_;
 
   // 控制状态
+  uint8_t rear_warning_level_{kRearWarningSafe};
   bool is_goal_reached_{false};
   bool is_distance_limit_reached_{false};
   double reverse_driven_distance_{0.0};

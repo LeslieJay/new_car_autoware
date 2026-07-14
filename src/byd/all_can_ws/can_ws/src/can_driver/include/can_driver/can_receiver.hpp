@@ -11,85 +11,65 @@
 // include/can_driver/can_receiver.hpp
 #ifndef CAN_DRIVER__CAN_RECEIVER_HPP_
 #define CAN_DRIVER__CAN_RECEIVER_HPP_
-#include <iostream>
+#include <condition_variable>
+#include <cstdint>
+#include <atomic>
+#include <fstream>
+#include <iomanip>
+#include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
-#include <bitset>
-#include <atomic>
-#include <cstring> // 用于memcpy
-#include <queue>
-#include <random>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <linux/can.h>
-#include <linux/can/raw.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <stdexcept>
-#include <fstream>
-#include "rclcpp/rclcpp.hpp"
-#include <poll.h> 
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <fstream>
-#include <atomic>
-#include <iomanip>   // for std::put_time
-#include "can_driver/agv_config.h"
-#include "std_msgs/msg/int32.hpp"
-#include "std_msgs/msg/bool.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
-#include "agv_interfaces/action/tray_control.hpp"
-#include "agv_interfaces/srv/battery_control.hpp"
-#include "agv_interfaces/msg/battery_state.hpp"
-#include "agv_interfaces/msg/tray_state.hpp"
-#include "agv_interfaces/msg/differential_wheel.hpp"
-#include "can_driver/can_send.hpp"
 
+#include <linux/can.h>
+
+#include "rclcpp/rclcpp.hpp"
+#include "ref_slam_interface/msg/battery_state.hpp"
+#include "can_driver/can_send.hpp"
 #include "autoware_control_msgs/msg/control.hpp"
-#include "autoware_vehicle_msgs/msg/steering_report.hpp"
-#include "autoware_vehicle_msgs/msg/velocity_report.hpp"
+#include "autoware_control_msgs/msg/safety_state.hpp"
 #include "autoware_vehicle_msgs/msg/control_mode_report.hpp"
-#include "autoware_vehicle_msgs/msg/turn_indicators_command.hpp"
-#include "tier4_external_api_msgs/srv/engage.hpp"
-#include <geometry_msgs/msg/twist.hpp>
 #include <autoware_vehicle_msgs/msg/gear_command.hpp>
 #include <autoware_vehicle_msgs/msg/gear_report.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <autoware_sensing_msgs/msg/gnss_ins_orientation_stamped.hpp>
-#include <autoware_control_msgs/msg/safety_state.hpp>
-#include "usbcan/controlcan.h"
-# include "vda5050_interfaces/msg/agv_state.hpp"
+#include "autoware_vehicle_msgs/msg/steering_report.hpp"
+#include "autoware_vehicle_msgs/msg/velocity_report.hpp"
+#include <geometry_msgs/msg/twist.hpp>
+#include "tier4_external_api_msgs/srv/engage.hpp"
+#include "vda5050_interfaces/msg/agv_state.hpp"
 #include "vda5050_interfaces/msg/error.hpp"
-#include "usbcan/usbcan_utils.hpp"
 
-#define WHEELBASE 1.1
-#define PI 3.14159265358979323846
-extern std::shared_ptr<can_driver::CanSend> send_queue_;
-enum class TURN_STATE: int
-{
-  NO_COMMAND = 0,
-  DISABLE = 1,
-  ENABLE_LEFT = 2,
-  ENABLE_RIGHT = 3,
-};
+constexpr double kWheelbase = 1.1;
+constexpr double kPi = 3.14159265358979323846;
 
-
-using agv_interfaces::msg::BatteryState;
-using agv_interfaces::msg::DifferentialWheel;
-
-
+using ref_slam_interface::msg::BatteryState;
 using std::placeholders::_1;
 using std::placeholders::_2;
-using namespace std;
+
+struct AGVInfo
+{
+    int enable{0};
+    int steer_enable{0};
+    int drive_enable{0};
+    int16_t speed_command{0};
+    int16_t steer_command{0};
+    int operate_mode{0}; // 手动0/自动1
+};
+
+struct BatteryInfo
+{
+    int charge_status{0};
+    int charge_allowed{0};
+    int discharge_allowed{0};
+    double battery_level{0.0};
+    double total_voltage{0.0};
+    double total_current{0.0};
+};
+
 // 双轮差速
 namespace can_driver
 {
+    extern std::shared_ptr<CanSend> send_queue_;
    
     class CanReceiver 
     {
@@ -172,16 +152,16 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Publisher<autoware_vehicle_msgs::msg::VelocityReport>::SharedPtr velocity_publisher_;
         rclcpp::Publisher<autoware_vehicle_msgs::msg::ControlModeReport>::SharedPtr control_mode_publisher_;
         rclcpp::Publisher<autoware_vehicle_msgs::msg::GearReport>::SharedPtr gear_report_publisher_;
-        rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr rtk_NavSatFix_publisher_;
-        rclcpp::Publisher<autoware_sensing_msgs::msg::GnssInsOrientationStamped>::SharedPtr rtk_GnssInsOrientationStamped_publisher_;
-        rclcpp::Publisher<agv_interfaces::msg::BatteryState>::SharedPtr battery_publisher_;
+        rclcpp::Publisher<ref_slam_interface::msg::BatteryState>::SharedPtr battery_publisher_;
         rclcpp::Publisher<vda5050_interfaces::msg::Error>::SharedPtr error_publisher_;
+        // linear.x=velocity(m/s), angular.z=steering_angle(rad)
+        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr control_cmd_debug_pub_;
+        // linear.x=speed_command(mm/s), angular.z=angle_command(0.01deg)
+        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr can_cmd_debug_pub_;
 
 
         rclcpp::Subscription<vda5050_interfaces::msg::AGVState>::SharedPtr agv_state_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::Control>::SharedPtr control_subscript_;
-        rclcpp::Subscription<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>::SharedPtr turn_cmd_subscript_;
-        rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr keyboard_subscript_;;
         rclcpp::Subscription<autoware_vehicle_msgs::msg::GearCommand>::SharedPtr gear_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::SafetyState>::SharedPtr car_instance_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::SafetyState>::SharedPtr person_instance_subscript_;
@@ -192,8 +172,6 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         void control_cmd_callback(const autoware_control_msgs::msg::Control::ConstSharedPtr msg);
         void gear_cmd_callback(const autoware_vehicle_msgs::msg::GearCommand::ConstSharedPtr msg);
         void publishGearStatus(uint8_t report);
-        void turn_cmd_callback(const autoware_vehicle_msgs::msg::TurnIndicatorsCommand::ConstSharedPtr msg);
-        void keyboard_cmd_callback(const geometry_msgs::msg::Twist::ConstSharedPtr msg);
         void person_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg);
         void car_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg);
         void sendSafetyFrameCallback();
@@ -210,9 +188,6 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         AGVInfo agv_info_;
 
         BatteryInfo battery_info_;
-        agv_interfaces::msg::BatteryState battery_msg;
-        agv_interfaces::msg::DifferentialWheel real_differentialwheel_vel_msg;
-
 
 
         double current_angle_ = 0;
@@ -224,6 +199,12 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         int gear = 1;
         uint8_t current_gear_report_ =
           autoware_vehicle_msgs::msg::GearReport::DRIVE;
+        rclcpp::Time last_control_cmd_log_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time last_can_cmd_log_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time last_voice_frame_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time last_engage_frame_time_{0, 0, RCL_ROS_TIME};
+        int voice_frame_period_ms_{200};
+        int engage_frame_period_ms_{500};
     };
 
 } // namespace can_driver

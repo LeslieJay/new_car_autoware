@@ -274,6 +274,15 @@ void PathOptimizer::onPath(const Path::ConstSharedPtr path_ptr)
   // 4. set zero velocity after stop point
   setZeroVelocityAfterStopPoint(full_traj_points);
 
+  // 4.1 Guarantee goal terminal velocity stays zero when the input path ends with a stop.
+  // Without this, applyInputVelocity / extendTrajectory can intermittently leave the end point at
+  // lane speed limit (e.g. 4.167 m/s), which collapses velocity_smoother's stop approach profile
+  // and causes the vehicle to overshoot the goal on velocity-command vehicles.
+  if (!full_traj_points.empty() && !planner_data.traj_points.empty() &&
+      hasZeroVelocity(planner_data.traj_points.back())) {
+    full_traj_points.back().longitudinal_velocity_mps = 0.0;
+  }
+
   // 5. publish debug data
   publishDebugData(planner_data.header);
   updater_.force_update();
@@ -523,7 +532,16 @@ void PathOptimizer::applyInputVelocity(
     }();
     if (is_stop_point_inside_trajectory) {
       trajectory_utils::insertStopPoint(output_traj_points, input_stop_pose, *stop_seg_idx);
+    } else if (!output_traj_points.empty()) {
+      // Stop lies beyond the optimized trajectory end (e.g. goal just outside the last segment).
+      // Still force terminal velocity to 0 so downstream velocity_smoother can apply creeping stop.
+      output_traj_points.back().longitudinal_velocity_mps = 0.0;
     }
+  } else if (
+    !output_traj_points.empty() && !input_traj_points.empty() &&
+    hasZeroVelocity(input_traj_points.back())) {
+    // Forward crop dropped the goal stop point; keep terminal velocity consistent with input goal.
+    output_traj_points.back().longitudinal_velocity_mps = 0.0;
   }
 }
 

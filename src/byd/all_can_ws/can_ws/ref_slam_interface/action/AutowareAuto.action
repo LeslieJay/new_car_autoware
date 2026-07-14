@@ -1,5 +1,6 @@
 # Goal: 单个目标位姿
 geometry_msgs/PoseStamped goal_pose
+bool forward
 ---
 # Result: 执行结果（例如是否成功到达）
 bool success

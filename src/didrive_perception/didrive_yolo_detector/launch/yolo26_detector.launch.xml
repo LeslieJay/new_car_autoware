@@ -8,7 +8,7 @@
 
 <launch>
   <arg name="param_path" default="$(find-pkg-share didrive_yolo_detector)/config/yolo26_detector.param.yaml"/>
-  <arg name="input_image" default="/cam1/image_rect"/>
+  <arg name="input_image" default="/camera3/image_raw"/>
   <arg name="output_objects" default="/perception/object_recognition/detection/rois0"/>
   <arg name="output_image" default="/perception/object_recognition/detection/debug_image"/>
 

@@ -1,79 +1,96 @@
 #!/usr/bin/env python3
-"""Launch reverse parking planner and controller together."""
+"""Reverse parking wrapper: wait for Autoware control APIs, init LOCAL mode, then planner."""
 
 import os
+import sys
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
+_LAUNCH_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _LAUNCH_DIR)
+from launch_utils import (  # noqa: E402
+    make_wait_process,
+    on_success,
+    setup_external_control_script_path,
+    set_console_format,
+)
+
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('byd_launch')
-    setup_script = os.path.join(pkg_share, 'scripts', 'setup_external_control_mode.sh')
+    pkg_share = get_package_share_directory('reverse_parking_planner')
+    default_config = os.path.join(pkg_share, 'config', 'reverse_parking_planner.param.yaml')
+    planner_launch = os.path.join(pkg_share, 'launch', 'reverse_parking_planner.launch.py')
 
-    planner_launch = os.path.join(
-        get_package_share_directory('reverse_parking_planner'),
-        'launch',
-        'reverse_parking_planner.launch.py',
+    declare_reverse_parking_config_file = DeclareLaunchArgument(
+        'reverse_parking_config_file',
+        default_value=default_config,
+        description='Path to reverse_parking_planner parameter file',
     )
-    controller_launch = os.path.join(
-        get_package_share_directory('reverse_parking_controller'),
-        'launch',
-        'reverse_parking_controller.launch.py',
+    declare_log_level = DeclareLaunchArgument(
+        'log_level',
+        default_value='info',
+        description='ROS log level for reverse parking stack',
     )
-
-    declare_input_odom = DeclareLaunchArgument(
-        'input_odom',
-        default_value='/localization/kinematic_state',
-        description='Shared odometry topic for planner and controller',
-    )
-
-    declare_trajectory = DeclareLaunchArgument(
-        'trajectory_topic',
-        default_value='/planning/scenario_planning/parking/trajectory',
-        description='Trajectory topic from planner to controller',
+    declare_readiness_timeout_sec = DeclareLaunchArgument(
+        'readiness_timeout_sec',
+        default_value='180',
+        description='Timeout for Autoware control API readiness',
     )
 
-    declare_setup_external_control = DeclareLaunchArgument(
-        'setup_external_control',
-        default_value='true',
-        description='Run setup script for LOCAL external control mode before parking',
+    wait_autoware_control = make_wait_process(
+        name='wait_reverse_parking_autoware',
+        services=[
+            '/api/operation_mode/change_to_local',
+            '/api/operation_mode/enable_autoware_control',
+            '/api/autoware/set/engage',
+            '/control/vehicle_cmd_gate/set_pause',
+        ],
+        topics=['/localization/kinematic_state'],
     )
 
-    planner = IncludeLaunchDescription(
+    setup_external_control = ExecuteProcess(
+        cmd=[setup_external_control_script_path()],
+        output='screen',
+        name='setup_external_control_mode',
+    )
+
+    reverse_parking_planner = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(planner_launch),
         launch_arguments={
-            'input_odom': LaunchConfiguration('input_odom'),
-            'output_trajectory': LaunchConfiguration('trajectory_topic'),
+            'config_file': LaunchConfiguration('reverse_parking_config_file'),
         }.items(),
     )
 
-    controller = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(controller_launch),
-        launch_arguments={
-            'input_odom': LaunchConfiguration('input_odom'),
-            'input_trajectory': LaunchConfiguration('trajectory_topic'),
-        }.items(),
+    start_setup_after_wait = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_autoware_control,
+            on_exit=on_success([setup_external_control], 'reverse_parking/autoware'),
+        ),
     )
 
-    setup_external_control = TimerAction(
-        period=5.0,
-        actions=[
-            ExecuteProcess(
-                cmd=['bash', setup_script],
-                output='screen',
-            ),
-        ],
+    start_planner_after_setup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=setup_external_control,
+            on_exit=on_success([reverse_parking_planner], 'reverse_parking/setup'),
+        ),
     )
 
     return LaunchDescription([
-        declare_input_odom,
-        declare_trajectory,
-        declare_setup_external_control,
-        planner,
-        controller,
-        setup_external_control,
+        *set_console_format(),
+        declare_reverse_parking_config_file,
+        declare_log_level,
+        declare_readiness_timeout_sec,
+        wait_autoware_control,
+        start_setup_after_wait,
+        start_planner_after_setup,
     ])

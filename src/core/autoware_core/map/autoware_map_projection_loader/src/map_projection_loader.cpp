@@ -44,7 +44,11 @@ autoware_map_msgs::msg::MapProjectorInfo load_info_from_yaml(const std::string &
     msg.vertical_datum = data["vertical_datum"].as<std::string>();
     msg.map_origin.latitude = data["map_origin"]["latitude"].as<double>();
     msg.map_origin.longitude = data["map_origin"]["longitude"].as<double>();
-    msg.map_origin.altitude = 0.0;
+    if (data["map_origin"]["altitude"]) {
+      msg.map_origin.altitude = data["map_origin"]["altitude"].as<double>();
+    } else {
+      msg.map_origin.altitude = 0.0;
+    }
 
   } else if (msg.projector_type == autoware_map_msgs::msg::MapProjectorInfo::LOCAL) {
     ;  // do nothing

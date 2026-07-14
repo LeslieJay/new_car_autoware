@@ -1,0 +1,9 @@
+# config/can_params.yaml
+can_six_node:
+  ros__parameters:
+    interface1: "can1"
+    bitrate1: 250000
+    can1_use: true
+    txqueuelen: 1000
+    raw_log_basename: "/tmp/rtk_canfd/rtk_canfd"
+    # ca_cert_path defaults to share/can_six_driver/certs/sixentsCA.crt

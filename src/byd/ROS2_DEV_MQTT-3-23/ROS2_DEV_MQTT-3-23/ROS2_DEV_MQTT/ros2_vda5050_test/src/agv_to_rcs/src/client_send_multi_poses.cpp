@@ -63,7 +63,7 @@ rclcpp::Client<UseTrajectory>::FutureAndRequestId LaserSendMultiPose::send_reque
     return trajectory_client_->async_send_request(request);
     
 }
-void LaserSendMultiPose::send_goal(std::vector<Point> goal_points)
+void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 {
     
     if(!action_client_->wait_for_action_server(10s)){
@@ -80,10 +80,10 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points)
     pose.pose.position.x = goal_points[i].x;
     pose.pose.position.y = goal_points[i].y;
     pose.pose.position.z = 0.0;
-    RCLCPP_INFO(node_->get_logger(), 
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABefore conversion: theta = %f rad (%f deg)", 
-    goal_points[i].theta, goal_points[i].theta * M_PI / 180.0);
-    goal_points[i].theta = goal_points[i].theta * M_PI / 180.0;
+    // RCLCPP_INFO(node_->get_logger(), 
+    // "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABefore conversion: theta = %f rad (%f deg)", 
+    // goal_points[i].theta, goal_points[i].theta * M_PI / 180.0);
+    // goal_points[i].theta = goal_points[i].theta * M_PI / 180.0;
     tf2::Quaternion q;
     q.setRPY(0, 0, goal_points[i].theta);
     pose.pose.orientation = tf2::toMsg(q);  
@@ -94,6 +94,7 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points)
     pose.pose.orientation.z, pose.pose.orientation.w);
     auto goal_msg = AutowareAuto::Goal();
     goal_msg.goal_pose = pose;
+    goal_msg.forward = forward;
     //goal_msg.behavior_tree = "/home/lf/ros_ws/nav_ws/src/agv_description/bt_xml/navigate_through_poses_w_replanning_and_recovery.xml";
 
     RCLCPP_INFO(node_->get_logger(), "Done! Sending goal...");

@@ -40,6 +40,13 @@ namespace robosense
 namespace lidar
 {
 
+#ifdef ROS2_FOUND
+void NodeManager::setRosNode(const rclcpp::Node::SharedPtr& node)
+{
+  ros_node_ = node;
+}
+#endif
+
 void NodeManager::init(const YAML::Node& config)
 {
   YAML::Node common_config = yamlSubNodeAbort(config, "common");
@@ -86,8 +93,17 @@ void NodeManager::init(const YAML::Node& config)
         RS_INFO << "Msop Topic: " << lidar_config[i]["ros"]["ros_recv_packet_topic"].as<std::string>() << RS_REND;
         RS_INFO << "------------------------------------------------------" << RS_REND;
 
-        source = std::make_shared<SourcePacketRos>();
-        source->init(lidar_config[i]);
+        {
+          std::shared_ptr<SourcePacketRos> packet_source = std::make_shared<SourcePacketRos>();
+#ifdef ROS2_FOUND
+          if (ros_node_)
+          {
+            packet_source->setNode(ros_node_);
+          }
+#endif
+          packet_source->init(lidar_config[i]);
+          source = packet_source;
+        }
         break;
 
       case SourceType::MSG_FROM_PCAP:  // pcap
@@ -114,7 +130,13 @@ void NodeManager::init(const YAML::Node& config)
       RS_DEBUG << "Msop Topic: " << lidar_config[i]["ros"]["ros_send_packet_topic"].as<std::string>() << RS_REND;
       RS_DEBUG << "------------------------------------------------------" << RS_REND;
 
-      std::shared_ptr<DestinationPacket> dst = std::make_shared<DestinationPacketRos>();
+      std::shared_ptr<DestinationPacketRos> dst = std::make_shared<DestinationPacketRos>();
+#ifdef ROS2_FOUND
+      if (ros_node_)
+      {
+        dst->setNode(ros_node_);
+      }
+#endif
       dst->init(lidar_config[i]);
       source->regPacketCallback(dst);
     }
@@ -127,7 +149,13 @@ void NodeManager::init(const YAML::Node& config)
                << RS_REND;
       RS_DEBUG << "------------------------------------------------------" << RS_REND;
 
-      std::shared_ptr<DestinationPointCloud> dst = std::make_shared<DestinationPointCloudRos>();
+      std::shared_ptr<DestinationPointCloudRos> dst = std::make_shared<DestinationPointCloudRos>();
+#ifdef ROS2_FOUND
+      if (ros_node_)
+      {
+        dst->setNode(ros_node_);
+      }
+#endif
       dst->init(lidar_config[i]);
       source->regPointCloudCallback(dst);
     }

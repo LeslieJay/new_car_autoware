@@ -221,7 +221,7 @@ private:
             case 2: return 2; // CAR
             case 3: return 3; // TRUCK
             case 5: return 5; // BUS
-            default: return 0; // UNKNOWN
+            default: return 255; // UNKNOWN / unsupported class id
         }
     }
 

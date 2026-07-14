@@ -1,0 +1,16 @@
+/**:
+  ros__parameters:
+    simple_avoidance:
+      th_moving_speed: 0.5
+      min_forward_distance: 0.5
+      max_forward_distance: 60.0
+      lateral_margin: 0.4
+      max_shift_length: 4.0
+      # PathShifter 要求 end_idx - start_idx > 1；参考路径按 1m 重采样，
+      # 侧移段至少留足若干米，避免 path_generation_failed
+      min_prepare_distance: 5.0
+      min_shifting_distance: 10.0
+      shifting_lateral_jerk: 0.5
+      min_shifting_speed: 1.0
+      return_distance_after_object: 5.0
+      publish_debug_marker: true

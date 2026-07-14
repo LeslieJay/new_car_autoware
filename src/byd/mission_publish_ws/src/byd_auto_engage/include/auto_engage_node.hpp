@@ -20,6 +20,7 @@ private:
   void route_state_callback(const autoware_adapi_v1_msgs::msg::RouteState::SharedPtr msg);
   void operation_mode_callback(
     const autoware_adapi_v1_msgs::msg::OperationModeState::SharedPtr msg);
+  void on_retry_timer();
   void try_auto_engage();
 
   void call_change_to_autonomous();
@@ -31,17 +32,20 @@ private:
     rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedFuture future);
 
   bool enabled_;
+  bool require_autonomous_available_;
   bool goal_pending_;
   bool auto_engage_in_progress_;
   uint8_t route_state_;
   uint8_t operation_mode_;
   bool is_autoware_control_enabled_;
   bool is_autonomous_mode_available_;
+  double retry_period_sec_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
   rclcpp::Subscription<autoware_adapi_v1_msgs::msg::RouteState>::SharedPtr route_state_sub_;
   rclcpp::Subscription<autoware_adapi_v1_msgs::msg::OperationModeState>::SharedPtr
     operation_mode_sub_;
+  rclcpp::TimerBase::SharedPtr retry_timer_;
 
   rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedPtr
     change_to_autonomous_client_;

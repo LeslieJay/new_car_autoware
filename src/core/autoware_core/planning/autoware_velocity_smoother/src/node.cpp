@@ -592,6 +592,20 @@ TrajectoryPoints VelocitySmootherNode::calcTrajectoryVelocity(
   // Change trajectory velocity to zero when current_velocity == 0 & stop_dist is close
   const size_t traj_extracted_closest = findNearestIndexFromEgo(traj_extracted);
 
+  // When the extracted window reaches the input path end, force a terminal stop so
+  // applyStopApproachingVelocity can apply creeping speed (stopping_velocity within
+  // stopping_distance). Upstream path_optimizer may leave lane speed (e.g. 4.167 m/s) at the
+  // goal; without a stop index the optimized profile keeps cruise until the last point and the
+  // vehicle overshoots. Do not invent a stop at a mid-path crop boundary.
+  if (!traj_extracted.empty() && !traj_input.empty()) {
+    constexpr double terminal_dist_eps = 0.1;
+    const double dist_to_input_end =
+      autoware_utils_geometry::calc_distance2d(traj_extracted.back(), traj_input.back());
+    if (dist_to_input_end < terminal_dist_eps) {
+      traj_extracted.back().longitudinal_velocity_mps = 0.0;
+    }
+  }
+
   // Apply velocity to approach stop point
   applyStopApproachingVelocity(traj_extracted);
 

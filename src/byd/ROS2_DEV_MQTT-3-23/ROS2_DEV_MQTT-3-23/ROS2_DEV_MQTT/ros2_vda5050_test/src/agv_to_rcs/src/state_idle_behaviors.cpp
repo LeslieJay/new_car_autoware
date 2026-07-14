@@ -7,6 +7,7 @@
 ******************************************************************************************/
 // state_idle_behaviors.cpp
 # include "state_idle_behaviors.h"
+# include <rclcpp/rclcpp.hpp>
 
 IdleStateBehaviors::IdleStateBehaviors(const std::string& name, const NodeConfig& config, AGVBone agv_bone) :
     SyncActionNode(name, config),
@@ -20,7 +21,6 @@ IdleStateBehaviors::IdleStateBehaviors(const std::string& name, const NodeConfig
 
 NodeStatus IdleStateBehaviors::tick()
 {
-    std::cout << "进入 IdleStateBehaviors tick!" << std::endl;
     // 预备工作*****************
     // 更新接收任务标识，表示现在是空闲态，还没接到任务
     // 行为树中的order，order和instantAction都算，并不是单order
@@ -30,18 +30,18 @@ NodeStatus IdleStateBehaviors::tick()
     std::string AGV_Event;
     if(!this->config().blackboard->get("AGV_Event", AGV_Event))
     {
-        std::cout << "当前blackboard没有AGV_Event参数!" << std::endl;
+        RCLCPP_ERROR(rclcpp::get_logger("agv_to_rcs_main"), "Idle: AGV_Event missing on blackboard");
         return NodeStatus::FAILURE;
     }
 
     if(AGV_Event == "init_success")
     {
-        std::cout << this->name() << " 正在执行:OnInitSuccess() " << std::endl;
+        RCLCPP_DEBUG(rclcpp::get_logger("agv_to_rcs_main"), "%s: OnInitSuccess", this->name().c_str());
         OnInitSuccess();
     }
     else if(AGV_Event == "task_completed")
     {
-        std::cout << this->name() << " 正在执行:OnTaskCompleted() " << std::endl;
+        RCLCPP_INFO(rclcpp::get_logger("agv_to_rcs_main"), "%s: OnTaskCompleted", this->name().c_str());
         OnTaskCompleted();
     }
     
@@ -148,11 +148,9 @@ NodeStatus IdleStateBehaviors::tick()
 
 void IdleStateBehaviors::OnInitSuccess(){
 
-    std::cout << "AGV空闲状态，等待接受任务！" << std::endl;
-
     // 检查can数据是否异常
     if(can_data_listener_->io_data_is_error || can_data_listener_->err_data_is_error || can_data_listener_->hardware_data_is_error){
-        std::cout << "can数据异常，跳转至lock状态！" << std::endl;
+        RCLCPP_ERROR(rclcpp::get_logger("agv_to_rcs_main"), "Idle: CAN data error, transition to lock");
         this->config().blackboard->set("last_state", "idle");
         this->config().blackboard->set("current_state", "lock");
         this->config().blackboard->set("AGV_Event", "state_error");
@@ -163,64 +161,37 @@ void IdleStateBehaviors::OnInitSuccess(){
     // 更新instantAction消息的数据
     instant_action_messages_ = instant_action_listener->get_instant_action_messages();
 
-    // ========== 新增：输出instant_action_messages_全部信息 ==========
-    std::cout << "instant_action_messages_ info: "
-              << "goal_x=" << instant_action_messages_.goal_x
-              << ", goal_y=" << instant_action_messages_.goal_y
-              << ", goal_theta=" << instant_action_messages_.goal_theta
-              << ", action_type=" << instant_action_messages_.action_type
-              << ", last_instant_action_order_id=" << instant_action_messages_.last_instant_action_order_id
-              << std::endl;
+    RCLCPP_DEBUG(
+        rclcpp::get_logger("agv_to_rcs_main"),
+        "Idle: instant_action type=%s order_id=%s",
+        instant_action_messages_.action_type.c_str(),
+        instant_action_messages_.last_instant_action_order_id.c_str());
 
     // 1、判断是否订阅到当前位姿,订阅到当前位姿数据才进行下一步
     if(current_pose_listener->get_pose){
-        // // 2、请求连接
-        // // 两种情况下请求连接:1、RCS未发布intantAction消息，2、rcs发布消息的时间间隔超过10s，则重新请求连接
-        // // no_message_received是InstantAction话题超时，发了上线请求后，rcs就应该发送InstantAction
-        // while(instant_action_messages_.action_type.empty() || instant_action_messages_.action_type == "no_message_received" || instant_action_messages_.action_type == "agv_offline"){
-        //     std::cout << "正在等待上线" << std::endl;
-        //     // 定时等待后，更新instant_action_messages_，重新查看是否赋值
-        //     instant_action_messages_ = instant_action_listener->get_instant_action_messages();
-        //     // // ========== 新增：循环内每次更新后输出 ==========
-        //     // std::cout << "IdleStateBehaviors::OnInitSuccess()内循环等待: "
-        //     //           << "goal_x=" << instant_action_messages_.goal_x
-        //     //           << ", goal_y=" << instant_action_messages_.goal_y
-        //     //           << ", goal_theta=" << instant_action_messages_.goal_theta
-        //     //           << ", action_type=" << instant_action_messages_.action_type
-        //     //           << ", last_instant_action_order_id=" << instant_action_messages_.last_instant_action_order_id
-        //     //           << std::endl;
-
-        //     // 更新order消息，未收到数据的情况下为填充默认值
-        //     order_messages_ = order_listener->get_order_messages();
-        //     // 更新当前位姿数据
-        //     current_pose_ = current_pose_listener->get_current_pose();
-        //     // 超10s未连接的情况，如果没有请求连接定时器，则重新创建一个请求连接定时器
-        //     if(!data_publish->connection_timer_create){
-        //         data_publish->publish_connection_request("ONLINE");
-        //         data_publish->state_timer_callback();
-        //     }
-        //     // 休眠100ms
-        //     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        // }
-        std::cout << "上线成功，正在等待order" << std::endl;
+        RCLCPP_INFO_ONCE(
+            rclcpp::get_logger("agv_to_rcs_main"),
+            "Idle: online, waiting for order");
 
         // 3、连接成功
         // 关闭请求连接的定时器
         data_publish->cancel_connection_timer();
         // 进行任务监听，有两种情况，1、instant_action下发的即时命令，2、order下发的命令
-        // 接收instant_action运行的情况
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"是否接到order命令标志位: %d", get_order);
+        RCLCPP_DEBUG(
+            rclcpp::get_logger("agv_to_rcs_main"),
+            "Idle: get_order=%d", get_order);
 
         if(instant_action_messages_.action_type == "connect_success_auto"){
-
-            std::cout << "接收到connect_success_auto类型的instant_action命令！" << std::endl;
+            RCLCPP_INFO(
+                rclcpp::get_logger("agv_to_rcs_main"),
+                "Idle: received instant_action connect_success_auto");
             this->config().blackboard->set("last_state", "idle");
             this->config().blackboard->set("current_state", "running");
             this->config().blackboard->set("AGV_Event", "receive_order");
         }
         // 接收order运行的情况
         else if(order_listener->get_order){
-            std::cout << "接收到order命令！" << std::endl;
+            RCLCPP_INFO(rclcpp::get_logger("agv_to_rcs_main"), "Idle: received order");
             this->config().blackboard->set("last_state", "idle");
             this->config().blackboard->set("current_state", "running");
             this->config().blackboard->set("AGV_Event", "receive_order");
@@ -234,7 +205,7 @@ void IdleStateBehaviors::OnInitSuccess(){
             this->config().blackboard->set("AGV_Event", "init_success");
         }
     }else{
-        std::cout << "订阅当前位姿失败！" << std::endl;
+        RCLCPP_ERROR(rclcpp::get_logger("agv_to_rcs_main"), "Idle: current pose not available");
         // 转换成错误状态
         this->config().blackboard->set("last_state", "idle");
         this->config().blackboard->set("current_state", "lock");
@@ -256,7 +227,7 @@ void IdleStateBehaviors::OnTaskCompleted(){
 
     // 检查can数据是否异常
     if(can_data_listener_->io_data_is_error || can_data_listener_->err_data_is_error || can_data_listener_->hardware_data_is_error){
-        std::cout << "can数据异常，跳转至lock状态！" << std::endl;
+        RCLCPP_ERROR(rclcpp::get_logger("agv_to_rcs_main"), "Idle(OnTaskCompleted): CAN data error, transition to lock");
         this->config().blackboard->set("last_state", "idle");
         this->config().blackboard->set("current_state", "lock");
         this->config().blackboard->set("AGV_Event", "state_error");

@@ -56,6 +56,7 @@ static void sigHandler(int sig)
 #ifdef ROS_FOUND
   ros::shutdown();
 #elif ROS2_FOUND
+  (void)sig;
   g_cv.notify_all();
 #endif
 }
@@ -66,8 +67,8 @@ int main(int argc, char** argv)
 
   RS_TITLE << "********************************************************" << RS_REND;
   RS_TITLE << "**********                                    **********" << RS_REND;
-  RS_TITLE << "**********    RSLidar_SDK Version: v" << RSLIDAR_VERSION_MAJOR 
-    << "." << RSLIDAR_VERSION_MINOR 
+  RS_TITLE << "**********    RSLidar_SDK Version: v" << RSLIDAR_VERSION_MAJOR
+    << "." << RSLIDAR_VERSION_MINOR
     << "." << RSLIDAR_VERSION_PATCH << "     **********" << RS_REND;
   RS_TITLE << "**********                                    **********" << RS_REND;
   RS_TITLE << "********************************************************" << RS_REND;
@@ -93,7 +94,7 @@ int main(int argc, char** argv)
   std::string path;
   priv_hh.param("config_path", path, std::string(""));
 #elif ROS2_FOUND
-  std::shared_ptr<rclcpp::Node> nd = rclcpp::Node::make_shared("param_handle");
+  std::shared_ptr<rclcpp::Node> nd = rclcpp::Node::make_shared("rslidar_sdk_node");
   std::string path = nd->declare_parameter<std::string>("config_path", "");
 #endif
 
@@ -120,6 +121,9 @@ int main(int argc, char** argv)
   }
 
   std::shared_ptr<NodeManager> demo_ptr = std::make_shared<NodeManager>();
+#ifdef ROS2_FOUND
+  demo_ptr->setRosNode(nd);
+#endif
   demo_ptr->init(config);
   demo_ptr->start();
 
@@ -128,8 +132,8 @@ int main(int argc, char** argv)
 #ifdef ROS_FOUND
   ros::spin();
 #elif ROS2_FOUND
-  std::unique_lock<std::mutex> lck(g_mtx);
-  g_cv.wait(lck);
+  rclcpp::spin(nd);
+  rclcpp::shutdown();
 #endif
 
   return 0;

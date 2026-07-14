@@ -48,7 +48,7 @@ public:
     * @date:       2024-11-06
     ******************************************************************************************/
     void setPostion(std::vector<Point> points);
-
+    void setForward(bool forward);
     // 取消任务
     bool cancel();
 
@@ -73,6 +73,7 @@ private:
     static std::mutex mutex_;
 
     std::vector<Point> goal_points;
+    bool forward;
 };
 
 

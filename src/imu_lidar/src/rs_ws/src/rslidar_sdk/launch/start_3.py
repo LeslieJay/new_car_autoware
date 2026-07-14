@@ -1,50 +1,50 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
 from ament_index_python.packages import get_package_share_directory
+import os
+
 
 def generate_launch_description():
-    # 获取 rviz 配置（可选）
-    rviz_config = get_package_share_directory('rslidar_sdk') + '/rviz/rviz2.rviz'
+    pkg_share = get_package_share_directory('rslidar_sdk')
+    config_top = os.path.join(pkg_share, 'config', 'config_top.yaml')
+    config_left = os.path.join(pkg_share, 'config', 'config_left.yaml')
+    config_right = os.path.join(pkg_share, 'config', 'config_right.yaml')
 
-    # 三个雷达的配置文件路径（请根据你的实际路径修改！）
-    config_top    = '/home/nvidia/autoware/src/imu_lidar/src/rs_ws/src/rslidar_sdk/config/config_top.yaml'
-    config_left   = '/home/nvidia/autoware/src/imu_lidar/src/rs_ws/src/rslidar_sdk/config/config_left.yaml'
-    config_right  = '/home/nvidia/autoware/src/imu_lidar/src/rs_ws/src/rslidar_sdk/config/config_right.yaml'
+    top_lidar = ComposableNode(
+        package='rslidar_sdk',
+        plugin='robosense::lidar::RslidarSdkNode',
+        name='rslidar_top_node',
+        namespace='rslidar_top',
+        parameters=[{'config_path': config_top}],
+        extra_arguments=[{'use_intra_process_comms': True}],
+    )
 
-    return LaunchDescription([
-        # Top LiDAR
-        Node(
-            namespace='rslidar_top',
-            package='rslidar_sdk',
-            executable='rslidar_sdk_node',
-            # name='rslidar_sdk_node',  # 可选：显式命名
-            output='screen',
-            parameters=[{'config_path': config_top}]
-        ),
-        # Left LiDAR
-        Node(
-            namespace='rslidar_left',
-            package='rslidar_sdk',
-            executable='rslidar_sdk_node',
-            # name='rslidar_sdk_node',
-            output='screen',
-            parameters=[{'config_path': config_left}]
-        ),
-        # Right LiDAR
-        Node(
-            namespace='rslidar_right',
-            package='rslidar_sdk',
-            executable='rslidar_sdk_node',
-            # name='rslidar_sdk_node',
-            output='screen',
-            parameters=[{'config_path': config_right}]
-        ),
+    left_lidar = ComposableNode(
+        package='rslidar_sdk',
+        plugin='robosense::lidar::RslidarSdkNode',
+        name='rslidar_left_node',
+        namespace='rslidar_left',
+        parameters=[{'config_path': config_left}],
+        extra_arguments=[{'use_intra_process_comms': True}],
+    )
 
-        # 可选：启动 RViz（取消注释即可）
-        # Node(
-        #     package='rviz2',
-        #     executable='rviz2',
-        #     arguments=['-d', rviz_config],
-        #     output='screen'
-        # )
-    ])
+    right_lidar = ComposableNode(
+        package='rslidar_sdk',
+        plugin='robosense::lidar::RslidarSdkNode',
+        name='rslidar_right_node',
+        namespace='rslidar_right',
+        parameters=[{'config_path': config_right}],
+        extra_arguments=[{'use_intra_process_comms': True}],
+    )
+
+    container = ComposableNodeContainer(
+        name='rslidar_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[top_lidar, left_lidar, right_lidar],
+        output='screen',
+    )
+
+    return LaunchDescription([container])

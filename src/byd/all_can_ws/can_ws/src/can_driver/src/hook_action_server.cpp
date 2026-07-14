@@ -5,10 +5,9 @@
 #include <thread>
 #include <chrono>
 
-extern std::shared_ptr<can_driver::CanSend> send_queue_;
-
 namespace can_driver
 {
+extern std::shared_ptr<CanSend> send_queue_;
 
 using CtrlFork = ref_slam_interface::action::CtrlFork;
 using GoalHandleFork = rclcpp_action::ServerGoalHandle<CtrlFork>;
@@ -38,7 +37,7 @@ rclcpp_action::GoalResponse ForkActionServer::handle_goal(
 {
     (void)uuid;
     RCLCPP_INFO(this->get_logger(),
-                "收到目标: signal=%d, target_height=%.2f",
+                "收到目标: signal=%d, target_height=%d",
                 goal->to_fork_signal, goal->fork_goal_height);
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
@@ -107,7 +106,7 @@ void ForkActionServer::execute(
         }
         else {
             RCLCPP_ERROR(this->get_logger(), 
-                        "rcs挂钩指令异常: 不支持的目标高度 %.2f", 
+                        "rcs挂钩指令异常: 不支持的目标高度 %d", 
                         goal->fork_goal_height);
             result->finish = false;
             goal_handle->abort(result);

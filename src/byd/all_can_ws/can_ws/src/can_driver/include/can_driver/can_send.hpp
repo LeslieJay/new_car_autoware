@@ -10,28 +10,13 @@
  */
 // src/can_send.hpp
 #pragma once
-#include <iostream>
-#include <string>
-#include <thread>
-#include <bitset>
 #include <atomic>
-#include "rclcpp/rclcpp.hpp"
-#include <cstring> // 用于memcpy
+#include <chrono>
+#include <mutex>
 #include <queue>
-#include <random>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
+#include <vector>
+
 #include <linux/can.h>
-#include <linux/can/raw.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <stdexcept>
-#include <fstream>
 
 namespace can_driver
 {

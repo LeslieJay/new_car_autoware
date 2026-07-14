@@ -4,13 +4,15 @@ can_node:
     # CAN 接口配置
     interface: "can0"
     bitrate: 250000
-    can0_use:false
+    can0_use: true
 
     interface1: "can1"
     bitrate1: 250000
-    can1_use:true
+    can1_use: false
 
     txqueuelen: 1000 #发送队列大小
+    voice_frame_period_ms: 200   # 0x401最小发送周期
+    engage_frame_period_ms: 500  # 0x301最小发送周期
 
     # 心跳统一配置
     #heartbeat_base_id: 1    # 实际 ID: can0 → 700, can1 → 701

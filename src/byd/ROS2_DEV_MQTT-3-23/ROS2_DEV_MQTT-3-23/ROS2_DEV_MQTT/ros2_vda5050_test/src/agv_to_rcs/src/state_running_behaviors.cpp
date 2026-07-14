@@ -175,7 +175,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         
         // agv_driver_control有下发任务，取消任务等等大量功能，send_multi_pose_只负责发送目标点
         std::cout << this->name() << " 往autoware发送目标点send_goal " << std::endl;
-        agv_driver_control->send_multi_pose_->send_goal(goal_points_to_driver);
+        agv_driver_control->send_multi_pose_->send_goal(goal_points_to_driver, true);
         // 处理完当前消息，action_type置为没收到消息
         instant_action_listener->action_type = "no_message_received";
         // 判断是否完成本次导航，初始值为false
@@ -356,10 +356,24 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
 
                 // 临时方案
                 goal_points_to_driver = {};
+                // forward = true;
+                // for (const auto& value : order_messages_.goal_edge_orientation) {
+                //     std::cout << value << " ";
+                // }
+                // std::cout << std::endl;
+                std::cout << "AAAAAAAAAAAAAAASSSSSSSSSSSSSSSSSSSSSSSASAAAAAAAA车辆前进模式: " << order_messages_.goal_edge_orientation[0] << std::endl;
+
+                if (order_messages_.goal_edge_orientation[0] == 0) {
+                    // 如果是切向行驶，直接使用目标点
+                    forward = true;
+                } else{
+                    forward = false;
+                }
                 // instant_action瞬时任务，只有一个目标点
                 Point one_point = {order_messages_.goal_x[point_index], order_messages_.goal_y[point_index], order_messages_.goal_theta[point_index]};
                 goal_points_to_driver.push_back(one_point);
                 agv_driver_control->setPostion(goal_points_to_driver);
+                agv_driver_control->setForward(forward);
                 drive_state = agv_driver_control->control();
                 
                 // std::cout << "Drive state result: " << drive_state << std::endl;

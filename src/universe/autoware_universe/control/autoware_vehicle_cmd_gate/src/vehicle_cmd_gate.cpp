@@ -612,14 +612,15 @@ void VehicleCmdGate::publishControlCommands(const Commands & commands)
 
   // Check engage
   if (!is_engaged_) {
-    filtered_control.longitudinal = createLongitudinalStopControlCmd();
+    filtered_control.longitudinal = createLongitudinalStopControlCmd(stop_hold_acceleration_);
   }
 
   // Check pause. Place this check after all other checks as it needs the final output.
   adapi_pause_->update(filtered_control);
   if (adapi_pause_->is_paused()) {
     if (is_engaged_) {
-      filtered_control.longitudinal = createLongitudinalStopControlCmd();
+      filtered_control.longitudinal =
+        createLongitudinalStopControlCmd(moderate_stop_service_acceleration_);
     } else {
       filtered_control = createStopControlCmd();
       filtered_control.stamp = commands.control.stamp;
@@ -770,13 +771,13 @@ Control VehicleCmdGate::createStopControlCmd() const
   return cmd;
 }
 
-Longitudinal VehicleCmdGate::createLongitudinalStopControlCmd() const
+Longitudinal VehicleCmdGate::createLongitudinalStopControlCmd(const double acceleration) const
 {
   Longitudinal cmd;
   const auto t = this->now();
   cmd.stamp = t;
   cmd.velocity = 0.0;
-  cmd.acceleration = stop_hold_acceleration_;
+  cmd.acceleration = acceleration;
 
   return cmd;
 }

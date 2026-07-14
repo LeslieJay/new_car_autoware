@@ -25,6 +25,12 @@ def generate_launch_description():
         default_value='/localization/kinematic_state',
         description='Input odometry topic'
     )
+
+    declare_input_rear_warning_level = DeclareLaunchArgument(
+        'input_rear_warning_level',
+        default_value='/control/rear_warning_level',
+        description='Rear collision warning level (0=SAFE, 1=WARNING, 2=CAUTION, 3=STOP)'
+    )
     
     declare_output_trajectory = DeclareLaunchArgument(
         'output_trajectory',
@@ -66,8 +72,10 @@ def generate_launch_description():
         parameters=[LaunchConfiguration('config_file')],
         remappings=[
             ('~/input/odometry', LaunchConfiguration('input_odom')),
+            ('~/input/rear_warning_level', LaunchConfiguration('input_rear_warning_level')),
             ('~/output/trajectory', LaunchConfiguration('output_trajectory')),
             ('~/output/path_markers', '/planning/parking/path_markers'),
+            ('~/output/goal', '/planning/parking/goal'),
             ('~/output/control_cmd', LaunchConfiguration('output_control_cmd')),
             ('~/output/gear_cmd', LaunchConfiguration('output_gear_cmd')),
             ('~/output/turn_indicators_cmd', LaunchConfiguration('output_turn_indicators_cmd')),
@@ -79,6 +87,7 @@ def generate_launch_description():
     return LaunchDescription([
         declare_config_file,
         declare_input_odom,
+        declare_input_rear_warning_level,
         declare_output_trajectory,
         declare_output_control_cmd,
         declare_output_gear_cmd,

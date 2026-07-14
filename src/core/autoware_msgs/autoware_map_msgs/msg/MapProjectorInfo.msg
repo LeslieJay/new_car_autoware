@@ -15,8 +15,7 @@ string vertical_datum
 string mgrs_grid
 
 # Used for some map projection types
-# Altitude is not used, so there is no need to specify it.
-# Even if altitude is specified, it will be overwritten with 0.0.
+# Altitude is optional, defaults to 0.0 if not specified.
 geographic_msgs/GeoPoint map_origin
 
 # Scale factor of the map

@@ -51,13 +51,22 @@ def generate_launch_description():
         parameters=[LaunchConfiguration('set_goal_config')],
     )
 
+    mission_pause_node = Node(
+        package='byd_mission_pause_service',
+        executable='mission_pause_node',
+        name='mission_pause_node',
+        output='screen',
+    )
+
     # Delay node startup by 5 seconds to ensure Autoware services are initialized
     delayed_initialize_pose_node = TimerAction(period=5.0, actions=[initialize_pose_node])
     delayed_set_goal_node = TimerAction(period=6.0, actions=[set_goal_node])
+    delayed_mission_pause_node = TimerAction(period=6.0, actions=[mission_pause_node])
 
     return LaunchDescription([
         initialize_pose_config_arg,
         set_goal_config_arg,
         delayed_initialize_pose_node,
         delayed_set_goal_node,
+        delayed_mission_pause_node,
     ])

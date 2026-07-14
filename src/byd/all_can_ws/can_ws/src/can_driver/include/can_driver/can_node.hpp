@@ -12,44 +12,24 @@
 #ifndef CAN_DRIVER__CAN_NODE_HPP_
 #define CAN_DRIVER__CAN_NODE_HPP_
 
-#include <memory>
-#include <thread>
-#include <atomic>
-#include <sys/select.h>
+#include <string>
 
 #include "rclcpp/rclcpp.hpp"
 
-// 系统头文件
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <linux/can.h>
-
-#include <linux/can/raw.h>
-#include <unistd.h>
-#include <errno.h>
-
 namespace can_driver
 {
-    struct can_filter
-    {
-        canid_t can_id;
-        canid_t can_mask;
-    };
-    
-
     class CanNode : public rclcpp::Node
     {
     public:
         CanNode();
         ~CanNode();
         // 获取 can0 的信息
-        std::string getCan0InterfaceName() const { return interface1_; }
-        bool getCan0UseStatus() const { return can1_use_; }
+        std::string getCan0InterfaceName() const { return interface_; }
+        bool getCan0UseStatus() const { return can0_use_; }
 
         // 获取 can1 的信息
-        std::string getCan1InterfaceName() const { return interface_; }
-        bool getCan1UseStatus() const { return can0_use_; }
+        std::string getCan1InterfaceName() const { return interface1_; }
+        bool getCan1UseStatus() const { return can1_use_; }
 
         /**
          * 静态函数：初始化 CAN 接口，返回 socket 句柄
@@ -59,12 +39,8 @@ namespace can_driver
          */
         static bool initialize(const std::string &interface_name, int &socket_handle);
 
-       
-
     private:
-        // 成员函数
-        bool checkCanInterfaceExists(const std::string &interface_name);
-        void setupCanInterface(const std::string &interface, int bitrate,int txqueuelen);
+        void configureTxQueueLength(const std::string & interface_name) const;
 
         // 成员变量
         std::string interface_;

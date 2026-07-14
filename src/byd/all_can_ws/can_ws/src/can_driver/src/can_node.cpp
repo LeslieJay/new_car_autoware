@@ -1,21 +1,22 @@
 // src/can_node.cpp
 #include "can_driver/can_node.hpp"
 
-#include <sys/stat.h>
-#include <fstream>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <net/if.h>
+#include <sstream>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 using namespace std::chrono_literals;
 
 // 在命名空间 can_driver 内定义类
 namespace can_driver
 {
-
-    struct CanFrame
-    {
-        uint32_t frameId;   // 帧id
-        uint8_t dataLen{0}; // 帧数据包长度
-        uint8_t data[8]{0}; // 存放can帧的数据包缓冲区
-    };
 
     CanNode::CanNode() : Node("can_node")
     {
@@ -52,121 +53,34 @@ namespace can_driver
         RCLCPP_INFO(this->get_logger(), "   CAN1: %s @ %d bps, enabled: %s", interface1_.c_str(), bitrate1_, can1_use_ ? "yes" : "no");
         RCLCPP_INFO(this->get_logger(), "   Heartbeat: base ID=0x%X, period=%d ms", heartbeat_base_id_, heartbeat_period_ms_);
 
-        // =============== 检查接口是否存在 ===============
-        // if (!checkCanInterfaceExists(interface_))
-        // {
-        //     RCLCPP_ERROR(this->get_logger(), " CAN interface '%s' does not exist!", interface_.c_str());
-        // }
-        // else
-        // {
-        //     setupCanInterface(interface_, bitrate_,txqueuelen_);
-        // }
-
-        // if (!checkCanInterfaceExists(interface1_))
-        // {
-        //     RCLCPP_ERROR(this->get_logger(), " CAN interface '%s' does not exist!", interface1_.c_str());
-        // }
-        // else
-        // {
-        //     setupCanInterface(interface1_, bitrate1_,txqueuelen_);
-        // }
+        if (can0_use_) {
+            configureTxQueueLength(interface_);
+        }
+        if (can1_use_) {
+            configureTxQueueLength(interface1_);
+        }
     }
 
     CanNode::~CanNode()
     {
         RCLCPP_INFO(this->get_logger(), "Shutting down CAN node...");
     }
-    /**
-     * @brief 检车设备中是否存在物理can接口
-     *
-     * @param interface_name can接口名
-     * @return true
-     * @return false
-     */
-    bool CanNode::checkCanInterfaceExists(const std::string &interface_name)
+
+    void CanNode::configureTxQueueLength(const std::string & interface_name) const
     {
-        // 1. 检查接口是否存在
-        std::string path = "/sys/class/net/" + interface_name;
-        struct stat info;
-        if (::stat(path.c_str(), &info) != 0)
-        {
-            return false; // 接口不存在
-        }
-        if (!(info.st_mode & S_IFDIR))
-        {
-            return false; // 不是目录
-        }
-
-        // 2. 检查是否为 CAN 类型 (ARPHRD_CAN = 280)
-        std::string type_path = path + "/type";
-        std::ifstream type_file(type_path);
-        int type = 0;
-        type_file >> type;
-        if (type != 280)
-        {
-            return false; // 不是 CAN 接口
-        }
-
-        // 3. ✅ 关键：检查是否有底层硬件设备（排除 vcan）
-        std::string device_path = path + "/device";
-        if (::stat(device_path.c_str(), &info) != 0)
-        {
-            return false; // 没有 device 目录 → 很可能是虚拟接口（如 vcan）
-        }
-
-        return true; // 是真实物理 CAN 接口
-    }
-    /**
-     * @brief 设置can接口的波特率
-     *
-     * @param interface can接口名
-     * @param bitrate 设置的波特率值
-     * @param handle socket返回值
-     */
-    void CanNode::setupCanInterface(const std::string &interface, int bitrate,int txqueuelen)
-    {
-        // 初始化 handle
-
-        std::string cmd;
-        int ret;
-
-        // Step 1: 确保接口先关闭（关键！）
-        cmd = "sudo ip link set " + interface + " down";
-        ret = std::system(cmd.c_str());
-        if (ret != 0)
-        {
-            RCLCPP_ERROR(this->get_logger(), " Failed to bring down %s", interface.c_str());
+        std::ostringstream command;
+        command << "ip link set dev " << interface_name << " txqueuelen " << txqueuelen_;
+        const int ret = std::system(command.str().c_str());
+        if (ret != 0) {
+            RCLCPP_WARN(
+              this->get_logger(),
+              "Failed to set txqueuelen for %s (cmd: '%s'). Please ensure runtime has NET_ADMIN privilege.",
+              interface_name.c_str(), command.str().c_str());
             return;
         }
 
-        // Step 2: 配置比特率和自动重启
-        cmd = "sudo ip link set " + interface + " type can bitrate " + std::to_string(bitrate) + " restart-ms 100";
-        ret = std::system(cmd.c_str());
-        if (ret != 0)
-        {
-            RCLCPP_ERROR(this->get_logger(), " Failed to configure bitrate for %s", interface.c_str());
-            return;
-        }
-         
-        // 设置发送队列大小
-        cmd = "sudo ip link set " + interface + " txqueuelen " + std::to_string(txqueuelen) ;
-        ret = std::system(cmd.c_str());
-        if (ret != 0)
-        {
-            RCLCPP_ERROR(this->get_logger(), " Failed to configure txqueuelen for %s", interface.c_str());
-            return;
-        }
-        // Step 3: 启动接口
-        cmd = "sudo ip link set " + interface + " up";
-        ret = std::system(cmd.c_str());
-        if (ret != 0)
-        {
-            RCLCPP_ERROR(this->get_logger(), " Failed to bring up %s", interface.c_str());
-            return;
-        }
-
-        RCLCPP_INFO(this->get_logger(), "Successfully configured and opened %s (bitrate: %d bps)",
-                    interface.c_str(), bitrate);
+        RCLCPP_INFO(
+          this->get_logger(), "Configured %s txqueuelen=%d", interface_name.c_str(), txqueuelen_);
     }
 
     bool CanNode::initialize(const std::string &interface_name, int &socket_handle)
@@ -209,16 +123,4 @@ namespace can_driver
         return true; // 成功，socket_handle 已被设置
     }
 
-    
-
 } // namespace can_driver
-
-/* // =============== 主函数 ===============
-int main(int argc, char *argv[])
-{
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<can_driver::CanNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return 0;
-} */

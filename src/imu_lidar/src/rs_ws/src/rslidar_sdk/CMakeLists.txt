@@ -188,11 +188,41 @@ endif(roscpp_FOUND)
 #Ros2#
 if(rclcpp_FOUND)
 
-  ament_target_dependencies(rslidar_sdk_node 
-    rclcpp 
-    std_msgs 
-    sensor_msgs 
+  find_package(rclcpp_components REQUIRED)
+
+  add_library(rslidar_sdk_component SHARED
+              src/rslidar_sdk_component.cpp
+              src/manager/node_manager.cpp)
+
+  target_compile_definitions(rslidar_sdk_component
+    PRIVATE "COMPOSITION_BUILDING_DLL")
+
+  target_link_libraries(rslidar_sdk_component
+                        ${YAML_CPP_LIBRARIES}
+                        ${rs_driver_LIBRARIES})
+
+  ament_target_dependencies(rslidar_sdk_component
+    rclcpp
+    rclcpp_components
+    std_msgs
+    sensor_msgs
     rslidar_msg)
+
+  rclcpp_components_register_node(rslidar_sdk_component
+    PLUGIN "robosense::lidar::RslidarSdkNode"
+    EXECUTABLE rslidar_sdk_component_node)
+
+  ament_target_dependencies(rslidar_sdk_node
+    rclcpp
+    std_msgs
+    sensor_msgs
+    rslidar_msg)
+
+  install(TARGETS
+    rslidar_sdk_component
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin)
 
   install(TARGETS
     rslidar_sdk_node
@@ -201,6 +231,7 @@ if(rclcpp_FOUND)
   install(DIRECTORY
     launch
     rviz
+    config
     DESTINATION share/${PROJECT_NAME})
 
   ament_package()

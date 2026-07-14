@@ -95,10 +95,10 @@ def generate_launch_description():
                 "num_min_pts": 10,  # Minimum number of points to be estimated as ground plane in each patch.
                 "th_seeds": 0.2,
                 # threshold for lowest point representatives using in initial seeds selection of ground points.
-                "th_dist": 0.1,  # threshold for thickness of ground.
+                "th_dist": 0.18,  # threshold for thickness of ground.
                 "th_seeds_v": 0.25,
                 # threshold for lowest point representatives using in initial seeds selection of vertical structural points.
-                "th_dist_v": 0.1,  # threshold for thickness of vertical structure.
+                "th_dist_v": 0.18,  # threshold for thickness of vertical structure.
                 "max_range": 80.0,  # max_range of ground estimation area
                 "min_range": 1.8,  # min_range of ground estimation area
                 "uprightness_thr": 0.701,

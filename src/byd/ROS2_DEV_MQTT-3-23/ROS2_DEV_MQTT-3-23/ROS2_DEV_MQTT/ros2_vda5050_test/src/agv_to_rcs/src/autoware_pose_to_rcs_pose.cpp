@@ -9,7 +9,7 @@ public:
     OdometryToPoseConverter() : Node("odometry_to_pose_converter")
     {
         // 声明参数：是否启用模拟数据发布，默认 false
-        this->declare_parameter<bool>("simulation_enabled", true);
+        this->declare_parameter<bool>("simulation_enabled", false);
 
         // 创建订阅者，订阅原始 Odometry 话题
         odometry_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -59,14 +59,12 @@ private:
 
         pose_pub_->publish(pose_msg);
         
-        // ===== 新增：打印位置坐标 =====
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,  // 每1秒最多打印一次
+        RCLCPP_DEBUG_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
             "Current position - x: %.3f, y: %.3f, z: %.3f",
             msg->pose.pose.position.x,
             msg->pose.pose.position.y,
             msg->pose.pose.position.z);
-        
-        RCLCPP_DEBUG(this->get_logger(), "Converted and published pose message");
     }
 
     // 定时器回调：生成并发布模拟的 Odometry 消息
@@ -101,15 +99,13 @@ private:
         odom_msg.twist.twist.angular.z = 0;
 
         simulated_odom_pub_->publish(odom_msg);
-        
-        // ===== 新增：打印模拟位置坐标 =====
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+
+        RCLCPP_DEBUG_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
             "Simulated position - x: %.3f, y: %.3f, z: %.3f",
             odom_msg.pose.pose.position.x,
             odom_msg.pose.pose.position.y,
             odom_msg.pose.pose.position.z);
-        
-        RCLCPP_DEBUG(this->get_logger(), "Published simulated odometry");
     }
 
     // 其余代码保持不变...

@@ -141,10 +141,6 @@ void OperationModeTransitionManager::changeOperationMode(std::optional<Operation
 
   // Enter transition mode if the vehicle is being or will be controlled by Autoware.
   if (current_control || request_control) {
-    if (!available_mode_change_[request_mode.value_or(current_mode_)]) {
-      throw autoware::component_interface_utils::ServiceException(
-        ServiceResponse::ERROR_NOT_AVAILABLE, "The mode change condition is not satisfied.");
-    }
     if (request_control) {
       transition_ = std::make_unique<Transition>(now(), request_control, std::nullopt);
     } else {

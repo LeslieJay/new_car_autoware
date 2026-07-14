@@ -248,12 +248,19 @@ public:
 
   SourcePacketRos();
 
+  void setNode(const rclcpp::Node::SharedPtr& node)
+  {
+    node_ptr_ = node;
+    owns_node_ = false;
+  }
+
 private:
   void spin();
   void putPacket(const rslidar_msg::msg::RslidarPacket::SharedPtr msg) const;
   std::thread subscription_spin_thread_;
   std::shared_ptr<rclcpp::Node> node_ptr_;
   rclcpp::Subscription<rslidar_msg::msg::RslidarPacket>::SharedPtr pkt_sub_;
+  bool owns_node_{true};
 };
 
 SourcePacketRos::SourcePacketRos()
@@ -269,14 +276,21 @@ void SourcePacketRos::init(const YAML::Node& config)
   yamlRead<std::string>(config["ros"], "ros_recv_packet_topic", 
       ros_recv_topic, "rslidar_packets");
 
-  static int node_index = 0;
-  std::stringstream node_name;
-  node_name << "rslidar_packets_source_" << node_index++;
+  if (!node_ptr_)
+  {
+    static int node_index = 0;
+    std::stringstream node_name;
+    node_name << "rslidar_packets_source_" << node_index++;
+    node_ptr_.reset(new rclcpp::Node(node_name.str()));
+    owns_node_ = true;
+  }
 
-  node_ptr_.reset(new rclcpp::Node(node_name.str()));
   pkt_sub_ = node_ptr_->create_subscription<rslidar_msg::msg::RslidarPacket>(ros_recv_topic, 100, 
       std::bind(&SourcePacketRos::putPacket, this, std::placeholders::_1));
-  subscription_spin_thread_ = std::thread(std::bind(&SourcePacketRos::spin,this));
+  if (owns_node_)
+  {
+    subscription_spin_thread_ = std::thread(std::bind(&SourcePacketRos::spin,this));
+  }
 } 
 
 void SourcePacketRos::putPacket(const rslidar_msg::msg::RslidarPacket::SharedPtr msg) const
@@ -310,6 +324,11 @@ public:
   virtual void sendPacket(const Packet& msg);
   virtual ~DestinationPacketRos() = default;
 
+  void setNode(const rclcpp::Node::SharedPtr& node)
+  {
+    node_ptr_ = node;
+  }
+
 private:
 
   std::shared_ptr<rclcpp::Node> node_ptr_;
@@ -329,11 +348,14 @@ inline void DestinationPacketRos::init(const YAML::Node& config)
   size_t ros_queue_length;
   yamlRead<size_t>(config["ros"], "ros_queue_length", ros_queue_length, 100);
 
-  static int node_index = 0;
-  std::stringstream node_name;
-  node_name << "rslidar_packets_destination_" << node_index++;
+  if (!node_ptr_)
+  {
+    static int node_index = 0;
+    std::stringstream node_name;
+    node_name << "rslidar_packets_destination_" << node_index++;
+    node_ptr_.reset(new rclcpp::Node(node_name.str()));
+  }
 
-  node_ptr_.reset(new rclcpp::Node(node_name.str()));
   pkt_pub_ = node_ptr_->create_publisher<rslidar_msg::msg::RslidarPacket>(ros_send_topic, ros_queue_length);
 }
 

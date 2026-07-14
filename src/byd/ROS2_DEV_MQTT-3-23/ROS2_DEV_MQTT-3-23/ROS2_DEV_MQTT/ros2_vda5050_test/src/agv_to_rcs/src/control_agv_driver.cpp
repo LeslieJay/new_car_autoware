@@ -55,7 +55,7 @@ bool LaserDriverControl::control(){
     // }
     // // 发送目标位姿
     std::vector<Point> multi_poses = {goal_points.back()}; //发给多点导航的点集只需要头尾即可
-    send_multi_pose_->send_goal(multi_poses);
+    send_multi_pose_->send_goal(multi_poses, forward);
 
     // 驱动成功返回true否则返回false;目前默认成功
     return true;
@@ -84,6 +84,10 @@ bool LaserDriverControl::cancel(){
 * @author:     刘鸿彬
 * @date:       2024-11-06
 ******************************************************************************************/
+void LaserDriverControl::setForward(bool forward){
+    this->forward = forward;
+}
+
 void LaserDriverControl::setPostion(std::vector<Point> points){
     
     this->goal_points = points;

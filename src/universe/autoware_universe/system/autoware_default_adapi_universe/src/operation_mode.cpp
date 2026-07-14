@@ -65,15 +65,6 @@ template <class ResponseT>
 void OperationModeNode::change_mode(
   const ResponseT res, const OperationModeRequest::_mode_type mode)
 {
-  if (!mode_available_[mode]) {
-    RCLCPP_WARN(
-      get_logger(),
-      "The target mode is not available. Please check the cause with "
-      "rqt_diagnostics_graph_monitor");
-    throw autoware::component_interface_utils::ServiceException(
-      ServiceResponse::ERROR_NOT_AVAILABLE,
-      "The target mode is not available. Please check the diagnostics.");
-  }
   const auto req = std::make_shared<OperationModeRequest>();
   req->mode = mode;
   autoware::component_interface_utils::status::copy(cli_mode_->call(req), res);  // NOLINT
@@ -111,10 +102,6 @@ void OperationModeNode::on_enable_autoware_control(
   const EnableAutowareControl::Service::Request::SharedPtr,
   const EnableAutowareControl::Service::Response::SharedPtr res)
 {
-  if (!mode_available_[curr_state_.mode]) {
-    throw autoware::component_interface_utils::ServiceException(
-      ServiceResponse::ERROR_NOT_AVAILABLE, "The mode change is blocked by the system.");
-  }
   const auto req = std::make_shared<AutowareControlRequest>();
   req->autoware_control = true;
   autoware::component_interface_utils::status::copy(cli_control_->call(req), res);  // NOLINT

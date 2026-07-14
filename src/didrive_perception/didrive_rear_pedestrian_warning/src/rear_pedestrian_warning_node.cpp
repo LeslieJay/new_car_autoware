@@ -161,8 +161,8 @@ private:
         for (const auto& feature_obj : obj_msg->feature_objects) {
             const auto& obj = feature_obj.object;
             
-            // 【修改点 1】：安全防空指针检查。若没有分类数据，默认为未知物体，不再直接 continue 丢弃
-            uint8_t current_label = 0; // 0 在 Autoware 中代表 UNKNOWN 或 PEDESTRIAN，视具体版本而定
+            // 【修改点 1】：安全防空指针检查。若没有分类数据，显式设为 UNKNOWN（避免默认展示为 Pedestrian）
+            uint8_t current_label = 255; // 255 表示 UNKNOWN / 未知类别
             if (!obj.classification.empty()) {
                 current_label = obj.classification[0].label;
             }
@@ -190,11 +190,12 @@ private:
             // 【修改点 2】：根据 YOLO26 转换出的标准 Autoware 类别数字，映射为可视化文字
             std::string class_name = "Unknown";
             switch (current_label) {
-                case 0: class_name = "Pedestrian"; break; // PEDESTRIAN 底层常数通常为 0
+                case 0: class_name = "Pedestrian"; break; // PEDESTRIAN
                 case 1: class_name = "Bicycle";    break; // BICYCLE
                 case 2: class_name = "Car";        break; // CAR
                 case 3: class_name = "Truck";      break; // TRUCK
                 case 5: class_name = "Bus";        break; // BUS
+                case 255: class_name = "Unknown";  break; // unknown / unsupported label
                 default: class_name = "Obstacle";  break;
             }
 

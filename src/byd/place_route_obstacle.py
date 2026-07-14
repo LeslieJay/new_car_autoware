@@ -3,14 +3,16 @@
 """在 sim_init_and_set_goal.py 起终点路径上发布静态障碍物，触发绕障。
 
 默认坐标与 src/byd/sim_init_and_set_goal.py 中 INIT_* / GOAL_* 一致。
-修改任一处时请同步更新另一处。
+默认分类为 UNKNOWN（ObjectClassification.label=0）。
 
-用法:
-  # planning_simulator 已启动且 sim_init_and_set_goal.py 已设好位姿/终点后:
-  python3 place_route_obstacle.py --clear-first
+用法（建议先暂停车辆，避免驶过障碍物位置）:
+  ros2 service call /control/vehicle_cmd_gate/set_pause tier4_control_msgs/srv/SetPause "{pause: true}"
+  python3 src/byd/sim_init_and_set_goal.py
+  python3 src/byd/place_route_obstacle.py --clear-first --label unknown
+  ros2 service call /control/vehicle_cmd_gate/set_pause tier4_control_msgs/srv/SetPause "{pause: false}"
 
   # 调整沿路径距离与横向侵入:
-  python3 place_route_obstacle.py --longitudinal 40 --intrusion 0.6 --clear-first
+  python3 src/byd/place_route_obstacle.py --longitudinal 30 --intrusion 1.5 --label unknown --clear-first
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from dummy_object_utils import (  # noqa: E402
     make_dummy_object,
     unit_vectors,
 )
+from autoware_perception_msgs.msg import ObjectClassification  # noqa: E402
 
 # ---------- 与 sim_init_and_set_goal.py 同步 ----------
 START = {
@@ -61,12 +64,23 @@ DUMMY_OBJECT_TOPIC = "/simulation/dummy_perception_publisher/object_info"
 
 DEFAULT_LANE_WIDTH = 4.0
 DEFAULT_SHOULDER = "right"
-DEFAULT_LONGITUDINAL = 40.0
-DEFAULT_INTRUSION = 0.6
-DEFAULT_LENGTH = 4.0
-DEFAULT_WIDTH = 1.8
-DEFAULT_HEIGHT = 2.0
+# 放在前方约 25m、略偏右侵入车道，保证与自车包络横向重叠以触发 simple_avoidance
+DEFAULT_LONGITUDINAL = 25.0
+DEFAULT_INTRUSION = 1.5
+DEFAULT_LENGTH = 2.0
+DEFAULT_WIDTH = 1.5
+DEFAULT_HEIGHT = 1.5
 
+LABEL_MAP = {
+    "unknown": ObjectClassification.UNKNOWN,
+    "car": ObjectClassification.CAR,
+    "truck": ObjectClassification.TRUCK,
+    "bus": ObjectClassification.BUS,
+    "trailer": ObjectClassification.TRAILER,
+    "motorcycle": ObjectClassification.MOTORCYCLE,
+    "bicycle": ObjectClassification.BICYCLE,
+    "pedestrian": ObjectClassification.PEDESTRIAN,
+}
 
 def quat_to_yaw(ox: float, oy: float, oz: float, ow: float) -> float:
     siny_cosp = 2.0 * (ow * oz + ox * oy)
@@ -136,6 +150,7 @@ class RouteObstacleNode(Node):
         length: float,
         width: float,
         height: float,
+        label: int,
         hold_sec: float,
         rate_hz: float,
     ) -> None:
@@ -150,6 +165,7 @@ class RouteObstacleNode(Node):
             width=width,
             height=height,
             velocity=0.0,
+            label=label,
         )
 
         rate = self.create_rate(rate_hz)
@@ -238,6 +254,12 @@ def main() -> None:
         help="障碍物高度 [m]",
     )
     parser.add_argument(
+        "--label",
+        choices=sorted(LABEL_MAP.keys()),
+        default="unknown",
+        help="感知分类标签（默认 unknown，对应 ObjectClassification.UNKNOWN=0）",
+    )
+    parser.add_argument(
         "--clear-first",
         action="store_true",
         help="放置前先 DELETEALL 清除已有 dummy 障碍物",
@@ -298,6 +320,10 @@ def main() -> None:
     )
     node.get_logger().info(f"  放置: {placement}")
     node.get_logger().info(f"  障碍物: ({x:.3f}, {y:.3f}, {z:.3f}), yaw={math.degrees(yaw):.1f}°")
+    node.get_logger().info(
+        f"  尺寸: L={args.length:.1f} W={args.width:.1f} H={args.height:.1f}, "
+        f"label={args.label}({LABEL_MAP[args.label]})"
+    )
     node.get_logger().info(f"  Topic: {DUMMY_OBJECT_TOPIC}")
 
     if args.clear_first:
@@ -313,6 +339,7 @@ def main() -> None:
             length=args.length,
             width=args.width,
             height=args.height,
+            label=LABEL_MAP[args.label],
             hold_sec=args.hold,
             rate_hz=args.rate,
         )

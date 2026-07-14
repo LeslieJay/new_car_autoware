@@ -1,3 +1,7 @@
 auto_engage_node:
   ros__parameters:
     enabled: true
+    # false: match manual CLI behavior (server-side availability gate already removed locally)
+    # true: only call services when /api/operation_mode/state says autonomous is available
+    require_autonomous_available: false
+    retry_period_sec: 1.0

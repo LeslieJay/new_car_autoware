@@ -74,7 +74,8 @@ public:
     bool if_to_leave;
     // 是否正在暂停中
     bool flag_pausing;
-
+    // 标识当前任务是前进还是后退，true表示前进，false表示后退
+    bool forward;
 
     // 即将要发送的多点导航的点集
     std::vector<Point> goal_points_to_driver; 

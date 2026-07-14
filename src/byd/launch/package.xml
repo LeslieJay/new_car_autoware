@@ -10,14 +10,18 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>can_driver</exec_depend>
-  <exec_depend>can_rtk_driver</exec_depend>
+  <exec_depend>can_six_driver</exec_depend>
+  <exec_depend>byd_vehicle_state</exec_depend>
   <exec_depend>rslidar_sdk</exec_depend>
   <exec_depend>agv_to_rcs</exec_depend>
+  <exec_depend>autoware_launch</exec_depend>
   <exec_depend>reverse_parking_planner</exec_depend>
-  <exec_depend>reverse_parking_controller</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>agv_simple_reverse_planner</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

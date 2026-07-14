@@ -44,7 +44,7 @@ public:
     // 发送数据
     rclcpp::Client<UseTrajectory>::FutureAndRequestId send_request(std::vector<Point> goal_points);
 
-    void send_goal(std::vector<Point> goal_points);
+    void send_goal(std::vector<Point> goal_points, bool forward);
 
     void cancel_action();
 
