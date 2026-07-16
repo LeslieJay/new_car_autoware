@@ -52,7 +52,6 @@ def generate_launch_description():
     autoware_pose_to_rcs_pose_node = _agv_node(
         package='agv_to_rcs',
         executable='autoware_pose_to_rcs_pose',
-        name='autoware_pose_to_rcs_pose',
         arguments=[
             '--ros-args',
             '--log-level', LaunchConfiguration('pose_log_level'),
@@ -62,7 +61,6 @@ def generate_launch_description():
     autoware_auto_server_node = _agv_node(
         package='agv_to_rcs',
         executable='autoware_auto_server',
-        name='autoware_auto_server',
     )
 
     # main 可执行文件内部自行创建 agv_to_rcs_main 节点，勿用 Node(name=...) 避免重名

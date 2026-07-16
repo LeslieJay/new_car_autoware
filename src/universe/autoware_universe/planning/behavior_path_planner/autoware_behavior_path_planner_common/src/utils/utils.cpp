@@ -486,8 +486,13 @@ bool isInLaneletWithYawThreshold(
 bool isEgoOutOfRoute(
   const Pose & self_pose, const lanelet::ConstLanelet & closest_road_lane,
   const std::optional<PoseWithUuidStamped> & modified_goal,
-  const std::shared_ptr<RouteHandler> & route_handler)
+  const std::shared_ptr<RouteHandler> & route_handler, EgoOutOfRouteDebugInfo * debug_info)
 {
+  if (debug_info) {
+    *debug_info = EgoOutOfRouteDebugInfo{};
+    debug_info->closest_road_lane_id = closest_road_lane.id();
+  }
+
   const Pose & goal_pose = (modified_goal && modified_goal->uuid == route_handler->getRouteUuid())
                              ? modified_goal->pose
                              : route_handler->getGoalPose();
@@ -500,8 +505,10 @@ bool isEgoOutOfRoute(
   if (is_failed_getting_lanelet) {
     RCLCPP_WARN_STREAM(
       rclcpp::get_logger("behavior_path_planner").get_child("util"), "cannot find goal lanelet");
+    if (debug_info) debug_info->reason = EgoOutOfRouteReason::GOAL_LANELET_NOT_FOUND;
     return true;
   }
+  if (debug_info) debug_info->goal_lane_id = goal_lane.id();
 
   // If ego vehicle is over goal on goal lane, return true
   const double yaw_threshold = autoware_utils::deg2rad(90);
@@ -515,6 +522,7 @@ bool isEgoOutOfRoute(
     if (ego_arc_coord.length > goal_arc_coord.length + buffer) {
       RCLCPP_WARN_STREAM(
         rclcpp::get_logger("behavior_path_planner").get_child("util"), "ego pose is beyond goal");
+      if (debug_info) debug_info->reason = EgoOutOfRouteReason::PAST_GOAL;
       return true;
     }
     return false;
@@ -539,6 +547,14 @@ bool isEgoOutOfRoute(
 
     return false;
   });
+
+  if (debug_info) {
+    debug_info->is_in_road_lane = is_in_road_lane;
+    debug_info->is_in_shoulder_lane = is_in_shoulder_lane;
+    if (!is_in_shoulder_lane && !is_in_road_lane) {
+      debug_info->reason = EgoOutOfRouteReason::OUTSIDE_ROUTE_LANELETS;
+    }
+  }
 
   return !is_in_shoulder_lane && !is_in_road_lane;
 }

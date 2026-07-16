@@ -48,7 +48,6 @@ def _launch_driver_nodes(context: LaunchContext):
         Node(
             package="can_driver",
             executable="can_node",
-            name="can_node",
             parameters=[can_driver_params],
             **common,
         ),

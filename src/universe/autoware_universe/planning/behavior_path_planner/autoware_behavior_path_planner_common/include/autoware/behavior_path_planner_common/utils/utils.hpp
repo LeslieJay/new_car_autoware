@@ -36,6 +36,7 @@
 
 #include <lanelet2_core/Forward.h>
 
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
@@ -347,10 +348,26 @@ bool isInLaneletWithYawThreshold(
   const Pose & current_pose, const lanelet::ConstLanelet & lanelet, const double yaw_threshold,
   const double radius = 0.0);
 
+enum class EgoOutOfRouteReason {
+  NONE,
+  GOAL_LANELET_NOT_FOUND,
+  PAST_GOAL,
+  OUTSIDE_ROUTE_LANELETS,
+};
+
+struct EgoOutOfRouteDebugInfo {
+  EgoOutOfRouteReason reason{EgoOutOfRouteReason::NONE};
+  int64_t closest_road_lane_id{};
+  int64_t goal_lane_id{};
+  bool is_in_road_lane{};
+  bool is_in_shoulder_lane{};
+};
+
 bool isEgoOutOfRoute(
   const Pose & self_pose, const lanelet::ConstLanelet & closest_road_lane,
   const std::optional<PoseWithUuidStamped> & modified_goal,
-  const std::shared_ptr<RouteHandler> & route_handler);
+  const std::shared_ptr<RouteHandler> & route_handler,
+  EgoOutOfRouteDebugInfo * debug_info = nullptr);
 
 /**
  * @brief Checks if the given pose is inside the original lane.

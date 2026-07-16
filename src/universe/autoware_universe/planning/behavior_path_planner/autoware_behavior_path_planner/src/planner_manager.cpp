@@ -161,15 +161,36 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
 
   updateCurrentRouteLanelet(data, is_any_approved_module_running);
 
+  utils::EgoOutOfRouteDebugInfo out_of_route_debug;
   const bool is_out_of_route = utils::isEgoOutOfRoute(
     data->self_odometry->pose.pose, current_route_lanelet_->value(), data->prev_modified_goal,
-    data->route_handler);
+    data->route_handler, &out_of_route_debug);
 
   if (!is_any_module_running && is_out_of_route) {
     BehaviorModuleOutput result_output = utils::createGoalAroundPath(data);
+    const auto reason_to_string = [](const utils::EgoOutOfRouteReason reason) {
+      switch (reason) {
+        case utils::EgoOutOfRouteReason::GOAL_LANELET_NOT_FOUND:
+          return "goal_lanelet_not_found";
+        case utils::EgoOutOfRouteReason::PAST_GOAL:
+          return "past_goal";
+        case utils::EgoOutOfRouteReason::OUTSIDE_ROUTE_LANELETS:
+          return "outside_route_lanelets";
+        case utils::EgoOutOfRouteReason::NONE:
+        default:
+          return "unknown";
+      }
+    };
     RCLCPP_WARN_THROTTLE(
       logger_, clock_, 5000,
-      "Ego is out of route, no module is running. Skip running scene modules.");
+      "Ego is out of route, no module is running. Skip running scene modules. "
+      "reason=%s ego=(%.3f, %.3f) closest_lane=%ld goal_lane=%ld in_road=%s in_shoulder=%s",
+      reason_to_string(out_of_route_debug.reason), data->self_odometry->pose.pose.position.x,
+      data->self_odometry->pose.pose.position.y,
+      static_cast<long>(out_of_route_debug.closest_road_lane_id),
+      static_cast<long>(out_of_route_debug.goal_lane_id),
+      out_of_route_debug.is_in_road_lane ? "true" : "false",
+      out_of_route_debug.is_in_shoulder_lane ? "true" : "false");
     generateCombinedDrivableArea(result_output, data);
     return result_output;
   }

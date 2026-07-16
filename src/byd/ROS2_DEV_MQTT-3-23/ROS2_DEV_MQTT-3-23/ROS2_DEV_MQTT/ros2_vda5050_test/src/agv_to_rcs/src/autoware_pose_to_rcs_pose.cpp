@@ -6,7 +6,7 @@
 class OdometryToPoseConverter : public rclcpp::Node
 {
 public:
-    OdometryToPoseConverter() : Node("odometry_to_pose_converter")
+    OdometryToPoseConverter() : Node("autoware_pose_to_rcs_pose")
     {
         // 声明参数：是否启用模拟数据发布，默认 false
         this->declare_parameter<bool>("simulation_enabled", false);

@@ -52,6 +52,10 @@ src/byd/all_can_ws/rtk_can_ws/*_log.txt
 src/byd/all_can_ws/rtk_can_ws/can_log.txt
 src/byd/all_can_ws/rtk_can_ws/atti_quat_log.txt
 
+# Local simulation bags/logs
+src/0715/
+src/0716/
+
 # Perception model weights and build artifacts (download/build locally)
 src/didrive_perception/**/*.pth
 src/didrive_perception/**/*.trt

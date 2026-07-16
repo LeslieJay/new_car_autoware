@@ -33,6 +33,11 @@ def _build_staged_launch(context: LaunchContext):
 
     drivers_launch = os.path.join(byd_share, "launch", "drivers.launch.py")
     applications_launch = os.path.join(byd_share, "launch", "applications.launch.py")
+    auto_engage_launch = os.path.join(
+        get_package_share_directory("byd_auto_engage"),
+        "launch",
+        "auto_engage.launch.py",
+    )
     autoware_launch = os.path.join(
         get_package_share_directory("autoware_launch"),
         "launch",
@@ -112,6 +117,15 @@ def _build_staged_launch(context: LaunchContext):
         launch_arguments=common_launch_args.items(),
     )
 
+    # auto_engage consumes Autoware's routing and operation-mode APIs, so defer
+    # it until the Autoware readiness gate has passed along with stage 3 apps.
+    auto_engage = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(auto_engage_launch),
+        launch_arguments={
+            "log_level": LaunchConfiguration("log_level"),
+        }.items(),
+    )
+
     autoware_transition = register_stage_transition(
         wait_drivers,
         [
@@ -127,6 +141,7 @@ def _build_staged_launch(context: LaunchContext):
         [
             LogInfo(msg="[bringup] stage 3/3: applications"),
             applications,
+            auto_engage,
             LogInfo(msg="[bringup] staged startup completed"),
         ],
         "autoware",
