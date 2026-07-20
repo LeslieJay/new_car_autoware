@@ -37,8 +37,8 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
 : Node("byd_vehicle_state", options)
 {
   update_rate_ = declare_parameter<double>("update_rate", 10.0);
-  arrive_distance_th_ = declare_parameter<double>("arrive_distance_threshold", 0.1);
-  arrive_yaw_th_ = declare_parameter<double>("arrive_yaw_threshold", 0.1);
+  arrive_distance_th_ = declare_parameter<double>("arrive_distance_threshold", 1.0);
+  arrive_yaw_th_ = declare_parameter<double>("arrive_yaw_threshold", 1.0472);
   arrive_speed_th_ = declare_parameter<double>("arrive_speed_threshold", 0.05);
   arrive_hold_time_ = declare_parameter<double>("arrive_hold_time", 1.0);
   arrived_to_unset_timeout_ = declare_parameter<double>("arrived_to_unset_timeout", 2.0);

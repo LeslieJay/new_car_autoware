@@ -38,6 +38,17 @@ FeasibilityResult checkFeasibility(
   const AvoidanceTarget & target, const double shift_length,
   const SimpleAvoidanceParameters & parameters, const double ego_speed);
 
+bool isTargetWithinOverlap(
+  double lateral_offset, double object_half_width, double ego_half_width, double lateral_margin,
+  double hysteresis = 0.0);
+
+bool isTargetPassed(const AvoidanceTarget & target, const SimpleAvoidanceParameters & parameters);
+
+bool isTargetHoldExpired(
+  const AvoidanceTarget & target, const rclcpp::Time & now, double lost_time_threshold);
+
+bool canCompleteAvoidance(const AvoidanceCompletionStatus & status);
+
 }  // namespace autoware::behavior_path_planner
 
 #endif  // AUTOWARE__BEHAVIOR_PATH_SIMPLE_AVOIDANCE_MODULE__UTILS_HPP_

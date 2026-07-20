@@ -62,11 +62,11 @@ ShiftLengthResult calcShiftLength(
 {
   ShiftLengthResult result;
   // Use the object edge facing the reference path, not the far edge.
-  // |lateral_offset| + object_half_width overestimates when the object is wide and encroaches the path.
-  const double object_near_edge =
-    target.lateral_offset >= 0.0
-      ? target.lateral_offset - target.object_half_width
-      : target.lateral_offset + target.object_half_width;
+  // |lateral_offset| + object_half_width overestimates when the object is wide and encroaches the
+  // path.
+  const double object_near_edge = target.lateral_offset >= 0.0
+                                    ? target.lateral_offset - target.object_half_width
+                                    : target.lateral_offset + target.object_half_width;
   result.required_clearance =
     std::max(0.0, std::abs(object_near_edge)) + ego_half_width + parameters.lateral_margin;
 
@@ -115,6 +115,46 @@ FeasibilityResult checkFeasibility(
 
   result.reason = InfeasibleReason::NONE;
   return result;
+}
+
+bool isTargetWithinOverlap(
+  const double lateral_offset, const double object_half_width, const double ego_half_width,
+  const double lateral_margin, const double hysteresis)
+{
+  const double overlap = std::abs(lateral_offset) - object_half_width;
+  return overlap < ego_half_width + lateral_margin + hysteresis;
+}
+
+bool isTargetPassed(const AvoidanceTarget & target, const SimpleAvoidanceParameters & parameters)
+{
+  return target.longitudinal_distance <
+         -(target.object_half_length + parameters.return_distance_after_object);
+}
+
+bool isTargetHoldExpired(
+  const AvoidanceTarget & target, const rclcpp::Time & now, const double lost_time_threshold)
+{
+  if (lost_time_threshold <= 0.0) {
+    return true;
+  }
+  return (now - target.last_seen).seconds() > lost_time_threshold;
+}
+
+bool canCompleteAvoidance(const AvoidanceCompletionStatus & status)
+{
+  if (status.has_active_target && !status.is_active_target_passed) {
+    return false;
+  }
+  if (status.has_shift_lines || status.is_ego_on_shift_line) {
+    return false;
+  }
+  if (std::abs(status.base_offset) > status.lateral_execution_threshold) {
+    return false;
+  }
+  if (std::abs(status.ego_shift) > status.lateral_execution_threshold) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace autoware::behavior_path_planner

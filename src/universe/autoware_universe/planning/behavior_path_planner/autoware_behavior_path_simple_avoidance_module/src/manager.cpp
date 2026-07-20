@@ -25,8 +25,8 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
 
   SimpleAvoidanceParameters p{};
   const std::string ns = "simple_avoidance.";
-  // Defaults match config/simple_avoidance.param.yaml so init still works if the
-  // param file was not loaded into the node.
+  // These are fallback defaults. Runtime tuning normally comes from
+  // config/simple_avoidance.param.yaml.
   p.th_moving_speed = node->declare_parameter<double>(ns + "th_moving_speed", 0.5);
   p.min_forward_distance = node->declare_parameter<double>(ns + "min_forward_distance", 0.5);
   p.max_forward_distance = node->declare_parameter<double>(ns + "max_forward_distance", 60.0);
@@ -38,6 +38,12 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
   p.min_shifting_speed = node->declare_parameter<double>(ns + "min_shifting_speed", 1.0);
   p.return_distance_after_object =
     node->declare_parameter<double>(ns + "return_distance_after_object", 3.0);
+  p.target_lost_time_threshold =
+    node->declare_parameter<double>(ns + "target_lost_time_threshold", 1.0);
+  p.target_hold_lateral_hysteresis =
+    node->declare_parameter<double>(ns + "target_hold_lateral_hysteresis", 0.3);
+  p.lateral_execution_threshold =
+    node->declare_parameter<double>(ns + "lateral_execution_threshold", 0.05);
   p.publish_debug_marker = node->declare_parameter<bool>(ns + "publish_debug_marker", true);
 
   parameters_ = std::make_shared<SimpleAvoidanceParameters>(p);
@@ -60,6 +66,10 @@ void SimpleAvoidanceModuleManager::updateModuleParams(
   update_param(parameters, ns + "shifting_lateral_jerk", p->shifting_lateral_jerk);
   update_param(parameters, ns + "min_shifting_speed", p->min_shifting_speed);
   update_param(parameters, ns + "return_distance_after_object", p->return_distance_after_object);
+  update_param(parameters, ns + "target_lost_time_threshold", p->target_lost_time_threshold);
+  update_param(
+    parameters, ns + "target_hold_lateral_hysteresis", p->target_hold_lateral_hysteresis);
+  update_param(parameters, ns + "lateral_execution_threshold", p->lateral_execution_threshold);
   update_param(parameters, ns + "publish_debug_marker", p->publish_debug_marker);
 
   std::for_each(observers_.begin(), observers_.end(), [&p](const auto & observer) {

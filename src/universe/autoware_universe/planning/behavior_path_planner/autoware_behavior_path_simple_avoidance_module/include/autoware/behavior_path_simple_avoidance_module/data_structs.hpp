@@ -17,6 +17,8 @@
 
 #include "autoware/behavior_path_planner_common/utils/path_shifter/path_shifter.hpp"
 
+#include <rclcpp/time.hpp>
+
 #include <geometry_msgs/msg/pose.hpp>
 
 #include <memory>
@@ -63,6 +65,9 @@ struct SimpleAvoidanceParameters
   double shifting_lateral_jerk{0.8};
   double min_shifting_speed{0.2};
   double return_distance_after_object{2.0};
+  double target_lost_time_threshold{1.0};
+  double target_hold_lateral_hysteresis{0.3};
+  double lateral_execution_threshold{0.05};
   bool publish_debug_marker{false};
 };
 
@@ -74,6 +79,18 @@ struct AvoidanceTarget
   double object_half_width{0.0};
   double object_half_length{0.0};
   std::string uuid;
+  rclcpp::Time last_seen{};
+};
+
+struct AvoidanceCompletionStatus
+{
+  bool has_active_target{false};
+  bool is_active_target_passed{false};
+  bool has_shift_lines{false};
+  bool is_ego_on_shift_line{false};
+  double base_offset{0.0};
+  double ego_shift{0.0};
+  double lateral_execution_threshold{0.05};
 };
 
 enum class TargetRejectReason { MOVING, OUT_OF_LANE, LONGITUDINAL, NO_OVERLAP };

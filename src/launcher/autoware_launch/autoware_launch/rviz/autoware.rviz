@@ -265,15 +265,7 @@ Visualization Manager:
           Enabled: true
           Name: Lanelet2VectorMap
           Namespaces:
-            center_lane_line: true
-            center_line_arrows: true
-            lane_start_bound: true
-            lanelet direction: true
-            lanelet_id: true
-            left_lane_bound: true
-            right_lane_bound: true
-            road_lanelets: true
-            waypoints: true
+            {}
           Topic:
             Depth: 5
             Durability Policy: Transient Local
@@ -753,8 +745,7 @@ Visualization Manager:
                     Alpha: 0.9990000128746033
                     Color: 119; 11; 32
                   Name: DetectedObjects
-                  Namespaces:
-                    {}
+                  Namespaces: ~
                   Object Fill Type: skeleton
                   PEDESTRIAN:
                     Alpha: 0.9990000128746033
@@ -814,8 +805,7 @@ Visualization Manager:
                     Alpha: 0.9990000128746033
                     Color: 119; 11; 32
                   Name: TrackedObjects
-                  Namespaces:
-                    {}
+                  Namespaces: ~
                   Object Fill Type: skeleton
                   PEDESTRIAN:
                     Alpha: 0.9990000128746033
@@ -875,8 +865,7 @@ Visualization Manager:
                     Alpha: 0.9990000128746033
                     Color: 119; 11; 32
                   Name: PredictedObjects
-                  Namespaces:
-                    {}
+                  Namespaces: ~
                   Object Fill Type: skeleton
                   PEDESTRIAN:
                     Alpha: 0.9990000128746033
@@ -1931,8 +1920,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(StaticObstacleAvoidance)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -1945,8 +1933,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(AvoidanceByLC)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -1959,8 +1946,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(LaneChangeRight)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -1973,8 +1959,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(LaneChangeLeft)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -1987,8 +1972,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(ExtLaneChangeRight)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2001,8 +1985,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(ExtLaneChangeLeft)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2015,8 +1998,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(GoalPlanner)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2029,8 +2011,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(StartPlanner)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2043,8 +2024,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(BidirectionalTraffic)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2057,8 +2037,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(BlindSpot)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2071,8 +2050,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(Crosswalk)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2085,8 +2063,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(Walkway)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2099,8 +2076,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(DetectionArea)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2113,8 +2089,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(Intersection)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2127,8 +2102,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(IntersectionOcclusion)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2141,8 +2115,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(MergeFromPrivateArea)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2155,8 +2128,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(NoStoppingArea)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2169,8 +2141,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(OcclusionSpot)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2183,8 +2154,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(StopLine)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2197,8 +2167,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(TrafficLight)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2211,8 +2180,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(VirtualTrafficLight)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2225,8 +2193,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(SpeedBump)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2239,8 +2206,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(NoDrivableLane)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2253,8 +2219,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(SideShift)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2267,8 +2232,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(DynamicObstacleAvoidance)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2281,8 +2245,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(BehaviorPathPlanner)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2393,8 +2356,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(SurroundObstacle)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2407,8 +2369,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(ObstacleStop)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2421,8 +2382,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(ObstacleSlowDown)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2435,8 +2395,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(ObstacleCruise)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2449,8 +2408,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(OutOfLane)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2463,8 +2421,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(DynamicObstacleStop)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2477,8 +2434,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(RunOut)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2491,8 +2447,7 @@ Visualization Manager:
                         - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                           Enabled: true
                           Name: PlanningFactor(RoadUserStop)
-                          Namespaces:
-                            {}
+                          Namespaces: ~
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2650,8 +2605,7 @@ Visualization Manager:
                     - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                       Enabled: true
                       Name: PlanningFactor(RearCollisionChecker)
-                      Namespaces:
-                        {}
+                      Namespaces: ~
                       Show Safety Factors: false
                       Topic:
                         Depth: 5
@@ -2664,8 +2618,7 @@ Visualization Manager:
                     - Class: tier4_planning_factor_rviz_plugin/PlanningFactorRvizPlugin
                       Enabled: true
                       Name: PlanningFactor(IntersectionCollisionChecker)
-                      Namespaces:
-                        {}
+                      Namespaces: ~
                       Show Safety Factors: false
                       Topic:
                         Depth: 5
@@ -2908,12 +2861,94 @@ Visualization Manager:
                     Value: true
                   Map: true
                   Perception:
-                    "": true
+                    CameraLidarFusion(purple): true
+                    Centerpoint(red1): true
+                    CenterpointROIFusion(red2): true
+                    CenterpointValidator(red3): true
+                    Detection(yellow): true
+                    DetectionByTracker(orange): true
+                    PointPainting(light_green1): true
+                    PointPaintingROIFusion(light_green2): true
+                    PointPaintingValidator(light_green3): true
+                    Prediction(light_blue): true
+                    RadarFarObjects(white): true
+                    Tracking(green): true
                     Value: true
                   Planning:
-                    "":
-                      "":
-                        "": true
+                    Debug:
+                      BehaviorPathPlanner:
+                        Arrow: true
+                        GoalPlanner: true
+                        LaneFollowing: true
+                        LeftLaneChange: true
+                        RightLaneChange: true
+                        SideShift: true
+                        StartPlanner: true
+                        StaticObstacleAvoidance: true
+                        Value: true
+                      MotionVelocityPlanner:
+                        DynamicObstacleStop: true
+                        ObstacleCruise: true
+                        ObstacleSlowDown: true
+                        ObstacleStop: true
+                        ObstacleVelocityLimiter: true
+                        OutOfLane: true
+                        RunOut: true
+                        Value: true
+                      Value: true
+                    Info:
+                      BehaviorPathPlanner:
+                        Info (AvoidanceByLC): true
+                        Info (DynamicObstacleAvoidance): true
+                        Info (ExtLaneChangeLeft): true
+                        Info (ExtLaneChangeRight): true
+                        Info (GoalPlanner): true
+                        Info (LaneChangeLeft): true
+                        Info (LaneChangeRight): true
+                        Info (StartPlanner): true
+                        Info (StaticObstacleAvoidance): true
+                        Value: true
+                      BehaviorVelocityPlanner:
+                        Blind Spot: true
+                        Crosswalk: true
+                        DetectionArea: true
+                        DynamicObstacleAvoidance: true
+                        Intersection: true
+                        NoDrivableLane: true
+                        NoStoppingArea: true
+                        OcclusionSpot: true
+                        Roundabout: true
+                        SpeedBump: true
+                        StopLine: true
+                        TrafficLight: true
+                        Value: true
+                        VirtualTrafficLight: true
+                      MotionVelocityPlanner: true
+                      Objects Of Interest:
+                        AvoidanceByLCLeft: true
+                        AvoidanceByLCRight: true
+                        AvoidanceLeft: true
+                        AvoidanceRight: true
+                        BlindSpot: true
+                        Crosswalk: true
+                        DetectionArea: true
+                        GoalPlanner: true
+                        Intersection: true
+                        LaneChangeLeft: true
+                        LaneChangeRight: true
+                        NoStoppingArea: true
+                        ObstacleCruise: true
+                        Roundabout: true
+                        RunOut: true
+                        StartPlanner: true
+                        TrafficLight: true
+                        Value: true
+                      ObstacleAvoidance: true
+                      SurroundObstacleChecker:
+                        Footprint: true
+                        FootprintOffset: true
+                        FootprintRecoverOffset: true
+                        SurroundObstacleCheck: true
                         Value: true
                       Value: true
                     Value: true
@@ -3157,8 +3192,7 @@ Visualization Manager:
                 Alpha: 0.5
                 Color: 255; 255; 255
               Name: RadarRawObjects(white)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.5
@@ -3323,8 +3357,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 255; 138; 128
               Name: Centerpoint(red1)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3379,8 +3412,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 255; 82; 82
               Name: CenterpointROIFusion(red2)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3435,8 +3467,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 213; 0; 0
               Name: CenterpointValidator(red3)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3491,8 +3522,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 178; 255; 89
               Name: PointPainting(light_green1)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3547,8 +3577,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 118; 255; 3
               Name: PointPaintingROIFusion(light_green2)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3603,8 +3632,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 100; 221; 23
               Name: PointPaintingValidator(light_green3)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3659,8 +3687,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 255; 145; 0
               Name: DetectionByTracker(orange)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3715,8 +3742,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 213; 0; 249
               Name: CameraLidarFusion(purple)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3771,8 +3797,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 255; 255; 255
               Name: RadarFarObjects(white)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3827,8 +3852,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 255; 234; 0
               Name: Detection(yellow)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3884,8 +3908,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 0; 230; 118
               Name: Tracking(green)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -3941,8 +3964,7 @@ Visualization Manager:
                 Alpha: 0.9990000128746033
                 Color: 0; 176; 255
               Name: Prediction(light_blue)
-              Namespaces:
-                {}
+              Namespaces: ~
               Object Fill Type: skeleton
               PEDESTRIAN:
                 Alpha: 0.9990000128746033
@@ -4865,11 +4887,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 4.304345607757568
+      Scale: 18.14638328552246
       Target Frame: viewer
       Value: TopDownOrtho (rviz_default_plugins)
-      X: 69.31952667236328
-      Y: 31.06932830810547
+      X: 0.672544002532959
+      Y: -15.74642276763916
     Saved:
       - Class: rviz_default_plugins/ThirdPersonFollower
         Distance: 18
@@ -4915,12 +4937,12 @@ Window Geometry:
     collapsed: false
   Displays:
     collapsed: false
-  Height: 536
+  Height: 1016
   Hide Left Dock: false
   Hide Right Dock: false
   PointcloudOnCamera:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000400000000000001b2000001affc020000000ffb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005500fffffffb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb00000024004100750074006f00770061007200650053007400610074006500500061006e0065006c0000000045000000e10000006700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000c00430061006d0065007200610100000682000000eb0000000000000000fb0000000a0049006d0061006700650100000505000002680000000000000000fb0000002c0049006e0069007400690061006c0050006f007300650042007500740074006f006e00500061006e0065006c000000068f000000de0000000000000000fb0000002c0049006e0069007400690061006c0050006f007300650042007500740074006f006e00500061006e0065006c000000068f000000de0000000000000000fb00000030005200650063006f0067006e006900740069006f006e0052006500730075006c0074004f006e0049006d0061006700650000000045000000c90000003100fffffffb0000002a004100750074006f0077006100720065004400610074006500540069006d006500500061006e0065006c0000000332000000720000004900fffffffb000000240050006f0069006e00740063006c006f00750064004f006e00430061006d006500720061000000039d000000560000003100fffffffb000000240043006f006e00740072006f006c004d006f006400650044006900730070006c006100790000000045000001af0000005900ffffff00000001000001b8000001affc0200000004fb000000100044006900730070006c0061007900730000000045000001af000000d200fffffffc00000045000001af0000000000fffffffaffffffff0100000002fb0000000a0056006900650077007300000005d5000001ab0000010400fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730000000000ffffffff0000009a00fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000e7a0000005afc0100000001fb0000000a00560069006500770073030000004e00000080000002e1000001970000000300000e7a0000005afc0100000002fb0000000800540069006d0065010000000000000e7a0000000000000000fb0000000800540069006d00650100000000000004500000000000000000000003ba000001af00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000001b2000001affc020000000ffb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005500fffffffb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb00000024004100750074006f00770061007200650053007400610074006500500061006e0065006c0000000045000000e10000007900fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000c00430061006d0065007200610100000682000000eb0000000000000000fb0000000a0049006d0061006700650100000505000002680000000000000000fb0000002c0049006e0069007400690061006c0050006f007300650042007500740074006f006e00500061006e0065006c000000068f000000de0000000000000000fb0000002c0049006e0069007400690061006c0050006f007300650042007500740074006f006e00500061006e0065006c000000068f000000de0000000000000000fb00000030005200650063006f0067006e006900740069006f006e0052006500730075006c0074004f006e0049006d0061006700650000000045000000c90000003100fffffffb0000002a004100750074006f0077006100720065004400610074006500540069006d006500500061006e0065006c0000000332000000720000007900fffffffb000000240050006f0069006e00740063006c006f00750064004f006e00430061006d006500720061000000039d000000560000003100fffffffb000000240043006f006e00740072006f006c004d006f006400650044006900730070006c006100790000000045000001af0000007900ffffff00000001000001b8000001affc0200000004fb000000100044006900730070006c0061007900730000000045000001af000000d200fffffffc00000045000001af0000000000fffffffaffffffff0100000002fb0000000a0056006900650077007300000005d5000001ab0000011700fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730000000000ffffffff0000009c00fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000e7a0000005afc0100000001fb0000000a00560069006500770073030000004e00000080000002e1000001970000000300000e7a0000005afc0100000002fb0000000800540069006d0065010000000000000e7a0000000000000000fb0000000800540069006d00650100000000000004500000000000000000000007800000039500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   RecognitionResultOnImage:
     collapsed: false
   Selection:
@@ -4929,6 +4951,6 @@ Window Geometry:
     collapsed: false
   Views:
     collapsed: false
-  Width: 954
-  X: 70
+  Width: 1920
+  X: 0
   Y: 27

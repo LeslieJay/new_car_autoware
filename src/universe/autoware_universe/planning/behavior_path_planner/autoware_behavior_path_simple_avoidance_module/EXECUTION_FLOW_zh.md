@@ -405,9 +405,16 @@ calcShiftLength / checkFeasibility 失败 → 返回上游 path
 
 ```
 canTransitSuccessState()
-├─ detectTarget() 仍有目标 → false（绕障未完成）
-└─ |getClosestShiftLength(prev_output_, ego)| < 0.05 → true（已回正，可退出）
+├─ active_target_ 未通过且未超时 → false
+├─ ego 位于任意 shift line start/end 范围内 → false
+├─ path_shifter_ 仍有 shift line → false
+├─ |path_shifter_.getBaseOffset()| > lateral_execution_threshold → false
+├─ |getClosestShiftLength(prev_output_, ego)| > lateral_execution_threshold → false
+└─ 以上均不满足 → true（已完成且回正，可退出）
 ```
+
+`plan()` 中目标一旦锁定，会优先按 UUID 刷新。若 perception 或 shifted path 导致短暂 no-overlap，
+模块会在 `target_lost_time_threshold` 内继续使用 held target，避免 ego 尚未执行侧移时被框架删除。
 
 触发后框架调用 `processOnExit()` → `initVariables()`。
 

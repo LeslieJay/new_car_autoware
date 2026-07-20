@@ -1,8 +1,9 @@
-# Only track src/ — ignore everything else at repo root
+# Only track src/ - ignore everything else at repo root
 /*
 !/.gitignore
 !/.gitattributes
 !/src/
+!/time-capsule/
 
 # Vim
 *.swp

@@ -16,8 +16,8 @@
 
 #include "autoware/behavior_path_planner_common/marker_utils/utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/drivable_area_expansion/static_drivable_area.hpp"
-#include "autoware/behavior_path_planner_common/utils/path_utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/path_safety_checker/objects_filtering.hpp"
+#include "autoware/behavior_path_planner_common/utils/path_utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/utils.hpp"
 #include "autoware/behavior_path_simple_avoidance_module/utils.hpp"
 
@@ -74,15 +74,14 @@ void logNoTargetDiagnosisDetails(
   if (d.precondition == NoTargetPrecondition::NO_DYNAMIC_OBJECT) {
     RCLCPP_WARN_THROTTLE(
       logger, clock, throttle_ms,
-      "[SIMPLE_AVOIDANCE] %s | precondition=%s (planner has no perception input yet)",
-      prefix, toString(d.precondition));
+      "[SIMPLE_AVOIDANCE] %s | precondition=%s (planner has no perception input yet)", prefix,
+      toString(d.precondition));
     return;
   }
 
   if (d.precondition == NoTargetPrecondition::EMPTY_REFERENCE_PATH) {
     RCLCPP_WARN_THROTTLE(
-      logger, clock, throttle_ms,
-      "[SIMPLE_AVOIDANCE] %s | precondition=%s ref_path_pts=%zu",
+      logger, clock, throttle_ms, "[SIMPLE_AVOIDANCE] %s | precondition=%s ref_path_pts=%zu",
       prefix, toString(d.precondition), reference_path_points);
     return;
   }
@@ -90,8 +89,8 @@ void logNoTargetDiagnosisDetails(
   if (d.precondition == NoTargetPrecondition::EMPTY_CURRENT_LANELETS) {
     RCLCPP_WARN_THROTTLE(
       logger, clock, throttle_ms,
-      "[SIMPLE_AVOIDANCE] %s | precondition=%s objects=%zu ref_path_pts=%zu",
-      prefix, toString(d.precondition), d.total_objects, reference_path_points);
+      "[SIMPLE_AVOIDANCE] %s | precondition=%s objects=%zu ref_path_pts=%zu", prefix,
+      toString(d.precondition), d.total_objects, reference_path_points);
     return;
   }
 
@@ -112,10 +111,10 @@ void logNoTargetDiagnosisDetails(
         "[SIMPLE_AVOIDANCE] %s | objects=%zu rejected: moving=%zu out_of_lane=%zu lon_range=%zu "
         "no_overlap=%zu | nearest_rejected uuid=%s reason=%s speed=%.2f th=%.2f "
         "(exceeds by %.2fm/s) pos=(%.2f,%.2f) lon=%.2fm lat=%.2fm",
-        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane,
-        d.rejected_longitudinal, d.rejected_no_overlap, d.nearest_uuid.c_str(),
-        toString(d.nearest_reject_reason), d.nearest_speed, parameters.th_moving_speed,
-        d.nearest_shortfall, d.nearest_obj_x, d.nearest_obj_y, d.nearest_lon, d.nearest_lat);
+        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane, d.rejected_longitudinal,
+        d.rejected_no_overlap, d.nearest_uuid.c_str(), toString(d.nearest_reject_reason),
+        d.nearest_speed, parameters.th_moving_speed, d.nearest_shortfall, d.nearest_obj_x,
+        d.nearest_obj_y, d.nearest_lon, d.nearest_lat);
       return;
     case TargetRejectReason::OUT_OF_LANE:
       RCLCPP_WARN_THROTTLE(
@@ -123,10 +122,9 @@ void logNoTargetDiagnosisDetails(
         "[SIMPLE_AVOIDANCE] %s | objects=%zu rejected: moving=%zu out_of_lane=%zu lon_range=%zu "
         "no_overlap=%zu | nearest_rejected uuid=%s reason=%s pos=(%.2f,%.2f) lon=%.2fm lat=%.2fm "
         "(not in current route lanelet)",
-        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane,
-        d.rejected_longitudinal, d.rejected_no_overlap, d.nearest_uuid.c_str(),
-        toString(d.nearest_reject_reason), d.nearest_obj_x, d.nearest_obj_y, d.nearest_lon,
-        d.nearest_lat);
+        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane, d.rejected_longitudinal,
+        d.rejected_no_overlap, d.nearest_uuid.c_str(), toString(d.nearest_reject_reason),
+        d.nearest_obj_x, d.nearest_obj_y, d.nearest_lon, d.nearest_lat);
       return;
     case TargetRejectReason::LONGITUDINAL:
       RCLCPP_WARN_THROTTLE(
@@ -134,11 +132,10 @@ void logNoTargetDiagnosisDetails(
         "[SIMPLE_AVOIDANCE] %s | objects=%zu rejected: moving=%zu out_of_lane=%zu lon_range=%zu "
         "no_overlap=%zu | nearest_rejected uuid=%s reason=%s lon=%.2fm allowed=[%.2f,%.2f]m "
         "shortfall=%.2fm pos=(%.2f,%.2f) lat=%.2fm",
-        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane,
-        d.rejected_longitudinal, d.rejected_no_overlap, d.nearest_uuid.c_str(),
-        toString(d.nearest_reject_reason), d.nearest_lon, parameters.min_forward_distance,
-        parameters.max_forward_distance, d.nearest_shortfall, d.nearest_obj_x, d.nearest_obj_y,
-        d.nearest_lat);
+        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane, d.rejected_longitudinal,
+        d.rejected_no_overlap, d.nearest_uuid.c_str(), toString(d.nearest_reject_reason),
+        d.nearest_lon, parameters.min_forward_distance, parameters.max_forward_distance,
+        d.nearest_shortfall, d.nearest_obj_x, d.nearest_obj_y, d.nearest_lat);
       return;
     case TargetRejectReason::NO_OVERLAP:
       RCLCPP_WARN_THROTTLE(
@@ -146,10 +143,10 @@ void logNoTargetDiagnosisDetails(
         "[SIMPLE_AVOIDANCE] %s | objects=%zu rejected: moving=%zu out_of_lane=%zu lon_range=%zu "
         "no_overlap=%zu | nearest_rejected uuid=%s reason=%s overlap=%.2fm threshold=%.2fm "
         "(need overlap < threshold, short by %.2fm lateral) pos=(%.2f,%.2f) lon=%.2fm lat=%.2fm",
-        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane,
-        d.rejected_longitudinal, d.rejected_no_overlap, d.nearest_uuid.c_str(),
-        toString(d.nearest_reject_reason), d.nearest_overlap, d.nearest_threshold,
-        d.nearest_shortfall, d.nearest_obj_x, d.nearest_obj_y, d.nearest_lon, d.nearest_lat);
+        prefix, d.total_objects, d.rejected_moving, d.rejected_out_of_lane, d.rejected_longitudinal,
+        d.rejected_no_overlap, d.nearest_uuid.c_str(), toString(d.nearest_reject_reason),
+        d.nearest_overlap, d.nearest_threshold, d.nearest_shortfall, d.nearest_obj_x,
+        d.nearest_obj_y, d.nearest_lon, d.nearest_lat);
       return;
     default:
       return;
@@ -185,7 +182,8 @@ void logPassThroughDetails(
       RCLCPP_WARN_THROTTLE(
         logger, clock, 1000,
         "[SIMPLE_AVOIDANCE] pass-through reason=%s | target uuid=%s lon=%.2fm lat=%.2fm "
-        "obj_hw=%.2fm | required_clearance=%.2fm (|lat|=%.2f+obj_hw=%.2f+ego_hw=%.2f+margin=%.2f) | "
+        "obj_hw=%.2fm | required_clearance=%.2fm (|lat|=%.2f+obj_hw=%.2f+ego_hw=%.2f+margin=%.2f) "
+        "| "
         "max_shift_length=%.2fm requested_shift=%.2fm | remaining_gap=%.2fm (short by %.2fm "
         "lateral space)",
         toString(reason), t.uuid.c_str(), t.longitudinal_distance, t.lateral_offset,
@@ -241,9 +239,7 @@ SimpleAvoidanceModule::SimpleAvoidanceModule(
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
     objects_of_interest_marker_interface_ptr_map,
   const std::shared_ptr<PlanningFactorInterface> & planning_factor_interface)
-: SceneModuleInterface{
-    name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map,
-    planning_factor_interface},
+: SceneModuleInterface{name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map, planning_factor_interface},
   parameters_{parameters}
 {
 }
@@ -260,9 +256,14 @@ void SimpleAvoidanceModule::initVariables()
   resetPathReference();
 }
 
-void SimpleAvoidanceModule::processOnEntry() {}
+void SimpleAvoidanceModule::processOnEntry()
+{
+}
 
-void SimpleAvoidanceModule::processOnExit() { initVariables(); }
+void SimpleAvoidanceModule::processOnExit()
+{
+  initVariables();
+}
 
 bool SimpleAvoidanceModule::isExecutionRequested() const
 {
@@ -283,13 +284,48 @@ bool SimpleAvoidanceModule::isExecutionRequested() const
 
 bool SimpleAvoidanceModule::canTransitSuccessState()
 {
-  constexpr double zero_threshold = 0.05;
-  const auto target = detectTarget();
-  if (target.has_value()) {
-    return false;
+  if (active_target_.has_value()) {
+    if (const auto updated = updateTargetMetrics(*active_target_)) {
+      active_target_ = updated;
+    }
+    const bool is_passed = isTargetPassed(*active_target_, *parameters_);
+    const bool is_expired =
+      isTargetHoldExpired(*active_target_, clock_->now(), parameters_->target_lost_time_threshold);
+    if (!is_passed && is_expired) {
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 2000,
+        "[SIMPLE_AVOIDANCE] success check releases expired target uuid=%s last_seen_age=%.2fs",
+        active_target_->uuid.c_str(), (clock_->now() - active_target_->last_seen).seconds());
+      active_target_.reset();
+      debug_data_.target.reset();
+    } else if (!is_passed) {
+      RCLCPP_INFO_THROTTLE(
+        getLogger(), *clock_, 2000,
+        "[SIMPLE_AVOIDANCE] success blocked: active_target uuid=%s lon=%.2fm",
+        active_target_->uuid.c_str(), active_target_->longitudinal_distance);
+    }
   }
-  const auto current_shift = getClosestShiftLength(prev_output_, getEgoPose().position);
-  return std::abs(current_shift) < zero_threshold;
+
+  const AvoidanceCompletionStatus status{
+    active_target_.has_value(),
+    active_target_.has_value() && isTargetPassed(*active_target_, *parameters_),
+    !path_shifter_.getShiftLines().empty(),
+    isEgoOnShiftLine(),
+    path_shifter_.getBaseOffset(),
+    getClosestShiftLength(prev_output_, getEgoPose().position),
+    parameters_->lateral_execution_threshold};
+
+  const bool can_complete = canCompleteAvoidance(status);
+  if (!can_complete) {
+    RCLCPP_INFO_THROTTLE(
+      getLogger(), *clock_, 2000,
+      "[SIMPLE_AVOIDANCE] success blocked: active=%d passed=%d shift_lines=%zu "
+      "ego_on_shift=%d base_offset=%.2f ego_shift=%.2f threshold=%.2f",
+      status.has_active_target, status.is_active_target_passed,
+      path_shifter_.getShiftLines().size(), status.is_ego_on_shift_line, status.base_offset,
+      status.ego_shift, status.lateral_execution_threshold);
+  }
+  return can_complete;
 }
 
 void SimpleAvoidanceModule::updateData()
@@ -317,7 +353,8 @@ void SimpleAvoidanceModule::updateData()
   path_shifter_.removeBehindShiftLineAndSetBaseOffset(nearest_idx);
 }
 
-std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget() const
+std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
+  const std::optional<std::string> & preferred_uuid, const bool use_hold_hysteresis) const
 {
   if (!planner_data_->dynamic_object || reference_path_.points.empty()) {
     return std::nullopt;
@@ -330,6 +367,11 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget() const
   double min_longitudinal = std::numeric_limits<double>::max();
 
   for (const auto & object : planner_data_->dynamic_object->objects) {
+    const auto uuid = autoware_utils_uuid::to_hex_string(object.object_id);
+    if (preferred_uuid.has_value() && uuid != *preferred_uuid) {
+      continue;
+    }
+
     const auto & pose = object.kinematics.initial_pose_with_covariance.pose;
     const double speed = std::hypot(
       object.kinematics.initial_twist_with_covariance.twist.linear.x,
@@ -355,8 +397,11 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget() const
     const double lateral_offset = autoware::motion_utils::calcLateralOffset(
       reference_path_.points, pose.position, nearest_seg_idx);
     const double object_half_width = getObjectHalfWidth(object.shape);
-    const double overlap = std::abs(lateral_offset) - object_half_width;
-    if (overlap >= ego_half_width + parameters_->lateral_margin) {
+    const double hysteresis =
+      use_hold_hysteresis ? parameters_->target_hold_lateral_hysteresis : 0.0;
+    if (!isTargetWithinOverlap(
+          lateral_offset, object_half_width, ego_half_width, parameters_->lateral_margin,
+          hysteresis)) {
       continue;
     }
 
@@ -367,13 +412,100 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget() const
       target.lateral_offset = lateral_offset;
       target.object_half_width = object_half_width;
       target.object_half_length = getObjectHalfLength(object.shape);
-      target.uuid = autoware_utils_uuid::to_hex_string(object.object_id);
+      target.uuid = uuid;
+      target.last_seen = clock_->now();
       nearest_target = target;
       min_longitudinal = longitudinal_distance;
     }
   }
 
   return nearest_target;
+}
+
+std::optional<AvoidanceTarget> SimpleAvoidanceModule::updateTargetMetrics(
+  const AvoidanceTarget & target) const
+{
+  if (reference_path_.points.empty()) {
+    return std::nullopt;
+  }
+
+  auto updated = target;
+  const auto ego_pos = planner_data_->self_odometry->pose.pose.position;
+  const auto nearest_seg_idx =
+    autoware::motion_utils::findNearestSegmentIndex(reference_path_.points, target.pose.position);
+  updated.longitudinal_distance = autoware::motion_utils::calcSignedArcLength(
+    reference_path_.points, ego_pos, target.pose.position);
+  updated.lateral_offset = autoware::motion_utils::calcLateralOffset(
+    reference_path_.points, target.pose.position, nearest_seg_idx);
+  return updated;
+}
+
+std::optional<AvoidanceTarget> SimpleAvoidanceModule::getActiveTargetOrHeldTarget()
+{
+  const auto now = clock_->now();
+  if (!active_target_.has_value()) {
+    if (auto target = detectTarget()) {
+      active_target_ = target;
+      RCLCPP_INFO_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_AVOIDANCE] active target locked uuid=%s lon=%.2fm lat=%.2fm",
+        active_target_->uuid.c_str(), active_target_->longitudinal_distance,
+        active_target_->lateral_offset);
+      return active_target_;
+    }
+    return std::nullopt;
+  }
+
+  if (auto target = detectTarget(active_target_->uuid, true)) {
+    active_target_ = target;
+    debug_data_.target = active_target_;
+    return active_target_;
+  }
+
+  if (auto updated = updateTargetMetrics(*active_target_)) {
+    active_target_ = updated;
+  }
+
+  if (isTargetPassed(*active_target_, *parameters_)) {
+    RCLCPP_INFO_THROTTLE(
+      getLogger(), *clock_, 2000, "[SIMPLE_AVOIDANCE] active target passed uuid=%s lon=%.2fm",
+      active_target_->uuid.c_str(), active_target_->longitudinal_distance);
+    return std::nullopt;
+  }
+
+  if (!isTargetHoldExpired(*active_target_, now, parameters_->target_lost_time_threshold)) {
+    RCLCPP_WARN_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE] target temporarily lost but held uuid=%s lon=%.2fm lat=%.2fm "
+      "last_seen_age=%.2fs threshold=%.2fs",
+      active_target_->uuid.c_str(), active_target_->longitudinal_distance,
+      active_target_->lateral_offset, (now - active_target_->last_seen).seconds(),
+      parameters_->target_lost_time_threshold);
+    return active_target_;
+  }
+
+  RCLCPP_WARN_THROTTLE(
+    getLogger(), *clock_, 1000,
+    "[SIMPLE_AVOIDANCE] target hold expired uuid=%s last_seen_age=%.2fs threshold=%.2fs",
+    active_target_->uuid.c_str(), (now - active_target_->last_seen).seconds(),
+    parameters_->target_lost_time_threshold);
+  active_target_.reset();
+  debug_data_.target.reset();
+  return std::nullopt;
+}
+
+bool SimpleAvoidanceModule::isEgoOnShiftLine() const
+{
+  const auto reference_path = path_shifter_.getReferencePath();
+  if (reference_path.points.empty()) {
+    return false;
+  }
+  const size_t ego_idx = planner_data_->findEgoIndex(reference_path.points);
+  return std::any_of(
+    path_shifter_.getShiftLines().begin(), path_shifter_.getShiftLines().end(),
+    [ego_idx](const auto & shift_line) {
+      return shift_line.start_idx < ego_idx && ego_idx < shift_line.end_idx;
+    });
 }
 
 NoTargetDiagnosis SimpleAvoidanceModule::diagnoseNoTarget() const
@@ -431,7 +563,8 @@ NoTargetDiagnosis SimpleAvoidanceModule::diagnoseNoTarget() const
       rejected = true;
       threshold = parameters_->th_moving_speed;
       shortfall = speed - threshold;
-    } else if (!current_lanelets_.empty() && !isObjectOverlappingLanelets(object, current_lanelets_)) {
+    } else if (
+      !current_lanelets_.empty() && !isObjectOverlappingLanelets(object, current_lanelets_)) {
       diagnosis.rejected_out_of_lane++;
       reject_reason = TargetRejectReason::OUT_OF_LANE;
       rejected = true;
@@ -487,9 +620,10 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
     std::max(ego_speed, parameters_->min_shifting_speed));
   const double dist_to_avoid_end =
     dist_to_avoid_start + std::max(jerk_distance, parameters_->min_shifting_distance);
-  const double dist_to_return_start =
-    target.longitudinal_distance + target.object_half_length + parameters_->return_distance_after_object;
-  const double dist_to_return_end = dist_to_return_start + std::max(jerk_distance, parameters_->min_shifting_distance);
+  const double dist_to_return_start = target.longitudinal_distance + target.object_half_length +
+                                      parameters_->return_distance_after_object;
+  const double dist_to_return_end =
+    dist_to_return_start + std::max(jerk_distance, parameters_->min_shifting_distance);
 
   ShiftLine avoid_shift;
   avoid_shift.start_shift_length = getClosestShiftLength(prev_output_, getEgoPose().position);
@@ -562,9 +696,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
     return passThrough(InfeasibleReason::NO_TARGET, debug_info);
   }
 
-  const auto target = detectTarget();
+  const auto target = getActiveTargetOrHeldTarget();
   if (!target.has_value()) {
-    active_target_.reset();
     if (!path_shifter_.getShiftLines().empty()) {
       ShiftedPath shifted_path;
       if (!path_shifter_.generate(&shifted_path)) {
@@ -574,6 +707,7 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
         setOrientation(&shifted_path.path);
         prev_output_ = shifted_path;
         debug_data_.last_reason = InfeasibleReason::NONE;
+        debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
         path_reference_ =
           std::make_shared<PathWithLaneId>(getPreviousModuleOutput().reference_path);
         if (parameters_->publish_debug_marker) {
@@ -693,8 +827,9 @@ PathWithLaneId SimpleAvoidanceModule::extendBackwardLength(
 
   size_t clip_idx = 0;
   for (size_t i = 0; i < prev_ego_idx; ++i) {
-    if (backward_length > autoware::motion_utils::calcSignedArcLength(
-                           prev_reference.points, clip_idx, prev_ego_idx)) {
+    if (
+      backward_length >
+      autoware::motion_utils::calcSignedArcLength(prev_reference.points, clip_idx, prev_ego_idx)) {
       break;
     }
     clip_idx = i;

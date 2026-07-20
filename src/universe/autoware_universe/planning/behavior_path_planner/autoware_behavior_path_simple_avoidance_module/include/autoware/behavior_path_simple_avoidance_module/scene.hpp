@@ -61,7 +61,12 @@ private:
   bool canTransitFailureState() override { return false; }
 
   void initVariables();
-  std::optional<AvoidanceTarget> detectTarget() const;
+  std::optional<AvoidanceTarget> detectTarget(
+    const std::optional<std::string> & preferred_uuid = std::nullopt,
+    bool use_hold_hysteresis = false) const;
+  std::optional<AvoidanceTarget> updateTargetMetrics(const AvoidanceTarget & target) const;
+  std::optional<AvoidanceTarget> getActiveTargetOrHeldTarget();
+  bool isEgoOnShiftLine() const;
   NoTargetDiagnosis diagnoseNoTarget() const;
   ShiftLineArray buildShiftLines(const AvoidanceTarget & target, double shift_length) const;
   BehaviorModuleOutput adjustDrivableArea(const ShiftedPath & path) const;

@@ -89,8 +89,8 @@ private:
   bool is_autoware_control_enabled_{false};
   bool operation_mode_received_{false};
 
-  double arrive_distance_th_{0.1};
-  double arrive_yaw_th_{0.1};
+  double arrive_distance_th_{1.0};
+  double arrive_yaw_th_{1.0472};
   double arrive_speed_th_{0.05};
   double arrive_hold_time_{1.0};
   double arrived_to_unset_timeout_{2.0};

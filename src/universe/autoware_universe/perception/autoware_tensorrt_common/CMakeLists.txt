@@ -11,11 +11,13 @@ find_package(TENSORRT)
 
 if(NOT (CUDAToolkit_FOUND AND TENSORRT_FOUND))
   message(WARNING "cuda, tensorrt libraries are not found")
+  ament_package()
   return()
 endif()
 
 if(TENSORRT_VERSION VERSION_LESS 8.5)
   message(WARNING "Unsupported version TensorRT ${TENSORRT_VERSION} detected. This package requires TensorRT 8.5 or later.")
+  ament_package()
   return()
 endif()
 

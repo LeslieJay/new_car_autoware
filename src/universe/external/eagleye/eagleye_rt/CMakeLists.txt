@@ -186,9 +186,11 @@ install(TARGETS
   DESTINATION lib/$(PROJECT_NAME)
 )
 
-install(DIRECTORY config launch log
+install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
+
+install(DIRECTORY DESTINATION share/${PROJECT_NAME}/log)
 
 
 if(BUILD_TESTING)

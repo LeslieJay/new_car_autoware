@@ -159,4 +159,69 @@ TEST_F(SimpleAvoidanceUtilsTest, CheckFeasibilityCloseObjectAtLowSpeed)
   EXPECT_LE(result.dist_to_shift_end, result.dist_to_obstacle);
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, OverlapUsesHysteresisOnlyWhenRequested)
+{
+  constexpr double lateral_offset = 1.38;
+  constexpr double object_half_width = 0.5;
+  constexpr double ego_half_width = 0.47;
+  constexpr double lateral_margin = 0.4;
+
+  EXPECT_FALSE(
+    isTargetWithinOverlap(lateral_offset, object_half_width, ego_half_width, lateral_margin));
+  EXPECT_TRUE(
+    isTargetWithinOverlap(lateral_offset, object_half_width, ego_half_width, lateral_margin, 0.1));
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, TargetPassedRequiresReturnDistance)
+{
+  auto params = defaultParameters();
+  params.return_distance_after_object = 3.0;
+  auto target = makeTarget(0.0, -3.9, 0.5, 1.0);
+
+  EXPECT_FALSE(isTargetPassed(target, params));
+
+  target.longitudinal_distance = -4.1;
+  EXPECT_TRUE(isTargetPassed(target, params));
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, TargetHoldExpiresAfterThreshold)
+{
+  AvoidanceTarget target;
+  target.last_seen = rclcpp::Time(10, 0, RCL_ROS_TIME);
+
+  EXPECT_FALSE(isTargetHoldExpired(target, rclcpp::Time(10, 900000000, RCL_ROS_TIME), 1.0));
+  EXPECT_TRUE(isTargetHoldExpired(target, rclcpp::Time(11, 100000000, RCL_ROS_TIME), 1.0));
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, CompletionBlockedByTargetOrShiftState)
+{
+  AvoidanceCompletionStatus status;
+
+  EXPECT_TRUE(canCompleteAvoidance(status));
+
+  status.has_active_target = true;
+  status.is_active_target_passed = false;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.is_active_target_passed = true;
+  status.has_shift_lines = true;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.has_shift_lines = false;
+  status.is_ego_on_shift_line = true;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.is_ego_on_shift_line = false;
+  status.base_offset = 0.06;
+  status.lateral_execution_threshold = 0.05;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.base_offset = 0.0;
+  status.ego_shift = -0.06;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.ego_shift = 0.0;
+  EXPECT_TRUE(canCompleteAvoidance(status));
+}
+
 }  // namespace autoware::behavior_path_planner
