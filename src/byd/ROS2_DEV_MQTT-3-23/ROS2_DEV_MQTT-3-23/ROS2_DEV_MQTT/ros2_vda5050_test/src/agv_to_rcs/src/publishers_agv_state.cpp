@@ -248,7 +248,7 @@ void AGVDataPublish::connection_timer_callback(const std::string state){
 * @note:       注意动作的判断，完成动作之后，需要更新last_node_id和last_node_sequence_id
 ******************************************************************************************/
 void AGVDataPublish::State_timer_callback(){
-
+    std::lock_guard<std::mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();
@@ -453,6 +453,7 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
         std::string json_payload = JsonConverter::toJson(message);
         mqtt_client_->publish(topic, json_payload, 0);
     }
+    RCLCPP_INFO(node_->get_logger(),"state_timer_callback回调结束");
 }
 
 /*****************************************************************************************
@@ -465,7 +466,7 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
 * @note:       后期需要补充线速度和角度
 ******************************************************************************************/
 void AGVDataPublish::visualization_timer_callback(){
-    
+    std::lock_guard<std::mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();
@@ -592,7 +593,7 @@ void AGVDataPublish::factsheet_timer_callback(){
 * @version:    V1.0
 ******************************************************************************************/
 void AGVDataPublish::status_timer_callback(){
-    
+    std::lock_guard<std::mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();

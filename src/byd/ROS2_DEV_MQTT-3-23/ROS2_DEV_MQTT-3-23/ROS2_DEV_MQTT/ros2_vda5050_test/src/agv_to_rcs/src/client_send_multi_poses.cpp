@@ -108,7 +108,7 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
     flag_aborted = false;
     flag_canceled = false;
     flag_driving = false;
-
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"发送目标点请求。");
     action_goal_future_ = action_client_->async_send_goal(goal_msg, send_goal_options);
 
     counter = 0;

@@ -215,6 +215,8 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         // if(abs(order_messages_.goal_x[point_index] - current_pose_.current_x)> high_distance_precision || abs(order_messages_.goal_y[point_index] - current_pose_.current_y)>high_distance_precision || abs(order_messages_.goal_theta[point_index] - current_pose_.current_theta)>high_angle_precision){
         // if_reach_point初始化为true，进入下面else if的条件
         if((!if_reach_point) && (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index])))
+        // 这里去掉(!if_reach_point) && 从而保证只要离目标点远就必须先导航到了位置在做动作
+        // if (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
         {
             // far_point_index是一小段路径的终点（特殊操作点）或者路径终点，如果point_index > far_point_index当前索引已经超过终点索引，就代表上一段路径走完了，也是一种意义上的订单更新
             if(point_index > far_point_index || if_order_updated == true) // 如果发现当前目标点是全新的（未处理过的）|| RCS发来的order更新了，则需要进行多点导航
@@ -423,7 +425,6 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 times++;
             }
             if_reach_point = true;
-            // SHARP啥意思，虽然误差到了标准值内，但是导航仍未完成？那为什么不把误差调小
             if(order_messages_.point_types[point_index] == PointType::SHARP)
             {
                 while(agv_driver_control->get_flag_driving()){

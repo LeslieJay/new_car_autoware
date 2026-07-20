@@ -191,27 +191,66 @@ void VoxelGridBasedEuclideanClusterNode::onPointCloud(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr input_msg) {
   stop_watch_ptr_->toc("processing_time", true);
 
+  autoware_perception_msgs::msg::DetectedObjects output;
+  
   // convert ros to pcl
   if (input_msg->data.empty()) {
     RCLCPP_DEBUG(get_logger(), "Empty point cloud received, skipping processing");
+    output.header = input_msg->header;
+    cluster_pub_->publish(output);
     return;
   }
   // cluster and build output msg
-//   tier4_perception_msgs::msg::DetectedObjectsWithFeature output;
-  autoware_perception_msgs::msg::DetectedObjects output;
+  
+  const auto time_before_process = this->get_clock()->now();
+
   if (use_crop_filter_) {
     sensor_msgs::msg::PointCloud2::SharedPtr filtered_input_msg =
         std::make_shared<sensor_msgs::msg::PointCloud2>();
+        
+    const auto time_before_crop = this->get_clock()->now();
     crop_box_filter(input_msg, filtered_input_msg);
+    const auto time_after_crop = this->get_clock()->now();
+    
+    if ((time_after_crop - time_before_crop).seconds() > 0.05) {
+        RCLCPP_WARN(get_logger(), "[Cluster Debug] crop_box_filter took %.3f seconds!", (time_after_crop - time_before_crop).seconds());
+    }
+
     if (filtered_input_msg->data.empty()) {
       RCLCPP_DEBUG(get_logger(), "Empty point cloud after crop filter, skipping processing");
+      output.header = input_msg->header;
+      cluster_pub_->publish(output);
       return;
     }
+    
+    const auto time_before_cluster = this->get_clock()->now();
     cluster_->cluster(filtered_input_msg, output);
+    const auto time_after_cluster = this->get_clock()->now();
+    
+    if ((time_after_cluster - time_before_cluster).seconds() > 0.05) {
+        RCLCPP_WARN(get_logger(), "[Cluster Debug] cluster_->cluster took %.3f seconds! (Points: %d -> %d)", 
+                    (time_after_cluster - time_before_cluster).seconds(),
+                    (int)(input_msg->width * input_msg->height),
+                    (int)(filtered_input_msg->width * filtered_input_msg->height));
+    }
   } else {
+    const auto time_before_cluster = this->get_clock()->now();
     cluster_->cluster(input_msg, output);
+    const auto time_after_cluster = this->get_clock()->now();
+    
+    if ((time_after_cluster - time_before_cluster).seconds() > 0.05) {
+        RCLCPP_WARN(get_logger(), "[Cluster Debug] cluster_->cluster took %.3f seconds! (Points: %d)", 
+                    (time_after_cluster - time_before_cluster).seconds(),
+                    (int)(input_msg->width * input_msg->height));
+    }
   }
+  
   cluster_pub_->publish(output);
+  
+  const auto time_after_all = this->get_clock()->now();
+  if ((time_after_all - time_before_process).seconds() > 0.1) {
+      RCLCPP_WARN(get_logger(), "[Cluster Debug] Total onPointCloud took %.3f seconds! Frequency will drop heavily.", (time_after_all - time_before_process).seconds());
+  }
 
   // // build debug msg
   // if (debug_pub_->get_subscription_count() >= 1) {
