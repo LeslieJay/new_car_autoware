@@ -49,10 +49,10 @@ public:
       "planning/planning_factors/surround_obstacle_checker";
     sub_planning_factor_ =
       test_node_->create_subscription<autoware_internal_planning_msgs::msg::PlanningFactorArray>(
-        output_planning_factors_topic, rclcpp::QoS{1},
-        [this](autoware_internal_planning_msgs::msg::PlanningFactorArray::SharedPtr msg) {
-          planning_factor_msg_ = msg;
-        });
+      output_planning_factors_topic, rclcpp::QoS{1},
+      [this](autoware_internal_planning_msgs::msg::PlanningFactorArray::SharedPtr msg) {
+        planning_factor_msg_ = msg;
+      });
 
     pub_odometry_ = test_node_->create_publisher<nav_msgs::msg::Odometry>(
       "/surround_obstacle_checker_node/input/odometry", 1);
@@ -81,6 +81,23 @@ public:
     param_client->set_parameters(new_parameters);
   }
 
+  void enableCommandGateStop()
+  {
+    std::vector<rclcpp::Parameter> parameters;
+    parameters.emplace_back("request_command_gate_stop", true);
+    parameters.emplace_back("stop_request_source", "surround_obstacle_checker_test");
+    test_target_node_->set_parameters(parameters);
+
+    srv_set_stop_ = test_node_->create_service<tier4_control_msgs::srv::SetStop>(
+      "/control/vehicle_cmd_gate/set_stop",
+      [this](
+        const tier4_control_msgs::srv::SetStop::Request::SharedPtr request,
+        tier4_control_msgs::srv::SetStop::Response::SharedPtr response) {
+        stop_requests_.push_back(*request);
+        response->status.success = true;
+      });
+  }
+
   std::shared_ptr<SurroundObstacleCheckerNode> generateTestTargetNode()
   {
     auto node_options = rclcpp::NodeOptions{};
@@ -90,10 +107,10 @@ public:
     autoware::test_utils::updateNodeOptions(
       node_options,
       {autoware_test_utils_dir + "/config/test_common.param.yaml",
-       autoware_test_utils_dir + "/config/test_nearest_search.param.yaml",
-       autoware_test_utils_dir + "/config/test_vehicle_info.param.yaml",
-       ament_index_cpp::get_package_share_directory("autoware_surround_obstacle_checker") +
-         "/config/surround_obstacle_checker.param.yaml"});
+        autoware_test_utils_dir + "/config/test_nearest_search.param.yaml",
+        autoware_test_utils_dir + "/config/test_vehicle_info.param.yaml",
+        ament_index_cpp::get_package_share_directory("autoware_surround_obstacle_checker") +
+        "/config/surround_obstacle_checker.param.yaml"});
 
     return std::make_shared<SurroundObstacleCheckerNode>(node_options);
   }
@@ -142,6 +159,14 @@ public:
     dynamic_objects.header.frame_id = "map";
     dynamic_objects.objects.push_back(object);
 
+    pub_dynamic_objects_->publish(dynamic_objects);
+  }
+
+  void publishEmptyDynamicObjects()
+  {
+    PredictedObjects dynamic_objects;
+    dynamic_objects.header.stamp = test_target_node_->now();
+    dynamic_objects.header.frame_id = "map";
     pub_dynamic_objects_->publish(dynamic_objects);
   }
 
@@ -222,13 +247,15 @@ public:
       EXPECT_EQ(safety_factor.object_id, validate_object_id);
     }
   }
-  void TearDown() override { rclcpp::shutdown(); }
+  void TearDown() override {rclcpp::shutdown();}
 
   void spinSome()
   {
     rclcpp::spin_some(test_target_node_);
     rclcpp::spin_some(test_node_);
   }
+
+  const auto & stopRequests() const {return stop_requests_;}
 
 private:
   rclcpp::Node::SharedPtr test_node_;
@@ -242,6 +269,8 @@ private:
     sub_planning_factor_;
   autoware_internal_planning_msgs::msg::PlanningFactorArray::SharedPtr planning_factor_msg_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
+  rclcpp::Service<tier4_control_msgs::srv::SetStop>::SharedPtr srv_set_stop_;
+  std::vector<tier4_control_msgs::srv::SetStop::Request> stop_requests_;
 };
 
 TEST_F(SurroundObstacleCheckerPlanningFactorTest, TestByDynamicObject)
@@ -268,6 +297,33 @@ TEST_F(SurroundObstacleCheckerPlanningFactorTest, TestByPointCloud)
     rclcpp::sleep_for(std::chrono::milliseconds(100));
   }
   validatePlanningFactor(default_id, SafetyFactor::POINTCLOUD);
+}
+
+TEST_F(SurroundObstacleCheckerPlanningFactorTest, RequestsAndClearsCommandGateStop)
+{
+  enableCommandGateStop();
+  const auto object_id = autoware_utils_uuid::generate_uuid();
+  for (size_t i = 0; i < 8; ++i) {
+    publishMandatoryTopics();
+    publishDynamicObject(object_id);
+    spinSome();
+    rclcpp::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  ASSERT_FALSE(stopRequests().empty());
+  EXPECT_TRUE(stopRequests().front().stop);
+  EXPECT_EQ(stopRequests().front().request_source, "surround_obstacle_checker_test");
+
+  for (size_t i = 0; i < 8; ++i) {
+    publishMandatoryTopics();
+    publishEmptyDynamicObjects();
+    spinSome();
+    rclcpp::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  ASSERT_GE(stopRequests().size(), 2U);
+  EXPECT_FALSE(stopRequests().back().stop);
+  EXPECT_EQ(stopRequests().back().request_source, "surround_obstacle_checker_test");
 }
 
 }  // namespace autoware::surround_obstacle_checker

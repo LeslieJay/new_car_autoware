@@ -67,6 +67,41 @@ TEST_F(SimpleLCAvoidanceUtilsTest, ApplyLaneShiftMarginNegative)
   EXPECT_NEAR(applyLaneShiftMargin(-3.0, 0.3), -3.3, 1e-6);
 }
 
+TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthFollowsPathShifterSignConvention)
+{
+  constexpr double current_lane_distance = 0.0;
+  constexpr double left_lane_distance_from_ego = -3.5;
+  constexpr double right_lane_distance_from_ego = 3.5;
+  constexpr double lateral_margin = 0.3;
+
+  EXPECT_NEAR(
+    calcLaneShiftLength(current_lane_distance, left_lane_distance_from_ego, lateral_margin), 3.8,
+    1e-6);
+  EXPECT_NEAR(
+    calcLaneShiftLength(current_lane_distance, right_lane_distance_from_ego, lateral_margin), -3.8,
+    1e-6);
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, InitializeManeuverOnlyWhenNoShiftLinesExist)
+{
+  ShiftLineArray no_shift_lines;
+  ShiftLineArray active_shift_lines(1);
+
+  EXPECT_TRUE(shouldInitializeManeuver(no_shift_lines));
+  EXPECT_FALSE(shouldInitializeManeuver(active_shift_lines));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, CompleteManeuverOnlyAfterTargetAndShiftLinesAreGone)
+{
+  ShiftLineArray no_shift_lines;
+  ShiftLineArray active_shift_lines(1);
+
+  EXPECT_FALSE(canCompleteManeuver(false, active_shift_lines, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(true, no_shift_lines, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(false, no_shift_lines, 0.1, 0.05));
+  EXPECT_TRUE(canCompleteManeuver(false, no_shift_lines, 0.0, 0.05));
+}
+
 TEST_F(SimpleLCAvoidanceUtilsTest, CheckFeasibilitySufficientDistance)
 {
   const auto params = defaultParameters();

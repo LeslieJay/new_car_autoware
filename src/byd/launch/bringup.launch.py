@@ -52,6 +52,9 @@ def _build_staged_launch(context: LaunchContext):
         "enable_lidar": LaunchConfiguration("enable_lidar"),
         "enable_rcs": LaunchConfiguration("enable_rcs"),
         "enable_reverse_parking": LaunchConfiguration("enable_reverse_parking"),
+        "enable_pedestrian_safety_stop": LaunchConfiguration(
+            "enable_pedestrian_safety_stop"
+        ),
         "enable_rosbridge": LaunchConfiguration("enable_rosbridge"),
         "enable_rviz": LaunchConfiguration("enable_rviz"),
         "driver_respawn": LaunchConfiguration("driver_respawn"),
@@ -64,6 +67,9 @@ def _build_staged_launch(context: LaunchContext):
         ),
         "byd_vehicle_state_config_file": LaunchConfiguration(
             "byd_vehicle_state_config_file"
+        ),
+        "pedestrian_safety_stop_config_file": LaunchConfiguration(
+            "pedestrian_safety_stop_config_file"
         ),
     }
 
@@ -136,22 +142,52 @@ def _build_staged_launch(context: LaunchContext):
         "drivers",
     )
 
-    applications_transition = register_stage_transition(
-        wait_autoware,
-        [
-            LogInfo(msg="[bringup] stage 3/3: applications"),
-            applications,
+    safety_enabled = as_bool(
+        context,
+        "enable_pedestrian_safety_stop",
+        default=True,
+    )
+    application_actions = [
+        LogInfo(msg="[bringup] stage 3: applications"),
+        applications,
+    ]
+    transitions = [autoware_transition]
+    if safety_enabled:
+        wait_safety = make_wait_process(
+            name="wait_pedestrian_safety_ready",
+            topics=["/byd/pedestrian_safety_stop/ready"],
+            services=["/control/vehicle_cmd_gate/set_stop"],
+        )
+        safety_transition = register_stage_transition(
+            wait_safety,
+            [
+                auto_engage,
+                LogInfo(msg="[bringup] staged startup completed"),
+            ],
+            "pedestrian safety stop",
+        )
+        transitions.append(safety_transition)
+        application_actions.extend([
+            LogInfo(msg="[bringup] waiting for pedestrian safety stop"),
+            wait_safety,
+        ])
+    else:
+        application_actions.extend([
             auto_engage,
             LogInfo(msg="[bringup] staged startup completed"),
-        ],
+        ])
+
+    applications_transition = register_stage_transition(
+        wait_autoware,
+        application_actions,
         "autoware",
     )
+    transitions.append(applications_transition)
 
     # Register handlers before starting their target processes.
     return [
         LogInfo(msg="[bringup] stage 1/3: drivers"),
-        autoware_transition,
-        applications_transition,
+        *transitions,
         drivers,
         wait_drivers,
     ]

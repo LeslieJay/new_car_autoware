@@ -57,7 +57,7 @@ In this function, it calculates the minimum distance between the polygon of ego 
 
 If it satisfies all following conditions, it plans stopping.
 
-- Ego vehicle is stopped
+- Ego vehicle is stopped, unless `stop_only_when_stopped` is disabled
 - It satisfies any following conditions
   1. The distance to nearest obstacle satisfies following conditions
      - If state is `State::PASS`, the distance is less than `surround_check_distance`
@@ -91,6 +91,8 @@ As mentioned in stop condition section, it prevents chattering by changing thres
 | `~/output/velocity_limit_clear_command` | `autoware_internal_planning_msgs::msg::VelocityLimitClearCommand` | Velocity limit clear command                                                          |
 | `~/output/max_velocity`                 | `autoware_internal_planning_msgs::msg::VelocityLimit`             | Velocity limit command                                                                |
 | `~/output/no_start_reason`              | `diagnostic_msgs::msg::DiagnosticStatus`                          | No start reason                                                                       |
+| `~/output/status`                       | `diagnostic_msgs::msg::DiagnosticStatus`                          | Current stop state and trigger reason                                                  |
+| `~/output/ready`                        | `std_msgs::msg::Bool`                                             | Published after the command-gate request is acknowledged                              |
 | `~/debug/marker`                        | `visualization_msgs::msg::MarkerArray`                            | Marker for visualization                                                              |
 | `~/debug/footprint`                     | `geometry_msgs::msg::PolygonStamped`                              | Ego vehicle base footprint for visualization                                          |
 | `~/debug/footprint_offset`              | `geometry_msgs::msg::PolygonStamped`                              | Ego vehicle footprint with `surround_check_distance` offset for visualization         |
@@ -109,6 +111,11 @@ As mentioned in stop condition section, it prevents chattering by changing thres
 | `surround_check_hysteresis_distance` | `double` | If no object exists within `surround_check_xxx_distance` plus this additional distance, transition to the "non-surrounding-obstacle" status [m]. | 0.3                                          |
 | `state_clear_time`                   | `double` | Threshold to clear stop state [s]                                                                                                                | 2.0                                          |
 | `stop_state_ego_speed`               | `double` | Threshold to check ego vehicle stopped [m/s]                                                                                                     | 0.1                                          |
+| `stop_only_when_stopped`             | `bool`   | Preserve the legacy behavior that only blocks an already stopped vehicle                                                                         | true                                         |
+| `fail_safe_on_data_timeout`          | `bool`   | Stop when a required input is missing or stale                                                                                                    | false                                        |
+| `data_timeout_sec`                   | `double` | Required input timeout measured from local receipt time [s]                                                                                       | 0.5                                          |
+| `request_command_gate_stop`          | `bool`   | Also request the vehicle command gate moderate stop                                                                                               | false                                        |
+| `stop_request_source`                | `string` | Source key shared by velocity limit and command-gate requests                                                                                     | surround_obstacle_checker                    |
 | `stop_state_entry_duration_time`     | `double` | Threshold to check ego vehicle stopped [s]                                                                                                       | 0.1                                          |
 | `publish_debug_footprints`           | `bool`   | Publish vehicle footprint with/without offsets                                                                                                   | `true`                                       |
 

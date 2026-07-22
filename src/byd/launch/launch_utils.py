@@ -78,6 +78,11 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
         "config",
         "can_params.yaml",
     )
+    pedestrian_safety_stop_default = os.path.join(
+        get_package_share_directory("byd_launch"),
+        "config",
+        "pedestrian_safety_stop.param.yaml",
+    )
 
     return [
         DeclareLaunchArgument(
@@ -114,6 +119,11 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
             "enable_reverse_parking",
             default_value="true",
             description="Launch reverse parking wrapper",
+        ),
+        DeclareLaunchArgument(
+            "enable_pedestrian_safety_stop",
+            default_value="true",
+            description="Stop for pedestrian or unknown objects around the vehicle",
         ),
         DeclareLaunchArgument(
             "enable_rosbridge",
@@ -159,6 +169,11 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
             "byd_vehicle_state_config_file",
             default_value=vehicle_state_default,
             description="byd_vehicle_state config",
+        ),
+        DeclareLaunchArgument(
+            "pedestrian_safety_stop_config_file",
+            default_value=pedestrian_safety_stop_default,
+            description="pedestrian safety stop config",
         ),
     ]
 

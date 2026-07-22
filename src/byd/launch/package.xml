@@ -11,10 +11,13 @@
 
   <exec_depend>can_driver</exec_depend>
   <exec_depend>can_six_driver</exec_depend>
+  <exec_depend>byd_auto_engage</exec_depend>
   <exec_depend>byd_vehicle_state</exec_depend>
   <exec_depend>rslidar_sdk</exec_depend>
   <exec_depend>agv_to_rcs</exec_depend>
   <exec_depend>autoware_launch</exec_depend>
+  <exec_depend>autoware_surround_obstacle_checker</exec_depend>
+  <exec_depend>byd_vehicle_description</exec_depend>
   <exec_depend>reverse_parking_planner</exec_depend>
   <exec_depend>rosbridge_server</exec_depend>
   <exec_depend>agv_simple_reverse_planner</exec_depend>
@@ -22,6 +25,13 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>autoware_adapi_v1_msgs</exec_depend>
+  <exec_depend>autoware_control_msgs</exec_depend>
+  <exec_depend>autoware_planning_msgs</exec_depend>
+  <exec_depend>autoware_vehicle_msgs</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

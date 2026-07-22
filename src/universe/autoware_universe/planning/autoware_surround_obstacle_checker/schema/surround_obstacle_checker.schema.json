@@ -339,6 +339,32 @@
           "default": "0.1",
           "minimum": 0.0
         },
+        "stop_only_when_stopped": {
+          "type": "boolean",
+          "description": "Preserve legacy behavior that only prevents an already stopped vehicle from starting.",
+          "default": "true"
+        },
+        "fail_safe_on_data_timeout": {
+          "type": "boolean",
+          "description": "Request a stop when a required input is missing or stale.",
+          "default": "false"
+        },
+        "data_timeout_sec": {
+          "type": "number",
+          "description": "Maximum age of required input data measured from local receipt time [s].",
+          "default": "0.5",
+          "exclusiveMinimum": 0.0
+        },
+        "request_command_gate_stop": {
+          "type": "boolean",
+          "description": "Also request the vehicle command gate moderate stop service.",
+          "default": "false"
+        },
+        "stop_request_source": {
+          "type": "string",
+          "description": "Stable source key used for velocity-limit and command-gate stop requests.",
+          "default": "surround_obstacle_checker"
+        },
         "publish_debug_footprints": {
           "type": "boolean",
           "description": "Publish vehicle footprint & footprints with surround_check_distance and surround_check_recover_distance offsets.",
@@ -374,6 +400,11 @@
         "surround_check_hysteresis_distance",
         "state_clear_time",
         "stop_state_ego_speed",
+        "stop_only_when_stopped",
+        "fail_safe_on_data_timeout",
+        "data_timeout_sec",
+        "request_command_gate_stop",
+        "stop_request_source",
         "publish_debug_footprints",
         "debug_footprint_label"
       ],

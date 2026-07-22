@@ -224,4 +224,59 @@ TEST_F(SimpleAvoidanceUtilsTest, CompletionBlockedByTargetOrShiftState)
   EXPECT_TRUE(canCompleteAvoidance(status));
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, ExtendBackwardPathKeepsCurrentPathAheadOfEgo)
+{
+  const auto make_path = [](const double min_x, const double max_x, const double y) {
+    PathWithLaneId path;
+    for (double x = min_x; x <= max_x; x += 1.0) {
+      autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+      point.point.pose.position.x = x;
+      point.point.pose.position.y = y;
+      path.points.push_back(point);
+    }
+    return path;
+  };
+
+  const auto previous_path = make_path(-3.0, 2.0, 0.0);
+  const auto current_path = make_path(0.0, 5.0, 0.0);
+  geometry_msgs::msg::Point ego_position;
+  ego_position.x = 0.1;
+
+  const auto result = extendBackwardPath(previous_path, current_path, ego_position, 2.0);
+
+  ASSERT_GE(result.points.size(), current_path.points.size());
+  for (size_t i = 1; i < result.points.size(); ++i) {
+    EXPECT_GT(
+      result.points.at(i).point.pose.position.x, result.points.at(i - 1).point.pose.position.x);
+  }
+  EXPECT_DOUBLE_EQ(result.points.back().point.pose.position.x, 5.0);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, ExtendBackwardPathRejectsOppositeDirectionHistory)
+{
+  PathWithLaneId previous_path;
+  for (double x = 2.0; x >= -3.0; x -= 1.0) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+    point.point.pose.position.x = x;
+    previous_path.points.push_back(point);
+  }
+
+  PathWithLaneId current_path;
+  for (double x = 0.0; x <= 5.0; x += 1.0) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+    point.point.pose.position.x = x;
+    current_path.points.push_back(point);
+  }
+
+  geometry_msgs::msg::Point ego_position;
+  ego_position.x = 0.1;
+  const auto result = extendBackwardPath(previous_path, current_path, ego_position, 2.0);
+
+  ASSERT_EQ(result.points.size(), current_path.points.size());
+  for (size_t i = 0; i < result.points.size(); ++i) {
+    EXPECT_DOUBLE_EQ(
+      result.points.at(i).point.pose.position.x, current_path.points.at(i).point.pose.position.x);
+  }
+}
+
 }  // namespace autoware::behavior_path_planner

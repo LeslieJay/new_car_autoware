@@ -146,11 +146,9 @@ bool SimpleLaneChangeAvoidanceModule::canTransitSuccessState()
 {
   constexpr double zero_threshold = 0.05;
   const auto target = detectTarget();
-  if (target.has_value()) {
-    return false;
-  }
   const auto current_shift = getClosestShiftLength(prev_output_, getEgoPose().position);
-  return std::abs(current_shift) < zero_threshold;
+  return canCompleteManeuver(
+    target.has_value(), path_shifter_.getShiftLines(), current_shift, zero_threshold);
 }
 
 void SimpleLaneChangeAvoidanceModule::updateData()
@@ -295,8 +293,8 @@ LaneShiftResult SimpleLaneChangeAvoidanceModule::calcLaneShift(
   const auto adjacent_arc =
     lanelet::utils::getArcCoordinates(result.adjacent_lane.lanelet_sequence, ego_pose);
 
-  result.shift_length = applyLaneShiftMargin(
-    adjacent_arc.distance - current_arc.distance, parameters_->lateral_margin);
+  result.shift_length =
+    calcLaneShiftLength(current_arc.distance, adjacent_arc.distance, parameters_->lateral_margin);
 
   if (std::abs(result.shift_length) < 0.1) {
     result.reason = InfeasibleReason::NO_ADJACENT_LANE;
@@ -396,29 +394,31 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::plan()
     return passThrough(InfeasibleReason::NO_TARGET);
   }
 
+  if (!shouldInitializeManeuver(path_shifter_.getShiftLines())) {
+    ShiftedPath shifted_path;
+    if (!path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
+      return passThrough(InfeasibleReason::PATH_GENERATION_FAILED);
+    }
+
+    setOrientation(&shifted_path.path);
+    prev_output_ = shifted_path;
+    debug_data_.last_reason = InfeasibleReason::NONE;
+    debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
+    path_reference_ = std::make_shared<PathWithLaneId>(getPreviousModuleOutput().reference_path);
+    if (parameters_->publish_debug_marker) {
+      setDebugMarkersVisualization();
+    } else {
+      debug_marker_.markers.clear();
+    }
+    const auto adjacent_lanelets = active_adjacent_lane_.has_value()
+                                     ? active_adjacent_lane_->lanelet_sequence
+                                     : lanelet::ConstLanelets{};
+    return adjustDrivableArea(shifted_path, adjacent_lanelets);
+  }
+
   const auto target = detectTarget();
   if (!target.has_value()) {
     active_target_.reset();
-    if (!path_shifter_.getShiftLines().empty()) {
-      ShiftedPath shifted_path;
-      if (!path_shifter_.generate(&shifted_path)) {
-        return passThrough(InfeasibleReason::PATH_GENERATION_FAILED);
-      }
-      if (!shifted_path.path.points.empty()) {
-        setOrientation(&shifted_path.path);
-        prev_output_ = shifted_path;
-        debug_data_.last_reason = InfeasibleReason::NONE;
-        path_reference_ =
-          std::make_shared<PathWithLaneId>(getPreviousModuleOutput().reference_path);
-        if (parameters_->publish_debug_marker) {
-          setDebugMarkersVisualization();
-        }
-        const auto adjacent_lanelets = active_adjacent_lane_.has_value()
-                                         ? active_adjacent_lane_->lanelet_sequence
-                                         : lanelet::ConstLanelets{};
-        return adjustDrivableArea(shifted_path, adjacent_lanelets);
-      }
-    }
     active_adjacent_lane_.reset();
     return passThrough(InfeasibleReason::NO_TARGET);
   }
@@ -472,23 +472,28 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::plan()
 
 CandidateOutput SimpleLaneChangeAvoidanceModule::planCandidate() const
 {
-  if (!active_target_.has_value() || reference_path_.points.empty()) {
-    return CandidateOutput(getPreviousModuleOutput().path);
-  }
-
-  const auto shift_result = calcLaneShift(*active_target_);
-  if (shift_result.reason != InfeasibleReason::NONE) {
-    return CandidateOutput(getPreviousModuleOutput().path);
-  }
-  const auto ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
-  if (
-    checkFeasibility(*active_target_, shift_result.shift_length, *parameters_, ego_speed).reason !=
-    InfeasibleReason::NONE) {
+  if (reference_path_.points.empty()) {
     return CandidateOutput(getPreviousModuleOutput().path);
   }
 
   auto path_shifter_local = path_shifter_;
-  path_shifter_local.setShiftLines(buildShiftLines(*active_target_, shift_result));
+  if (shouldInitializeManeuver(path_shifter_local.getShiftLines())) {
+    if (!active_target_.has_value()) {
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
+
+    const auto shift_result = calcLaneShift(*active_target_);
+    if (shift_result.reason != InfeasibleReason::NONE) {
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
+    const auto ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+    if (
+      checkFeasibility(*active_target_, shift_result.shift_length, *parameters_, ego_speed)
+        .reason != InfeasibleReason::NONE) {
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
+    path_shifter_local.setShiftLines(buildShiftLines(*active_target_, shift_result));
+  }
 
   ShiftedPath shifted_path;
   if (!path_shifter_local.generate(&shifted_path) || shifted_path.path.points.empty()) {

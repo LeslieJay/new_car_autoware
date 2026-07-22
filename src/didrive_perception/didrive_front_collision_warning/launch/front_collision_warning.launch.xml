@@ -1,0 +1,15 @@
+<launch>
+  <arg name="input_objects" default="/perception/object_recognition/tracking/objects"/>
+  <arg name="input_velocity" default="/vehicle/status/velocity_status"/>
+  <arg name="input_control_mode" default="/vehicle/status/control_mode"/>
+  <arg name="output_state" default="/perception/vehicel_distance_judge/state"/>
+  <arg name="param_file" default="$(find-pkg-share didrive_front_collision_warning)/config/front_collision_warning.param.yaml"/>
+
+  <node pkg="didrive_front_collision_warning" exec="front_collision_warning_node" name="front_collision_warning" output="screen">
+    <param from="$(var param_file)"/>
+    <remap from="~/input/objects" to="$(var input_objects)"/>
+    <remap from="~/input/velocity" to="$(var input_velocity)"/>
+    <remap from="~/input/control_mode" to="$(var input_control_mode)"/>
+    <remap from="~/output/state" to="$(var output_state)"/>
+  </node>
+</launch>

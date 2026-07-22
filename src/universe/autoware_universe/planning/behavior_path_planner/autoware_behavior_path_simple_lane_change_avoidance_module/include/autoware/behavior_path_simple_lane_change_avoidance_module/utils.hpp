@@ -34,6 +34,16 @@ LCAvoidanceDirection getAvoidanceDirection(const double lateral_offset);
 
 double applyLaneShiftMargin(const double raw_shift_length, const double lateral_margin);
 
+double calcLaneShiftLength(
+  const double current_lane_distance, const double adjacent_lane_distance,
+  const double lateral_margin);
+
+bool shouldInitializeManeuver(const ShiftLineArray & shift_lines);
+
+bool canCompleteManeuver(
+  const bool has_target, const ShiftLineArray & shift_lines, const double current_shift,
+  const double zero_threshold);
+
 FeasibilityResult checkFeasibility(
   const LCAvoidanceTarget & target, const double shift_length,
   const SimpleLCAvoidanceParameters & parameters, const double ego_speed);

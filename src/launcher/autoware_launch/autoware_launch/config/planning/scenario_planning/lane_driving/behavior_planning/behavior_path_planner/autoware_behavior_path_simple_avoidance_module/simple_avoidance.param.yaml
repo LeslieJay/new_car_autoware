@@ -1,19 +1,113 @@
 /**:
   ros__parameters:
     simple_avoidance:
+      # ======================================================================
+      # Simple Avoidance（简化避障）参数
+      #
+      # 模块用途：从感知目标中选择当前车道内、自车前方且可能与自车横向重叠的
+      # 低速目标，然后生成“向一侧绕开 + 越过目标后回正”两段侧移线。
+      #
+      # 目标筛选顺序：
+      #   1. 目标速度低于 th_moving_speed；
+      #   2. 目标位于当前 route lanelet；
+      #   3. 目标纵向距离位于 [min_forward_distance, max_forward_distance]；
+      #   4. 目标与自车横向包络（含 lateral_margin）存在重叠风险；
+      #   5. 多个候选目标中选择纵向距离最近的一个。
+      #
+      # 注意：本模块只负责生成横向避障路径，不负责停车、纵向减速，也不区分
+      # 行人、车辆等目标类别。参数修改后应结合规划日志、debug marker 和实车
+      # 安全测试验证，不能只根据 RViz 中的单帧结果判断。
+      # ======================================================================
+
+      # [m/s] 运动目标判定阈值。
+      # 目标平面速度 hypot(vx, vy) >= 此值时，被视为运动目标并跳过；只有速度
+      # 小于此值的目标才参与简化避障。调大可纳入更多缓慢移动目标，但可能对
+      # 行进中的目标生成不合适的静态绕行路径；调小则可能漏掉有速度噪声的静止物。
       th_moving_speed: 0.5
-      min_forward_distance: 0.5
+
+      # [m] 目标检测的最近纵向距离，相对自车沿参考路径计算。
+      # 目标距离小于此值时不作为新避障目标。值过大可能漏掉近处障碍物；值过小
+      # 虽能更早接纳近距离目标，但通常已经没有足够距离完成准备和侧移。
+      min_forward_distance: 3.0
+
+      # [m] 目标检测的最远纵向距离，相对自车沿参考路径计算。
+      # 目标距离超过此值时暂不处理。调大可更早发现目标，但会增加远距离感知误差
+      # 对规划的影响；调小会推迟生成避障路径，并增大 INSUFFICIENT_DISTANCE 风险。
       max_forward_distance: 60.0
+
+      # [m] 自车外轮廓与障碍物近侧边缘之间要求保留的横向安全余量。
+      # 该值同时用于目标横向重叠判定、侧移量计算，以及障碍物前沿的纵向缓冲。
+      # 调大更保守，但会增大所需侧移量和纵向空间；过大容易触发 NO_ROOM 或
+      # INSUFFICIENT_DISTANCE。调小可减少侧移，但会压缩实际安全间距。
       lateral_margin: 0.4
+
+      # [m] 允许生成的最大横向侧移量（取绝对值）。
+      # 当满足安全余量所需的侧移量超过此值时，模块判定 NO_ROOM，不生成避障路径。
+      # 调大前必须确认车道宽度、道路边界及车辆可行驶区域确实允许该偏移。
       max_shift_length: 4.0
-      # PathShifter 要求 end_idx - start_idx > 1；参考路径按 1m 重采样，
-      # 侧移段至少留足若干米，避免 path_generation_failed
+
+      # [m] 从当前自车位置到开始侧移位置的最小纵向准备距离。
+      # 增大可避免立即横移并给轨迹跟踪留出准备空间，但同时要求障碍物更远；减小会
+      # 让侧移动作更早、更突然。PathShifter 要求 end_idx - start_idx > 1。
+      # 参考路径约按 1 m 重采样，因此这里保留数米距离，避免 path_generation_failed。
       min_prepare_distance: 5.0
+
+      # [m] 完成一次侧移所使用的最小纵向距离。
+      # 实际侧移距离为 max(横向 jerk 计算距离, min_shifting_distance)。增大后路径
+      # 更平缓但需要更早发现障碍物；减小会使横向变化更集中，并可能因路径点不足
+      # 导致 PathShifter 无法生成有效侧移段。
       min_shifting_distance: 10.0
+
+      # [m/s^3] 计算侧移所需纵向距离时使用的横向 jerk 限制。
+      # 值越小，允许的横向变化越平缓，计算出的 jerk_distance 通常越长；值越大，
+      # 侧移可在更短距离内完成，但横向动作更激烈，应结合底盘跟踪能力调节。
       shifting_lateral_jerk: 0.5
+
+      # [m/s] 计算 jerk_distance 时使用的最低假设车速。
+      # 计算速度取 max(|ego_speed|, min_shifting_speed)，用于避免车辆静止或极低速时
+      # 得到异常的侧移距离。该值不是最低行驶速度，也不会直接修改规划速度。
       min_shifting_speed: 1.0
+
+      # [m] 自车越过障碍物后，继续保持侧移并延后开始回正的距离。
+      # 回正起点位于“目标中心纵向位置 + 目标半长 + 此距离”。调大可确保车尾充分
+      # 越过障碍物后再回正，但会更久占用侧向空间；调小可能导致回正过早。
       return_distance_after_object: 5.0
+
+      # [s] 已锁定目标暂时未被感知到时，继续保持该目标的最长时间。
+      # 用于吸收点云遮挡、检测抖动或短时漏检。调大可减少目标丢失导致的路径跳变，
+      # 但会更久沿用旧目标位置；调小响应更快，但可能频繁释放并重新锁定目标。
       target_lost_time_threshold: 1.0
+
+      # [m] 已锁定目标横向重叠判定所增加的迟滞量。
+      # 仅在刷新当前 UUID 对应目标时加入判断阈值，避免目标位于横向边界附近时反复
+      # 进入/退出避障状态。值越大，已锁定目标越不容易因横向轻微变化而被释放。
       target_hold_lateral_hysteresis: 0.3
+
+      # [m] 判断侧移状态已回零、允许模块结束的横向误差阈值。
+      # active target 已通过、shift line 已清空，并且 base offset 与 ego shift 的绝对值
+      # 均不大于此值时，避障流程才可完成。过小可能长期无法结束，过大可能提前结束。
       lateral_execution_threshold: 0.05
+
+      # 是否发布避障目标和侧移线等调试 marker。
+      # true 便于在 RViz 中确认目标筛选与路径生成；正式运行若关注通信和可视化开销，
+      # 可在完成调试后设为 false。该参数不改变避障决策本身。
       publish_debug_marker: true
+
+      # ======================================================================
+      # 调参总结
+      #
+      # 1. 检测范围：th_moving_speed、min/max_forward_distance 决定“处理谁、何时处理”。
+      # 2. 横向空间：lateral_margin 决定所需安全间距，max_shift_length 决定最大能力；
+      #    所需侧移超过上限时会报告 NO_ROOM。
+      # 3. 纵向空间：完成侧移所需距离约为
+      #      min_prepare_distance
+      #      + max(jerk_distance, min_shifting_distance)
+      #    若该距离大于“目标前沿距离 - lateral_margin”，会报告
+      #    INSUFFICIENT_DISTANCE。增大检测距离或减小准备/侧移距离可提前改善该问题，
+      #    但不能以牺牲车辆稳定性和安全距离为代价。
+      # 4. 状态稳定：target_lost_time_threshold 与 target_hold_lateral_hysteresis 用于
+      #    抑制感知抖动；lateral_execution_threshold 决定何时确认避障已经完全结束。
+      # 5. 推荐调试顺序：先确认目标进入筛选范围，再检查 NO_ROOM，随后检查
+      #    INSUFFICIENT_DISTANCE 和 PathShifter，最后根据车辆横向跟踪效果调整 jerk、
+      #    prepare/shifting distance 与回正距离。每次只改一组参数并保留日志对比。
+      # ======================================================================

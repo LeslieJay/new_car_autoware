@@ -35,11 +35,14 @@
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <tier4_control_msgs/srv/set_stop.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -70,14 +73,26 @@ private:
 
   std::optional<StopObstacle> getNearestObstacleByDynamicObject() const;
 
+  int getObjectLabel(const PredictedObject & object) const;
+
+  bool isInputUnsafe(
+    bool use_dynamic_objects, bool pointcloud_enabled,
+    const std::optional<rclcpp::Time> & last_odometry_time,
+    const std::optional<rclcpp::Time> & last_object_time,
+    const std::optional<rclcpp::Time> & last_pointcloud_time, double timeout_sec) const;
+
+  void requestCommandGateStop(bool stop);
+  void publishStatus(const std::string & reason, const std::optional<StopObstacle> & obstacle);
+  void publishReady();
+
   std::optional<geometry_msgs::msg::TransformStamped> getTransform(
     const std::string & source, const std::string & target, const rclcpp::Time & stamp,
     double duration_sec) const;
 
   auto isStopRequired(
     const bool is_obstacle_found, const bool is_vehicle_stopped, const State & state,
-    const std::optional<rclcpp::Time> & last_obstacle_found_time, const double time_threshold) const
-    -> std::pair<bool, std::optional<rclcpp::Time>>;
+    const std::optional<rclcpp::Time> & last_obstacle_found_time, const double time_threshold,
+    bool stop_only_when_stopped) const -> std::pair<bool, std::optional<rclcpp::Time>>;
 
   // ros
   mutable tf2_ros::Buffer tf_buffer_{get_clock()};
@@ -95,6 +110,9 @@ private:
   rclcpp::Publisher<VelocityLimit>::SharedPtr pub_velocity_limit_;
   rclcpp::Publisher<autoware_internal_debug_msgs::msg::Float64Stamped>::SharedPtr
     pub_processing_time_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr pub_status_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_ready_;
+  rclcpp::Client<tier4_control_msgs::srv::SetStop>::SharedPtr cli_set_stop_;
 
   // stop checker
   std::unique_ptr<VehicleStopChecker> vehicle_stop_checker_;
@@ -110,6 +128,13 @@ private:
   nav_msgs::msg::Odometry::ConstSharedPtr odometry_ptr_;
   sensor_msgs::msg::PointCloud2::ConstSharedPtr pointcloud_ptr_;
   PredictedObjects::ConstSharedPtr object_ptr_;
+  std::optional<rclcpp::Time> last_odometry_time_;
+  std::optional<rclcpp::Time> last_pointcloud_time_;
+  std::optional<rclcpp::Time> last_object_time_;
+  bool stop_request_pending_{false};
+  std::optional<bool> acknowledged_stop_request_;
+  std::optional<rclcpp::Time> stop_request_time_;
+  uint64_t stop_request_sequence_{0};
 
   // State Machine
   State state_ = State::PASS;

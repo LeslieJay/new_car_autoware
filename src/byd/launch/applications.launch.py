@@ -49,11 +49,28 @@ def generate_launch_description():
         'launch',
         'rosbridge_websocket_launch.xml',
     )
+    pedestrian_safety_stop_launch = os.path.join(
+        get_package_share_directory('byd_launch'),
+        'launch',
+        'pedestrian_safety_stop.launch.py',
+    )
 
     return LaunchDescription([
         *declare_bringup_arguments(),
         *set_console_format(),
         set_stage_log_dir('applications'),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(pedestrian_safety_stop_launch),
+            launch_arguments={
+                'enable_pedestrian_safety_stop': LaunchConfiguration(
+                    'enable_pedestrian_safety_stop',
+                ),
+                'pedestrian_safety_stop_config_file': LaunchConfiguration(
+                    'pedestrian_safety_stop_config_file',
+                ),
+                'log_level': LaunchConfiguration('log_level'),
+            }.items(),
+        ),
         GroupAction(
             condition=IfCondition(is_enabled('enable_rcs')),
             actions=[

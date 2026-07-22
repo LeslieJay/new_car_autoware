@@ -19,6 +19,7 @@
 #include <tf2/utils.hpp>
 
 #include <cmath>
+#include <utility>
 
 namespace autoware::behavior_path_planner
 {
@@ -43,6 +44,58 @@ void setOrientation(PathWithLaneId * path)
     yaw_quat.setRPY(0, 0, angle);
     pt.point.pose.orientation = tf2::toMsg(yaw_quat);
   }
+}
+
+PathWithLaneId extendBackwardPath(
+  const PathWithLaneId & previous_path, const PathWithLaneId & current_path,
+  const geometry_msgs::msg::Point & ego_position, const double backward_length)
+{
+  if (previous_path.points.empty() || current_path.points.empty()) {
+    return current_path;
+  }
+
+  const auto current_ego_idx =
+    autoware::motion_utils::findNearestIndex(current_path.points, ego_position);
+  const auto previous_ego_idx = autoware::motion_utils::findNearestIndex(
+    previous_path.points,
+    autoware_utils_geometry::get_point(current_path.points.at(current_ego_idx)));
+
+  const auto direction_at = [](const auto & points, const size_t idx) {
+    const auto next_idx = idx + 1 < points.size() ? idx + 1 : idx;
+    const auto prev_idx = next_idx == idx ? idx - 1 : idx;
+    const auto & from = points.at(prev_idx).point.pose.position;
+    const auto & to = points.at(next_idx).point.pose.position;
+    return std::pair{to.x - from.x, to.y - from.y};
+  };
+  if (previous_path.points.size() < 2 || current_path.points.size() < 2) {
+    return current_path;
+  }
+  const auto previous_direction = direction_at(previous_path.points, previous_ego_idx);
+  const auto current_direction = direction_at(current_path.points, current_ego_idx);
+  if (
+    previous_direction.first * current_direction.first +
+      previous_direction.second * current_direction.second <=
+    0.0) {
+    return current_path;
+  }
+
+  auto clip_idx = previous_ego_idx;
+  double accumulated_length = 0.0;
+  while (clip_idx > 0 && accumulated_length < backward_length) {
+    accumulated_length += autoware_utils_geometry::calc_distance2d(
+      previous_path.points.at(clip_idx - 1), previous_path.points.at(clip_idx));
+    --clip_idx;
+  }
+
+  auto extended_path = current_path;
+  extended_path.points.clear();
+  extended_path.points.insert(
+    extended_path.points.end(), previous_path.points.begin() + clip_idx,
+    previous_path.points.begin() + previous_ego_idx);
+  extended_path.points.insert(
+    extended_path.points.end(), current_path.points.begin() + current_ego_idx,
+    current_path.points.end());
+  return extended_path;
 }
 
 double getClosestShiftLength(

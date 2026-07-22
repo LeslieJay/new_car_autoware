@@ -17,6 +17,8 @@
 
 #include "type_alias.hpp"
 
+#include <string>
+
 namespace autoware::surround_obstacle_checker
 {
 
@@ -26,6 +28,7 @@ struct StopObstacle
   double nearest_distance;
   Point nearest_point;
   UUID uuid;
+  std::string label;
 };
 
 }  // namespace autoware::surround_obstacle_checker

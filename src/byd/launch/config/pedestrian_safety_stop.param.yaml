@@ -1,0 +1,59 @@
+/**:
+  ros__parameters:
+    pointcloud:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    unknown:
+      enable_check: true
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    car:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    truck:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    bus:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    trailer:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    motorcycle:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    bicycle:
+      enable_check: false
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+    pedestrian:
+      enable_check: true
+      surround_check_front_distance: 2.0
+      surround_check_side_distance: 1.0
+      surround_check_back_distance: 2.0
+
+    surround_check_hysteresis_distance: 0.5
+    state_clear_time: 2.0
+    stop_state_ego_speed: 0.1
+    stop_only_when_stopped: false
+    fail_safe_on_data_timeout: true
+    data_timeout_sec: 0.5
+    request_command_gate_stop: true
+    stop_request_source: "byd_pedestrian_safety_stop"
+
+    publish_debug_footprints: true
+    debug_footprint_label: "pedestrian"

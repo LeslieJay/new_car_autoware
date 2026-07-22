@@ -7,22 +7,21 @@ mission_loop:
 
     points: ["A", "B"]
 
-    points.A.x: -166.75697572081393
-    points.A.y: -84.12780794007236
-    points.A.z: 0.5922776638379166
-    points.A.orientation_x: 0.0009473683847744576
-    points.A.orientation_y: 0.00033535554962371337
-    points.A.orientation_z: -0.9788338857946326
-    points.A.orientation_w: 0.20465388843112373
+    points.A.x: 191.58346557617188
+    points.A.y: -63.20964050292969
+    points.A.z: -0.7966941790812165
+    points.A.orientation_x: 0.0
+    points.A.orientation_y: 0.0
+    points.A.orientation_z: 0.2462331419554748
+    points.A.orientation_w: 0.9692106271614724
     points.A.wait_time: 3.0
 
-    points.B.x: -179.1208953857422
-    points.B.y: -92.13262176513672
-    points.B.z: 0.2287895097178676
+    points.B.x: 254.13575744628906
+    points.B.y: -149.3636932373047
+    points.B.z: -1.2012179585688096
     points.B.orientation_x: 0.0
     points.B.orientation_y: 0.0
-    points.B.orientation_z: 0.2640732435726477
-    points.B.orientation_w: 0.9645026293530884
+    points.B.orientation_z: 0.9712548182311513
+    points.B.orientation_w: -0.23804217706694986
     points.B.wait_time: 5.0
-
 

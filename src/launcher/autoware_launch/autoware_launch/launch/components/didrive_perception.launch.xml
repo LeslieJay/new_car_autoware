@@ -4,6 +4,7 @@
   <arg name="pointcloud_container_name" default="perception_container" description="name of pointcloud container"/>
   <arg name="use_pointcloud_container" default="false"/>
   <arg name="enable_lane_detection" default="false" description="Enable lane detection module"/>
+  <arg name="enable_front_collision_warning" default="true" description="Enable stopped-vehicle front collision warning"/>
   <arg name="pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="use simulator time"/>
   <arg name="occupancy_grid_map_method" default="pointcloud_based_occupancy_grid_map" description="options: pointcloud_based_occupancy_grid_map, laserscan_based_occupancy_grid_map, multi_lidar_pointcloud_based_occupancy_grid_map"/>
   <arg name="occupancy_grid_map_updater" default="binary_bayes_filter" description="options: binary_bayes_filter"/>
@@ -145,6 +146,16 @@
         <!-- tracker -->
         <include file="$(find-pkg-share didrive_multi_object_tracker)/launch/multi_object_tracker.launch.xml">
           <arg name="output" value="/perception/object_recognition/tracking/objects"/>
+        </include>
+      </group>
+
+      <!-- Passive collision warning for an approaching front vehicle while ego is stopped. -->
+      <group if="$(var enable_front_collision_warning)">
+        <include file="$(find-pkg-share didrive_front_collision_warning)/launch/front_collision_warning.launch.xml">
+          <arg name="input_objects" value="/perception/object_recognition/tracking/objects"/>
+          <arg name="input_velocity" value="/vehicle/status/velocity_status"/>
+          <arg name="input_control_mode" value="/vehicle/status/control_mode"/>
+          <arg name="output_state" value="/perception/vehicel_distance_judge/state"/>
         </include>
       </group>
       

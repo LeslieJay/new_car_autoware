@@ -46,6 +46,28 @@ surround_obstacle_checker_node:
     description: Threshold to check ego vehicle stopped [m/s]
     validation:
       gt_eq<>: [0.0]
+  stop_only_when_stopped:
+    type: bool
+    default_value: true
+    description: Preserve legacy behavior that only prevents an already stopped vehicle from starting.
+  fail_safe_on_data_timeout:
+    type: bool
+    default_value: false
+    description: Request a stop when a required input is missing or stale.
+  data_timeout_sec:
+    type: double
+    default_value: 0.5
+    description: Maximum age of required input data measured from local receipt time [s].
+    validation:
+      gt<>: [0.0]
+  request_command_gate_stop:
+    type: bool
+    default_value: false
+    description: Also request the vehicle command gate moderate stop service.
+  stop_request_source:
+    type: string
+    default_value: surround_obstacle_checker
+    description: Stable source key used for velocity-limit and command-gate stop requests.
   publish_debug_footprints:
     type: bool
     description: Publish vehicle footprint & footprints with surround_check_distance and

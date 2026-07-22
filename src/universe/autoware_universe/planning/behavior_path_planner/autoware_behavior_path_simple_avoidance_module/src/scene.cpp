@@ -819,30 +819,7 @@ PathWithLaneId SimpleAvoidanceModule::extendBackwardLength(
   const auto backward_length = std::max(
     planner_data_->parameters.backward_path_length, longest_dist_to_shift_point + extra_margin);
 
-  const auto & prev_reference = getPreviousModuleOutput().path;
-  const size_t orig_ego_idx =
-    autoware::motion_utils::findNearestIndex(original_path.points, getEgoPose().position);
-  const size_t prev_ego_idx = autoware::motion_utils::findNearestSegmentIndex(
-    prev_reference.points, autoware_utils::get_point(original_path.points.at(orig_ego_idx)));
-
-  size_t clip_idx = 0;
-  for (size_t i = 0; i < prev_ego_idx; ++i) {
-    if (
-      backward_length >
-      autoware::motion_utils::calcSignedArcLength(prev_reference.points, clip_idx, prev_ego_idx)) {
-      break;
-    }
-    clip_idx = i;
-  }
-
-  PathWithLaneId extended_path{};
-  extended_path.points.insert(
-    extended_path.points.end(), prev_reference.points.begin() + clip_idx,
-    prev_reference.points.begin() + prev_ego_idx);
-  extended_path.points.insert(
-    extended_path.points.end(), original_path.points.begin() + orig_ego_idx,
-    original_path.points.end());
-  return extended_path;
+  return extendBackwardPath(reference_path_, original_path, getEgoPose().position, backward_length);
 }
 
 void SimpleAvoidanceModule::setDebugMarkersVisualization() const

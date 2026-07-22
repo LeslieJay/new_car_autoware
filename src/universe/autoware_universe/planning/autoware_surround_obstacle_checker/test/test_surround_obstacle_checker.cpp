@@ -21,13 +21,16 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace autoware::surround_obstacle_checker
 {
 auto generateTestTargetNode() -> std::shared_ptr<SurroundObstacleCheckerNode>
 {
-  rclcpp::init(0, nullptr);
+  if (!rclcpp::ok()) {
+    rclcpp::init(0, nullptr);
+  }
 
   auto node_options = rclcpp::NodeOptions{};
   const auto autoware_test_utils_dir =
@@ -36,10 +39,10 @@ auto generateTestTargetNode() -> std::shared_ptr<SurroundObstacleCheckerNode>
   autoware::test_utils::updateNodeOptions(
     node_options,
     {autoware_test_utils_dir + "/config/test_common.param.yaml",
-     autoware_test_utils_dir + "/config/test_nearest_search.param.yaml",
-     autoware_test_utils_dir + "/config/test_vehicle_info.param.yaml",
-     ament_index_cpp::get_package_share_directory("autoware_surround_obstacle_checker") +
-       "/config/surround_obstacle_checker.param.yaml"});
+      autoware_test_utils_dir + "/config/test_nearest_search.param.yaml",
+      autoware_test_utils_dir + "/config/test_vehicle_info.param.yaml",
+      ament_index_cpp::get_package_share_directory("autoware_surround_obstacle_checker") +
+      "/config/surround_obstacle_checker.param.yaml"});
 
   return std::make_shared<SurroundObstacleCheckerNode>(node_options);
 }
@@ -47,16 +50,40 @@ auto generateTestTargetNode() -> std::shared_ptr<SurroundObstacleCheckerNode>
 class SurroundObstacleCheckerNodeTest : public ::testing::Test
 {
 public:
-  SurroundObstacleCheckerNodeTest() : node_{generateTestTargetNode()} {}
+  SurroundObstacleCheckerNodeTest()
+  : node_{generateTestTargetNode()} {}
+  ~SurroundObstacleCheckerNodeTest() override
+  {
+    node_.reset();
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+  }
 
   auto isStopRequired(
     const bool is_obstacle_found, const bool is_vehicle_stopped, const State & state,
-    const std::optional<rclcpp::Time> & last_obstacle_found_time, const double time_threshold) const
-    -> std::pair<bool, std::optional<rclcpp::Time>>
+    const std::optional<rclcpp::Time> & last_obstacle_found_time, const double time_threshold,
+    const bool stop_only_when_stopped = true) const -> std::pair<bool, std::optional<rclcpp::Time>>
   {
     return node_->isStopRequired(
-      is_obstacle_found, is_vehicle_stopped, state, last_obstacle_found_time, time_threshold);
+      is_obstacle_found, is_vehicle_stopped, state, last_obstacle_found_time, time_threshold,
+      stop_only_when_stopped);
   }
+
+  int getObjectLabel(const PredictedObject & object) const {return node_->getObjectLabel(object);}
+
+  bool isInputUnsafe(
+    const bool use_dynamic_objects, const bool pointcloud_enabled,
+    const std::optional<rclcpp::Time> & last_odometry_time,
+    const std::optional<rclcpp::Time> & last_object_time,
+    const std::optional<rclcpp::Time> & last_pointcloud_time, const double timeout_sec) const
+  {
+    return node_->isInputUnsafe(
+      use_dynamic_objects, pointcloud_enabled, last_odometry_time, last_object_time,
+      last_pointcloud_time, timeout_sec);
+  }
+
+  rclcpp::Time now() const {return node_->now();}
 
 private:
   std::shared_ptr<SurroundObstacleCheckerNode> node_;
@@ -128,5 +155,40 @@ TEST_F(SurroundObstacleCheckerNodeTest, isStopRequired)
   }
 
   rclcpp::shutdown();
+}
+
+TEST_F(SurroundObstacleCheckerNodeTest, StopsMovingVehicleWhenConfigured)
+{
+  const auto [is_stop, stop_time] =
+    isStopRequired(true, false, State::PASS, std::nullopt, 2.0, false);
+
+  EXPECT_TRUE(is_stop);
+  EXPECT_TRUE(stop_time.has_value());
+}
+
+TEST_F(SurroundObstacleCheckerNodeTest, KeepsLegacyStoppedVehicleGuardByDefault)
+{
+  const auto [is_stop, stop_time] = isStopRequired(true, false, State::PASS, std::nullopt, 2.0);
+
+  EXPECT_FALSE(is_stop);
+  EXPECT_FALSE(stop_time.has_value());
+}
+
+TEST_F(SurroundObstacleCheckerNodeTest, EmptyClassificationIsUnknown)
+{
+  PredictedObject object;
+  EXPECT_EQ(getObjectLabel(object), autoware_perception_msgs::msg::ObjectClassification::UNKNOWN);
+}
+
+TEST_F(SurroundObstacleCheckerNodeTest, StaleRequiredInputIsUnsafe)
+{
+  const auto current_time = now();
+  const auto fresh = current_time - rclcpp::Duration::from_seconds(0.1);
+  const auto stale = current_time - rclcpp::Duration::from_seconds(0.6);
+
+  EXPECT_FALSE(isInputUnsafe(true, false, fresh, fresh, std::nullopt, 0.5));
+  EXPECT_TRUE(isInputUnsafe(true, false, fresh, stale, std::nullopt, 0.5));
+  EXPECT_TRUE(isInputUnsafe(true, false, std::nullopt, fresh, std::nullopt, 0.5));
+  EXPECT_TRUE(isInputUnsafe(false, true, fresh, std::nullopt, stale, 0.5));
 }
 }  // namespace autoware::surround_obstacle_checker

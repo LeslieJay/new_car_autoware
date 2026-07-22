@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    base_frame: base_link
+    stopped_speed_threshold: 0.1
+    ego_stop_hold_time: 0.5
+    max_longitudinal_gap: 8.0
+    critical_longitudinal_gap: 1.5
+    min_closing_speed: 0.2
+    max_ttc: 3.0
+    lateral_margin: 0.5
+    on_time_buffer: 0.3
+    off_time_buffer: 0.5
+    input_timeout: 0.5
+    warning_publish_rate: 5.0

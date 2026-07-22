@@ -73,6 +73,25 @@ double applyLaneShiftMargin(const double raw_shift_length, const double lateral_
   return raw_shift_length;
 }
 
+double calcLaneShiftLength(
+  const double current_lane_distance, const double adjacent_lane_distance,
+  const double lateral_margin)
+{
+  return applyLaneShiftMargin(current_lane_distance - adjacent_lane_distance, lateral_margin);
+}
+
+bool shouldInitializeManeuver(const ShiftLineArray & shift_lines)
+{
+  return shift_lines.empty();
+}
+
+bool canCompleteManeuver(
+  const bool has_target, const ShiftLineArray & shift_lines, const double current_shift,
+  const double zero_threshold)
+{
+  return !has_target && shift_lines.empty() && std::abs(current_shift) < zero_threshold;
+}
+
 FeasibilityResult checkFeasibility(
   const LCAvoidanceTarget & target, const double shift_length,
   const SimpleLCAvoidanceParameters & parameters, const double ego_speed)
