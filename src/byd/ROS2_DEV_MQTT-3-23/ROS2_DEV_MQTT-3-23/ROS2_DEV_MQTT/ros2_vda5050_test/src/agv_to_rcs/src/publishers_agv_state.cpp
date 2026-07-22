@@ -443,7 +443,6 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
         // 如果没有错误，errors数组为空
         message.errors.resize(0);
     }
-    message.agv_position.map_id = "11";
     // 数据发布
     state_publisher_->publish(message);
     

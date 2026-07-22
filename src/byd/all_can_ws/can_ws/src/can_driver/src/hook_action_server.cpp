@@ -14,7 +14,7 @@ using GoalHandleFork = rclcpp_action::ServerGoalHandle<CtrlFork>;
 
 // 构造函数
 ForkActionServer::ForkActionServer(const rclcpp::NodeOptions & options)
-: Node("fork_action_server", options)
+: Node("hook_action_server", options)
 {
     action_server_ = rclcpp_action::create_server<CtrlFork>(
         this,
@@ -92,14 +92,14 @@ void ForkActionServer::execute(
         for(int i = 0; i < 8; i++) {
             v_frame.data[i] = 0;
         }
-        
+        auto fork_goal_height = goal->fork_goal_height - 100;
         // 根据目标高度设置指令
-        if(goal->fork_goal_height == 1) {
+        if(fork_goal_height == 1) {
             v_frame.data[4] = 1;
             RCLCPP_INFO(this->get_logger(), 
                        "下达挂钩升降到位置1命令 (CAN ID:0x401, data[4]=1)");
         }
-        else if (goal->fork_goal_height == 2) {
+        else if (fork_goal_height == 2) {
             v_frame.data[4] = 2;
             RCLCPP_INFO(this->get_logger(), 
                        "下达挂钩升降到位置2命令 (CAN ID:0x401, data[4]=2)");
@@ -107,7 +107,7 @@ void ForkActionServer::execute(
         else {
             RCLCPP_ERROR(this->get_logger(), 
                         "rcs挂钩指令异常: 不支持的目标高度 %d", 
-                        goal->fork_goal_height);
+                        fork_goal_height);
             result->finish = false;
             goal_handle->abort(result);
             return;
@@ -127,9 +127,8 @@ void ForkActionServer::execute(
             return;
         }
         
-        // 模拟等待硬件执行
-        RCLCPP_INFO(this->get_logger(), "等待硬件执行...");
-        rclcpp::sleep_for(std::chrono::seconds(2));
+        // 等待硬件执行
+        rclcpp::sleep_for(std::chrono::seconds(3));
         
         // 执行成功
         result->finish = true;

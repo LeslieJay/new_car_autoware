@@ -38,6 +38,7 @@
 #include "tier4_external_api_msgs/srv/engage.hpp"
 #include "vda5050_interfaces/msg/agv_state.hpp"
 #include "vda5050_interfaces/msg/error.hpp"
+#include "autoware_system_msgs/msg/autoware_state.hpp"   // 实际消息头文件
 
 constexpr double kWheelbase = 1.1;
 constexpr double kPi = 3.14159265358979323846;
@@ -160,15 +161,14 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr can_cmd_debug_pub_;
 
 
-        rclcpp::Subscription<vda5050_interfaces::msg::AGVState>::SharedPtr agv_state_subscript_;
+        rclcpp::Subscription<autoware_system_msgs::msg::AutowareState>::SharedPtr agv_state_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::Control>::SharedPtr control_subscript_;
         rclcpp::Subscription<autoware_vehicle_msgs::msg::GearCommand>::SharedPtr gear_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::SafetyState>::SharedPtr car_instance_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::SafetyState>::SharedPtr person_instance_subscript_;
         // engage 客户端
         rclcpp::Client<tier4_external_api_msgs::srv::Engage>::SharedPtr engage_client_;
-        void agv_state_callback(const vda5050_interfaces::msg::AGVState::ConstSharedPtr msg);
-
+        void agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg);
         void control_cmd_callback(const autoware_control_msgs::msg::Control::ConstSharedPtr msg);
         void gear_cmd_callback(const autoware_vehicle_msgs::msg::GearCommand::ConstSharedPtr msg);
         void publishGearStatus(uint8_t report);

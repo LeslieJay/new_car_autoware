@@ -222,7 +222,7 @@ private:
     BatteryMessages battery_messages_;
     VelocityMessages velocity_messages_;
     int obstacle_messages_;
-
+    mutable std::mutex data_mutex_;   // 添加这一行
     // 定时器的触发计数
     int count_time;
     

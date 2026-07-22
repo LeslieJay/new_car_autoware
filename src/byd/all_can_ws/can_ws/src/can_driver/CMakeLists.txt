@@ -12,6 +12,7 @@ find_package(autoware_vehicle_msgs REQUIRED)
 find_package(tier4_external_api_msgs REQUIRED)
 find_package(vda5050_interfaces REQUIRED)
 find_package(ref_slam_interface REQUIRED)
+find_package(autoware_system_msgs REQUIRED)
 
 
 # ✅ 添加 include 目录到编译路径
@@ -29,6 +30,7 @@ src/main.cpp)
 ament_target_dependencies(can_node 
   agv_interfaces
   rclcpp
+  autoware_system_msgs
   rclcpp_action
   geometry_msgs
   autoware_control_msgs

@@ -48,8 +48,8 @@ namespace can_driver
 
         control_subscript_ = node_->create_subscription<autoware_control_msgs::msg::Control>(
             "/control/command/control_cmd", 1, std::bind(&CanReceiver::control_cmd_callback, this, _1));
-        agv_state_subscript_ = node_->create_subscription<vda5050_interfaces::msg::AGVState>(
-            "uagv/v1/BYD/qqa0001/state", 1, std::bind(&CanReceiver::agv_state_callback, this, _1));
+        agv_state_subscript_ = node_->create_subscription<autoware_system_msgs::msg::AutowareState>(
+            "/byd/autoware/state", 1, std::bind(&CanReceiver::agv_state_callback, this, _1));
         battery_publisher_ = node_->create_publisher<ref_slam_interface::msg::BatteryState>("/battery", 10);
         error_publisher_ = node_->create_publisher<vda5050_interfaces::msg::Error>("/error", 10);
         control_cmd_debug_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
@@ -94,10 +94,10 @@ namespace can_driver
         node_->get_parameter("engage_frame_period_ms", engage_frame_period_ms_);
         voice_frame_period_ms_ = std::max(voice_frame_period_ms_, 0);
         engage_frame_period_ms_ = std::max(engage_frame_period_ms_, 0);
-        
+        sendSafetyFrameCallback();
         // 创建安全定时器，之后无需任何调用即可定期执行sendSafetyFrameCallback
         safety_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(10),
+            std::chrono::milliseconds(3000),
             std::bind(&CanReceiver::sendSafetyFrameCallback, this)
         );
         CreateSafetyFrame();
@@ -246,7 +246,7 @@ namespace can_driver
         
         return x_rad;
     }
-    void CanReceiver::agv_state_callback(const vda5050_interfaces::msg::AGVState::ConstSharedPtr msg){
+    void CanReceiver::agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg){
         const auto now = node_->get_clock()->now();
         std::vector<struct can_frame> send_frames;
         struct can_frame v_frame{};
@@ -261,7 +261,7 @@ namespace can_driver
         v_frame.data[5] = 0;
         v_frame.data[6] = 0;
         v_frame.data[7] = 0;
-        if (msg->driving == false){
+        if (msg->state == 6){
             // 第4位设为1,打开语音播报
             v_frame.data[0] |= (1 << 4);
             // 语音到达目标点
@@ -610,25 +610,11 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                     battery_publisher_->publish(message);
                 }
                 // 低电量报警
-                if (battery < 20){
+                if (battery < 30){
                     struct can_frame v_frame = make_frame(0x401);
                     v_frame.data[2] = 17;
                     send_frames.push_back(v_frame);                            
                 }
-            }
-
-            if (frame.can_id == 0x201)
-            {
-                std::stringstream ss;
-                // std::hex使输出变成16进制，std::dec切换为十进制格式
-                ss << "ID:0x" << std::hex << frame.can_id
-                << " DLC:" << std::dec << (int)frame.can_dlc << " Data:";
-                // can_dlc数据长度
-                for (int i = 0; i < frame.can_dlc; ++i)
-                {
-                    ss << " " << std::hex << (int)frame.data[i];
-                }
-                RCLCPP_INFO(node_->get_logger(), "[%s] %s", interface_name.c_str(), ss.str().c_str());
             }
             // 0x181 检测上报小车实际速度和转向
             if (frame.can_id == 0x181)
@@ -809,25 +795,20 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
             v_frame.data[2] = 2;
             // 左转向灯，第0位设为1
             v_frame.data[0] |= (1 << 0);
-        } else {
-            v_frame.data[2] = 1;
+            RCLCPP_INFO_STREAM(node_->get_logger(),"左转向:");
         }
         // 右转
         if (angle_command > -6001 && angle_command < -500){
             v_frame.data[2] = 3;
             v_frame.data[0] |= (1 << 1);
-        } else {
-            v_frame.data[2] = 1;
+            RCLCPP_INFO_STREAM(node_->get_logger(),"右转向.");
         }
 
         if (velocity < 0){
             // 正在倒车语音
             v_frame.data[2] = 4;
             v_frame.data[3] |= (1 << 1);
-        } else {
-            v_frame.data[2] = 1;
         }
-
         send_frames.push_back(v_frame);
 
         // 转化为epec需要的指令格式。单位：0.001 m/s,
@@ -1090,28 +1071,24 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
 
     void CanReceiver::sendSafetyFrameCallback() {
         std::vector<struct can_frame> send_frames;
-        auto now = node_->get_clock()->now();
-        double elapsed = (now - last_control_time_).seconds();
-        if (elapsed > 1) {
-            // 超时，发送初始安全帧
-            struct can_frame timeout_safe_frame;
-            timeout_safe_frame.can_id = 0x201;
-            timeout_safe_frame.can_dlc = 8;
-            timeout_safe_frame.data[0] = 0;
-            timeout_safe_frame.data[1] = 0;
-            timeout_safe_frame.data[2] = 0;
-            timeout_safe_frame.data[3] = 0;
-            timeout_safe_frame.data[4] = 0b10000000; // 抱闸状态
-            timeout_safe_frame.data[5] = 0;
-            timeout_safe_frame.data[6] = 0;
-            timeout_safe_frame.data[7] = 0;
-            send_frames.push_back(timeout_safe_frame);
-        } else {
-            send_frames.push_back(safe_frame);
-        }
-        if (send_queue_) {
-            send_queue_->push(send_frames);
-        }
+        struct can_frame voice_frame;
+        voice_frame.can_id = 0x401;
+        // 标识数据帧的长度为8个字节
+        voice_frame.can_dlc = 8;
+        voice_frame.data[0] = 0x00;
+        // 打开语音播报
+        voice_frame.data[0] |= (1 << 4);
+        voice_frame.data[1] = 0x00;
+        voice_frame.data[2] = 1;
+        voice_frame.data[3] = 0x00;
+        voice_frame.data[4] = 0x00;
+        voice_frame.data[5] = 0x00;
+        voice_frame.data[6] = 0x00;
+        voice_frame.data[7] = 0x00;
+        // 添加到队列的功能放在所有帧处理的最后
+        send_frames.push_back(voice_frame);
+        send_queue_->push(send_frames);
+        RCLCPP_INFO_STREAM(node_->get_logger(),"无人驾驶.");
     }
 
 

@@ -35,7 +35,7 @@ physical_parameters:
   width: 0.8
   length: 1.2
 agv_position:
-  map_id: ""
+  map_id: "22"
   position_initialized: true
 operating_mode: "AUTOMATIC"  # MANUAL
 fork_running_height: 0
