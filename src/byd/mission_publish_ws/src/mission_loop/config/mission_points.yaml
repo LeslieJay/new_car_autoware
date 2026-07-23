@@ -5,7 +5,7 @@ mission_loop:
     arrive_speed_threshold: 0.15
     arrive_time_threshold: 1.0
 
-    points: ["A", "B"]
+    points: ["A", "B", "C", "D"]
 
     points.A.x: 191.58346557617188
     points.A.y: -63.20964050292969
@@ -16,12 +16,29 @@ mission_loop:
     points.A.orientation_w: 0.9692106271614724
     points.A.wait_time: 3.0
 
-    points.B.x: 254.13575744628906
-    points.B.y: -149.3636932373047
-    points.B.z: -1.2012179585688096
+    points.B.x: 117.81976318359375
+    points.B.y: -164.6165008544922
+    points.B.z: -0.7948437535701502
     points.B.orientation_x: 0.0
     points.B.orientation_y: 0.0
-    points.B.orientation_z: 0.9712548182311513
-    points.B.orientation_w: -0.23804217706694986
+    points.B.orientation_z: 0.8497055117617929
+    points.B.orientation_w: 0.5272575682544819
     points.B.wait_time: 5.0
 
+    points.C.x: 294.58221435546875
+    points.C.y: -67.66366577148438
+    points.C.z: -1.0675455135119056
+    points.C.orientation_x: 0.0
+    points.C.orientation_y: 0.0
+    points.C.orientation_z: -0.518772892935186
+    points.C.orientation_w: 0.8549120922970139
+    points.C.wait_time: 5.0
+
+    points.D.x: 119.35718536376953
+    points.D.y: -165.75538635253906
+    points.D.z: -0.7992876646133019
+    points.D.orientation_x: 0.0
+    points.D.orientation_y: 0.0
+    points.D.orientation_z: 0.8804770623792564
+    points.D.orientation_w: 0.4740887497336285
+    points.D.wait_time: 5.0

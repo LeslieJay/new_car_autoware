@@ -49,6 +49,9 @@ def _launch_everything(context: LaunchContext):
 
     autoware_launch = _share_path("autoware_launch", "launch", "autoware.launch.xml")
     rslidar_launch = _share_path("rslidar_sdk", "launch", "start_3.py")
+    vehicle_state_launch = _share_path(
+        "byd_vehicle_state", "launch", "vehicle_state.launch.py"
+    )
     safety_launch = _share_path(
         "byd_launch", "launch", "pedestrian_safety_stop.launch.py"
     )
@@ -77,6 +80,14 @@ def _launch_everything(context: LaunchContext):
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(rslidar_launch),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(vehicle_state_launch),
+            launch_arguments={
+                "byd_vehicle_state_config_file": LaunchConfiguration(
+                    "byd_vehicle_state_config_file"
+                ),
+            }.items(),
         ),
     ]
 
@@ -180,6 +191,15 @@ def generate_launch_description():
                     "auto_engage.yaml",
                 ),
                 description="byd_auto_engage params file",
+            ),
+            DeclareLaunchArgument(
+                "byd_vehicle_state_config_file",
+                default_value=_share_path(
+                    "byd_vehicle_state",
+                    "config",
+                    "vehicle_state.param.yaml",
+                ),
+                description="byd_vehicle_state config",
             ),
             *set_console_format(),
             SetEnvironmentVariable(

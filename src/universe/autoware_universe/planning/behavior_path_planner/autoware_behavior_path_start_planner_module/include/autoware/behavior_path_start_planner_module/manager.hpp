@@ -37,7 +37,7 @@ public:
   std::unique_ptr<SceneModuleInterface> createNewSceneModuleInstance() override
   {
     return std::make_unique<StartPlannerModule>(
-      name_, *node_, parameters_, rtc_interface_ptr_map_,
+      name_, *node_, parameters_, freespace_planner_timer_cb_group_, rtc_interface_ptr_map_,
       objects_of_interest_marker_interface_ptr_map_, planning_factor_interface_);
   }
 
@@ -49,6 +49,7 @@ public:
 
 private:
   std::shared_ptr<StartPlannerParameters> parameters_;
+  rclcpp::CallbackGroup::SharedPtr freespace_planner_timer_cb_group_;
 };
 
 }  // namespace autoware::behavior_path_planner

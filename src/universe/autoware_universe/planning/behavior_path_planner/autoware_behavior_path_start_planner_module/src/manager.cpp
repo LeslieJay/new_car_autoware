@@ -28,6 +28,8 @@ void StartPlannerModuleManager::init(rclcpp::Node * node)
 {
   // init manager interface
   initInterface(node, {""});
+  freespace_planner_timer_cb_group_ =
+    node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   StartPlannerParameters parameters = StartPlannerParameters::init(*node);
   // validation of parameters

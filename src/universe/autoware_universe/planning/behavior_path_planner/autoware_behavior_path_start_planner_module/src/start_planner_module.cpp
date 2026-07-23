@@ -103,6 +103,7 @@ namespace autoware::behavior_path_planner
 StartPlannerModule::StartPlannerModule(
   const std::string & name, rclcpp::Node & node,
   const std::shared_ptr<StartPlannerParameters> & parameters,
+  const rclcpp::CallbackGroup::SharedPtr & freespace_planner_timer_cb_group,
   const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> & rtc_interface_ptr_map,
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
     objects_of_interest_marker_interface_ptr_map,
@@ -147,12 +148,10 @@ StartPlannerModule::StartPlannerModule(
   if (parameters_->enable_freespace_planner) {
     freespace_planner_ = std::make_unique<FreespacePullOut>(node, *parameters);
     const auto freespace_planner_period_ns = rclcpp::Rate(1.0).period();
-    freespace_planner_timer_cb_group_ =
-      node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     freespace_planner_timer_ = rclcpp::create_timer(
       &node, clock_, freespace_planner_period_ns,
       std::bind(&StartPlannerModule::onFreespacePlannerTimer, this),
-      freespace_planner_timer_cb_group_);
+      freespace_planner_timer_cb_group);
   }
 }
 

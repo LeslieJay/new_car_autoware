@@ -48,6 +48,8 @@ public:
 
 private:
   std::shared_ptr<GoalPlannerParameters> parameters_;
+  rclcpp::CallbackGroup::SharedPtr lane_parking_timer_cb_group_;
+  rclcpp::CallbackGroup::SharedPtr freespace_parking_timer_cb_group_;
 };
 
 }  // namespace autoware::behavior_path_planner

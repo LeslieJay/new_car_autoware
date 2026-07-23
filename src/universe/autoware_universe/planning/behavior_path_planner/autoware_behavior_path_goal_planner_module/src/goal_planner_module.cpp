@@ -93,6 +93,8 @@ namespace autoware::behavior_path_planner
 GoalPlannerModule::GoalPlannerModule(
   const std::string & name, rclcpp::Node & node,
   const std::shared_ptr<GoalPlannerParameters> & parameters,
+  const rclcpp::CallbackGroup::SharedPtr & lane_parking_timer_cb_group,
+  const rclcpp::CallbackGroup::SharedPtr & freespace_parking_timer_cb_group,
   const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> & rtc_interface_ptr_map,
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
     objects_of_interest_marker_interface_ptr_map,
@@ -112,8 +114,6 @@ GoalPlannerModule::GoalPlannerModule(
 
   // timer callback for generating lane parking candidate paths
   const auto lane_parking_period_ns = rclcpp::Rate(1.0).period();
-  lane_parking_timer_cb_group_ =
-    node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   lane_parking_timer_ = rclcpp::create_timer(
     &node, clock_, lane_parking_period_ns,
     [lane_parking_executor = std::make_unique<LaneParkingPlanner>(
@@ -121,14 +121,12 @@ GoalPlannerModule::GoalPlannerModule(
        is_lane_parking_cb_running_, getLogger(), parameters_)]() {
       lane_parking_executor->onTimer();
     },
-    lane_parking_timer_cb_group_);
+    lane_parking_timer_cb_group);
 
   // freespace parking
   if (parameters_.enable_freespace_parking) {
     auto freespace_planner = std::make_shared<FreespacePullOver>(node, *parameters);
     const auto freespace_parking_period_ns = rclcpp::Rate(1.0).period();
-    freespace_parking_timer_cb_group_ =
-      node.create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     freespace_parking_timer_ = rclcpp::create_timer(
       &node, clock_, freespace_parking_period_ns,
       [freespace_parking_executor = std::make_unique<FreespaceParkingPlanner>(
@@ -136,7 +134,7 @@ GoalPlannerModule::GoalPlannerModule(
          is_freespace_parking_cb_running_, getLogger(), clock_, freespace_planner)]() {
         freespace_parking_executor->onTimer();
       },
-      freespace_parking_timer_cb_group_);
+      freespace_parking_timer_cb_group);
   }
 }
 
