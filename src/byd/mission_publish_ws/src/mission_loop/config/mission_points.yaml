@@ -1,9 +1,7 @@
 mission_loop:
   ros__parameters:
 
-    arrive_distance_threshold: 2.0
-    arrive_speed_threshold: 0.15
-    arrive_time_threshold: 1.0
+    arrival_pose_output_dir: /home/nvidia/autoware/log/mission_arrivals
 
     points: ["A", "B", "C", "D"]
 

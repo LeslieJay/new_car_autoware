@@ -8,7 +8,7 @@ launch:
   # behavior path modules
   - arg:
       name: launch_static_obstacle_avoidance
-      default: "true"
+      default: "false"
   - arg:
       name: launch_simple_avoidance
       default: "true"
@@ -17,7 +17,7 @@ launch:
       default: "false"
   - arg:
       name: launch_simple_lc_avoidance
-      default: "true"
+      default: "false"
   - arg:
       name: launch_dynamic_obstacle_avoidance
       default: "true"
