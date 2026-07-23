@@ -55,7 +55,7 @@ private:
   std::mutex raw_log_mutex_;
   static constexpr int MAX_LOG_LINES = 100000;
   static constexpr int TRIM_LINES = 50000;
-  std::string raw_log_basename_;
+  std::string raw_log_basename_ = "/home/nvidia/autoware/log/can_data/rtk_data";
 
   std::deque<CanFrame> nav_queue_;
   std::mutex nav_queue_mutex_;

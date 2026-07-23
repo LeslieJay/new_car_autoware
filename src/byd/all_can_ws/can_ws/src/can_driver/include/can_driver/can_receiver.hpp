@@ -136,7 +136,7 @@ void initRecording();          // 启动时检查裁剪，启动写线程
 void writeRecordToFile();      // 写线程函数
 void pushRecord(const can_frame &frame, double angle, double speed);
         // --- 速度日志记录相关 ---
-        std::string log_file_path_ = "velocity_command_log.csv";
+        std::string log_file_path_ = "/home/nvidia/autoware/log/can_data/velocity_command_log.csv";
         std::ofstream log_file_;
         std::vector<std::string> log_buffer_;
         int log_line_count_ = 0;

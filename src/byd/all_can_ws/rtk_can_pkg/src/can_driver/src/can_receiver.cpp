@@ -155,11 +155,6 @@ namespace can_driver
 CanReceiver::CanReceiver(std::shared_ptr<rclcpp::Node> node) : node_(node), running_(false)
 {
   auto can_node = std::dynamic_pointer_cast<CanNode>(node_);
-  if (can_node) {
-    raw_log_basename_ = can_node->getRawLogBasename();
-  } else {
-    raw_log_basename_ = "/tmp/rtk_canfd/rtk_canfd";
-  }
 
   rclcpp::QoS qos(rclcpp::KeepLast(10));
   qos.best_effort();

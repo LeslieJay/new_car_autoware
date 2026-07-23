@@ -116,28 +116,27 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 }
 
 
-void LaserSendMultiPose::cancel_action(){
-
-    if (action_goal_future_.valid() && action_goal_future_.wait_for(0s) == std::future_status::ready) {
-        auto goal_handle = action_goal_future_.get();
-        RCLCPP_INFO(node_->get_logger(), "Cancelling goal...");
-        auto future_cancel = action_client_->async_cancel_goal(goal_handle);
-    } 
-    else {
+void LaserSendMultiPose::cancel_action() {
+    if (current_goal_handle_ && current_goal_handle_->is_active()) {
+        RCLCPP_INFO(node_->get_logger(), "Cancelling active goal...");
+        auto future_cancel = action_client_->async_cancel_goal(current_goal_handle_);
+        // 可选：等待取消结果
+    } else {
         RCLCPP_INFO(node_->get_logger(), "No active goal to cancel.");
     }
 }
 
 
-void LaserSendMultiPose::goal_response_callback(GoalHandleACTION::SharedPtr goal_handle){
-
+void LaserSendMultiPose::goal_response_callback(
+    std::shared_ptr<rclcpp_action::ClientGoalHandle<AutowareAuto>> goal_handle)
+{
     if (!goal_handle) {
         RCLCPP_ERROR(node_->get_logger(), "Goal was rejected by server.");
-    } 
-    else {
-        RCLCPP_INFO_STREAM(node_->get_logger(), "Goal accepted by server, waiting for result... ID:" << arr_to_str(goal_handle->get_goal_id()));
-        
+        current_goal_handle_.reset();
+        return;
     }
+    RCLCPP_INFO(node_->get_logger(), "Goal accepted.");
+    current_goal_handle_ = goal_handle;   // 保存当前活跃句柄
 }
 
 void LaserSendMultiPose::feedback_callback(GoalHandleACTION::SharedPtr goal_handle,const std::shared_ptr<const AutowareAuto::Feedback> feedback){
@@ -213,6 +212,7 @@ void LaserSendMultiPose::result_callback(const GoalHandleACTION::WrappedResult &
             flag_driving = false;
             break;
     }
+    current_goal_handle_.reset();   // 目标已结束，句柄失效
 }
 
 

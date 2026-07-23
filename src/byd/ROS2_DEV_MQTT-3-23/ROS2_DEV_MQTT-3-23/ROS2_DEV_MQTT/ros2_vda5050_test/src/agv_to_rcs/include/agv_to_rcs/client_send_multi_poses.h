@@ -66,7 +66,7 @@ private:
     // rclcpp_action::Client<ACTION>::SharedPtr action_client_;
     // 给autoware下发目的地令其上线
     rclcpp_action::Client<AutowareAuto>::SharedPtr action_client_;
-
+    std::shared_ptr<rclcpp_action::ClientGoalHandle<AutowareAuto>> current_goal_handle_;
     // 使用轨迹客户端声明，服务客户端
     rclcpp::Client<UseTrajectory>::SharedPtr trajectory_client_;
 
