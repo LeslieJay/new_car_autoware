@@ -65,6 +65,7 @@ def generate_launch_description():
         wait_autoware_control,
         [setup_external_control],
         "reverse_parking/autoware",
+        shutdown_on_failure=False,
     )
 
     start_planner_after_setup = register_stage_transition(

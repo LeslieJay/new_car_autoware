@@ -105,7 +105,7 @@ As mentioned in stop condition section, it prevents chattering by changing thres
 | Name                                 | Type     | Description                                                                                                                                      | Default value                                |
 | :----------------------------------- | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------- |
 | `enable_check`                       | `bool`   | Indicates whether each object is considered in the obstacle check target.                                                                        | `true` for objects; `false` for point clouds |
-| `surround_check_front_distance`      | `bool`   | If there are objects or point clouds within this distance in front, transition to the "exist-surrounding-obstacle" status [m].                   | 0.5                                          |
+| `surround_check_front_distance`      | `double` | If there are objects or point clouds within this distance in front, transition to the "exist-surrounding-obstacle" status [m].                   | 0.5                                          |
 | `surround_check_side_distance`       | `double` | If there are objects or point clouds within this side distance, transition to the "exist-surrounding-obstacle" status [m].                       | 0.5                                          |
 | `surround_check_back_distance`       | `double` | If there are objects or point clouds within this back distance, transition to the "exist-surrounding-obstacle" status [m].                       | 0.5                                          |
 | `surround_check_hysteresis_distance` | `double` | If no object exists within `surround_check_xxx_distance` plus this additional distance, transition to the "non-surrounding-obstacle" status [m]. | 0.3                                          |
@@ -123,3 +123,12 @@ As mentioned in stop condition section, it prevents chattering by changing thres
 
 To perform stop planning, it is necessary to get obstacle pointclouds data.
 Hence, it does not plan stopping if the obstacle is in blind spot.
+
+## BYD integration note
+
+BYD pedestrian safety stop uses this node with a dedicated parameter file:
+[`src/byd/launch/config/pedestrian_safety_stop.param.yaml`](../../../../byd/launch/config/pedestrian_safety_stop.param.yaml).
+In that launch, `~/output/ready` is remapped to `/byd/pedestrian_safety_stop/ready`.
+When `request_command_gate_stop` is enabled, this ready topic means the vehicle command gate
+`/control/vehicle_cmd_gate/set_stop` service has acknowledged a request; it does not mean that no
+surrounding obstacle is present.

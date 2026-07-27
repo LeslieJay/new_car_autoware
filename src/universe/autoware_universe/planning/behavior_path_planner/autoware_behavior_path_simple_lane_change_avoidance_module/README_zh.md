@@ -15,12 +15,14 @@ Simple LC Avoidance 是 BYD 为**封闭道路低速 AGV** 场景定制的**借�
 
 **slot2 绕障位冲突**：`simple_avoidance`、`simple_lane_change_avoidance`、`static_obstacle_avoidance`、`avoidance_by_lane_change` 等均注册在 slot2，**同一时刻建议只启用一种绕障策略**，避免多模块竞争。
 
-当前 `default_preset.yaml` 中 `launch_simple_avoidance` 与 `launch_simple_lc_avoidance` 默认均为 `true`，若仅需一种策略，请显式关闭另一个：
+当前 `default_preset.yaml` 中 `launch_simple_avoidance` 默认 `true`，`launch_simple_lc_avoidance` 默认 `false`。如果需要启用借道绕障，建议显式开启本模块并关闭车道内 Simple Avoidance：
 
 ```yaml
 launch_simple_avoidance: "false"
 launch_simple_lc_avoidance: "true"
 ```
+
+注意：`tier4_planning_launch` 的 `behavior_planning.launch.xml` 中 `launch_simple_lc_avoidance` 的 XML 默认值是 `true`，但通过 `autoware_launch` 正常启动时会先 include `default_preset.yaml`，实际默认以 preset 为准。
 
 ---
 
@@ -30,7 +32,7 @@ launch_simple_lc_avoidance: "true"
 |------|------------------|--------------------------|------------------|-------------------------------|
 | 绕障方式 | 车道内偏移 | 完整变道模块 | 车道内偏移 | **借邻道 + 回原道** |
 | 代码规模 | ~8000 行 | ~数千行（含 LC 模块） | ~600 行 | ~550 行 |
-| 参数数量 | 300+ | 大量 | 11 项 | **10 项** |
+| 参数数量 | 300+ | 大量 | 14 项 | **10 项** |
 | 偏移量来源 | margin + 路肩自适应 | 变道几何 | 固定公式 + max_shift | **邻道中心线距离** |
 | 邻道要求 | 无 | 有 | 无 | **必须有 route 邻道** |
 | RTC / 安全检查 | 有 | 有 | 无 | **无** |
@@ -151,7 +153,7 @@ dist_to_obstacle  = target_lon - object_half_length - lateral_margin
 | `return_distance_after_object` | 5.0 | 过障碍物后多远开始回正 [m] |
 | `publish_debug_marker` | true | 是否发布 shift line 调试 marker |
 
-与 Simple Avoidance 的主要参数差异：无 `max_shift_length`（由邻道几何决定）；`lateral_margin` 默认更小（0.3 vs 0.8）。
+与 Simple Avoidance 的主要参数差异：无 `max_shift_length`（由邻道几何决定）；`lateral_margin` 默认更小（0.3 vs 0.4）。
 
 ---
 

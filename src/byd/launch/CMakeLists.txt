@@ -34,6 +34,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_check_autonomous_transition
     test/test_check_autonomous_transition.py
   )
+  ament_add_pytest_test(test_launch_utils
+    test/test_launch_utils.py
+  )
   ament_add_pytest_test(test_pedestrian_safety_stop
     test/test_pedestrian_safety_stop.py
   )

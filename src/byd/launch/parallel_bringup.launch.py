@@ -122,6 +122,7 @@ def _launch_everything(context: LaunchContext):
         wait_safety,
         [auto_engage],
         "pedestrian safety stop",
+        shutdown_on_failure=False,
     )
     return [*actions, safety_transition, safety, wait_safety]
 

@@ -140,6 +140,7 @@ def _build_staged_launch(context: LaunchContext):
             wait_autoware,
         ],
         "drivers",
+        shutdown_on_failure=False,
     )
 
     safety_enabled = as_bool(
@@ -165,6 +166,7 @@ def _build_staged_launch(context: LaunchContext):
                 LogInfo(msg="[bringup] staged startup completed"),
             ],
             "pedestrian safety stop",
+            shutdown_on_failure=False,
         )
         transitions.append(safety_transition)
         application_actions.extend([
@@ -181,6 +183,7 @@ def _build_staged_launch(context: LaunchContext):
         wait_autoware,
         application_actions,
         "autoware",
+        shutdown_on_failure=False,
     )
     transitions.append(applications_transition)
 

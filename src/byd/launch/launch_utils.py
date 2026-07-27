@@ -220,7 +220,7 @@ def on_success(
     *,
     shutdown_on_failure: bool = True,
 ):
-    """Continue only for exit code 0; otherwise report and optionally stop launch."""
+    """Continue on success, or log and optionally continue/stop on failure."""
 
     def _handler(event: ProcessExited, context: LaunchContextType):
         if event.returncode == 0:
@@ -248,6 +248,8 @@ def on_success(
                     )
                 )
             )
+        else:
+            failure_actions.extend(next_actions)
         return failure_actions
 
     return _handler

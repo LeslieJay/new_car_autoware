@@ -22,7 +22,7 @@ launch_simple_avoidance: "true"
 | 维度 | Static Avoidance（原版） | Simple Avoidance（本模块） |
 |------|--------------------------|----------------------------|
 | 代码规模 | ~8000 行（scene + utils + shift_line_generator + debug） | ~600 行（scene + utils + manager） |
-| 参数数量 | 300+ 项（按对象类型、策略分组） | 11 项 |
+| 参数数量 | 300+ 项（按对象类型、策略分组） | 14 项 |
 | 目标处理 | 多目标，复杂过滤链 | **仅最近一个**静止目标 |
 | 对象类型 | 按 PEDESTRIAN / CAR / TRUCK 等分别配置 | 不区分类型，统一处理 |
 | 偏移线生成 | AvoidOutline → merge/trim/combine 多阶段 | 直接生成 avoid + return 两条 ShiftLine |
@@ -365,7 +365,7 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 | 已生成绕障路径后又变 no_overlap | shifted path 改变了目标相对横向距离 | 已锁定目标会按 UUID 保持，检查 `target_lost_time_threshold` 和日志 |
 | 绕障后不回正 | return shift 未执行完即丢失目标 | 检查 `return_distance_after_object`；模块会在 shift 未完成时继续生成 |
 | 有路径但车仍停 | 下游 obstacle_stop 触发 | 非本模块问题，查 behavior velocity planner |
-| 绕错方向 | 障碍物 lateral_offset 符号 | 正 offset → 左移绕障，负 offset → 右移绕障 |
+| 绕错方向 | 障碍物 lateral_offset 符号 | 正 offset（障碍物在左）→ 负 shift 向右绕，负 offset（障碍物在右）→ 正 shift 向左绕 |
 
 ---
 
@@ -395,6 +395,6 @@ Simple Avoidance 不是对 Static Avoidance 的功能增强，而是面向**封�
 
 - **去掉**了导致仿真/调试频繁卡住的多目标过滤、RTC 审批、安全检查、状态机、速度插入
 - **保留**了 PathShifter 横向偏移路径生成的核心能力
-- **用** 11 个参数和 ~600 行代码换取可预测、易调试的绕障行为
+- **用** 14 个参数和 ~600 行代码换取可预测、易调试的绕障行为
 
 如果后续场景扩展到开放道路或多障碍物，应切回 `autoware_behavior_path_static_obstacle_avoidance_module`，并参考其 `README.md`、`notes.md`、`troubleshooting_zh.md` 进行调参。
