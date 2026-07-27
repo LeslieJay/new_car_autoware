@@ -88,8 +88,9 @@ void PatchWorkpp::extract_initial_seeds(const int zone_idx,
 
   int init_idx = 0;
   if (zone_idx == 0) {
+    double seed_margin_thr = std::min(-2.0, params_.adaptive_seed_selection_margin * params_.sensor_height);
     for (int i = 0; i < p_sorted.size(); i++) {
-      if (p_sorted[i].z < params_.adaptive_seed_selection_margin * params_.sensor_height) {
+      if (p_sorted[i].z < seed_margin_thr) {
         ++init_idx;
       } else {
         break;
@@ -124,8 +125,9 @@ void PatchWorkpp::extract_initial_seeds(const int zone_idx,
 
   int init_idx = 0;
   if (zone_idx == 0) {
+    double seed_margin_thr = std::min(-2.0, params_.adaptive_seed_selection_margin * params_.sensor_height);
     for (int i = 0; i < p_sorted.size(); i++) {
-      if (p_sorted[i].z < params_.adaptive_seed_selection_margin * params_.sensor_height) {
+      if (p_sorted[i].z < seed_margin_thr) {
         ++init_idx;
       } else {
         break;
@@ -266,10 +268,10 @@ void PatchWorkpp::estimateGround(Eigen::MatrixXf cloud_in) {
           addCloud(cloud_nonground_, regionwise_ground_);
         } else if (!is_near_zone) {
           addCloud(cloud_ground_, regionwise_ground_);
-        } else if (!is_heading_outside) {
-          addCloud(cloud_nonground_, regionwise_ground_);
         } else if (is_not_elevated || is_flat) {
           addCloud(cloud_ground_, regionwise_ground_);
+        } else if (!is_heading_outside) {
+          addCloud(cloud_nonground_, regionwise_ground_);
         } else {
           patchwork::RevertCandidate candidate(concentric_idx,
                                                sector_idx,
@@ -434,12 +436,15 @@ void PatchWorkpp::temporal_ground_revert(std::vector<double> ring_flatness,
     double prob_flatness =
         1 / (1 + exp((candidate.ground_flatness - mu_flatness) / (mu_flatness / 10)));
 
-    if (candidate.regionwise_ground.size() > 1500 &&
+    // 针对外圈 Zone (Zone 2/3)，由于点云天然稀疏（每扇区仅 15~50 点），将点数保护门槛设为与 Zone 相关的自适应阈值
+    int min_pt_protection = (candidate.concentric_idx >= 2) ? 20 : 100;
+    if (candidate.regionwise_ground.size() >= min_pt_protection &&
         candidate.ground_flatness < params_.th_dist * params_.th_dist)
       prob_flatness = 1.0;
 
     double prob_line = 1.0;
-    if (candidate.line_variable > 8.0) {  //&& candidate.line_dir > M_PI/4)//
+    // 避免在平整度良好（ground_flatness < 0.005）或稀疏点云时因 line_variable 误杀平坦地面
+    if (candidate.line_variable > 25.0 && candidate.ground_flatness >= 0.005) {  //&& candidate.line_dir > M_PI/4)//
       // if (params_.verbose) cout << "line_dir: " << candidate.line_dir << endl;
       prob_line = 0.0;
     }
@@ -521,13 +526,16 @@ void PatchWorkpp::extract_piecewiseground(const int zone_idx,
 
     for (auto point : src_wo_verticals) {
       double distance = calc_point_to_plane_d(point, normal_, d_);
+      // 根据点到原点距离 r 计算自适应 th_dist，防止远距离雷达 Z 轴噪声导致的误判
+      double r = xy2radius(point.x, point.y);
+      double adaptive_th_dist = std::min(0.35, params_.th_dist + std::max(0.0, (r - 20.0) * 0.002));
 
       if (i < params_.num_iter - 1) {
-        if (distance < params_.th_dist) {
+        if (distance < adaptive_th_dist) {
           ground_pc_.push_back(point);
         }
       } else {
-        if (distance < params_.th_dist) {
+        if (distance < adaptive_th_dist) {
           dst.push_back(point);
         } else {
           non_ground_dst.push_back(point);

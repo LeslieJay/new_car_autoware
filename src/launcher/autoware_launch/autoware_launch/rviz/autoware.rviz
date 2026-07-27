@@ -883,15 +883,7 @@ Visualization Manager:
                     Color: 119; 11; 32
                   Name: PredictedObjects
                   Namespaces:
-                    acceleration: true
-                    label: true
-                    path: true
-                    path confidence: true
-                    position covariance: true
-                    shape: true
-                    twist: true
-                    uuid: true
-                    velocity: true
+                    {}
                   Object Fill Type: skeleton
                   PEDESTRIAN:
                     Alpha: 0.9990000128746033
@@ -2409,8 +2401,7 @@ Visualization Manager:
                           Enabled: true
                           Name: PlanningFactor(SurroundObstacle)
                           Namespaces:
-                            stop_factor_text: true
-                            stop_virtual_wall: true
+                            {}
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2917,101 +2908,16 @@ Visualization Manager:
                 Debug:
                   Control: true
                   Localization:
-                    EKFPoseHistory: true
-                    NDT pointclouds: true
-                    NDTLoadedPCDMap: true
-                    NDTPoseHistory: true
+                    "": true
                     Value: true
                   Map: true
                   Perception:
-                    CameraLidarFusion(purple): true
-                    Centerpoint(red1): true
-                    CenterpointROIFusion(red2): true
-                    CenterpointValidator(red3): true
-                    Detection(yellow): true
-                    DetectionByTracker(orange): true
-                    PointPainting(light_green1): true
-                    PointPaintingROIFusion(light_green2): true
-                    PointPaintingValidator(light_green3): true
-                    Prediction(light_blue): true
-                    RadarFarObjects(white): true
-                    Tracking(green): true
+                    "": true
                     Value: true
                   Planning:
-                    Debug:
-                      BehaviorPathPlanner:
-                        Arrow: true
-                        GoalPlanner: true
-                        LaneFollowing: true
-                        LeftLaneChange: true
-                        RightLaneChange: true
-                        SideShift: true
-                        StartPlanner: true
-                        StaticObstacleAvoidance: true
-                        Value: true
-                      MotionVelocityPlanner:
-                        DynamicObstacleStop: true
-                        ObstacleCruise: true
-                        ObstacleSlowDown: true
-                        ObstacleStop: true
-                        ObstacleVelocityLimiter: true
-                        OutOfLane: true
-                        RunOut: true
-                        Value: true
-                      Value: true
-                    Info:
-                      BehaviorPathPlanner:
-                        Info (AvoidanceByLC): true
-                        Info (DynamicObstacleAvoidance): true
-                        Info (ExtLaneChangeLeft): true
-                        Info (ExtLaneChangeRight): true
-                        Info (GoalPlanner): true
-                        Info (LaneChangeLeft): true
-                        Info (LaneChangeRight): true
-                        Info (StartPlanner): true
-                        Info (StaticObstacleAvoidance): true
-                        Value: true
-                      BehaviorVelocityPlanner:
-                        Blind Spot: true
-                        Crosswalk: true
-                        DetectionArea: true
-                        DynamicObstacleAvoidance: true
-                        Intersection: true
-                        NoDrivableLane: true
-                        NoStoppingArea: true
-                        OcclusionSpot: true
-                        Roundabout: true
-                        SpeedBump: true
-                        StopLine: true
-                        TrafficLight: true
-                        Value: true
-                        VirtualTrafficLight: true
-                      MotionVelocityPlanner: true
-                      Objects Of Interest:
-                        AvoidanceByLCLeft: true
-                        AvoidanceByLCRight: true
-                        AvoidanceLeft: true
-                        AvoidanceRight: true
-                        BlindSpot: true
-                        Crosswalk: true
-                        DetectionArea: true
-                        GoalPlanner: true
-                        Intersection: true
-                        LaneChangeLeft: true
-                        LaneChangeRight: true
-                        NoStoppingArea: true
-                        ObstacleCruise: true
-                        Roundabout: true
-                        RunOut: true
-                        StartPlanner: true
-                        TrafficLight: true
-                        Value: true
-                      ObstacleAvoidance: true
-                      SurroundObstacleChecker:
-                        Footprint: true
-                        FootprintOffset: true
-                        FootprintRecoverOffset: true
-                        SurroundObstacleCheck: true
+                    "":
+                      "":
+                        "": true
                         Value: true
                       Value: true
                     Value: true
@@ -4950,26 +4856,21 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: tier4_camera_view_rviz_plugin/ThirdPersonView
-      Distance: 27.983638763427734
+      Angle: 0
+      Class: rviz_default_plugins/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
-      Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
-      Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7853981852531433
+      Scale: 2.5772030353546143
       Target Frame: base_link
-      Value: ThirdPersonView (tier4_camera_view_rviz_plugin)
-      Yaw: 0.7853981852531433
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: -7.846329689025879
+      Y: 4.628686904907227
     Saved:
       - Class: rviz_default_plugins/ThirdPersonFollower
         Distance: 18

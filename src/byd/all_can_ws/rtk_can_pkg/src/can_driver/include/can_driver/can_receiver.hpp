@@ -53,8 +53,8 @@ private:
   std::ofstream raw_log_file_;
   std::atomic<int> current_log_lines_{0};
   std::mutex raw_log_mutex_;
-  static constexpr int MAX_LOG_LINES = 100000;
-  static constexpr int TRIM_LINES = 50000;
+  static constexpr int MAX_LOG_LINES = 10000000;
+  static constexpr int TRIM_LINES = 5000000;
   std::string raw_log_basename_ = "/home/nvidia/autoware/log/can_data/rtk_data";
 
   std::deque<CanFrame> nav_queue_;

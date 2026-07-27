@@ -30,7 +30,7 @@ def generate_launch_description():
     launch_args = [
         DeclareLaunchArgument(
             'input_pointcloud',
-            default_value='/rslidar_points',
+            default_value='/sensing/lidar/concatenated/pointcloud',
             description='input origin lidar topic'
         ),
         DeclareLaunchArgument(
@@ -65,7 +65,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_mask',
-            default_value='true',
+            default_value='false',
             description='If true, use image mask to filter ground points'
         ),
     ]
@@ -89,19 +89,19 @@ def generate_launch_description():
                 "base_frame": LaunchConfiguration("base_frame"),
                 "mask_frame": LaunchConfiguration("mask_frame"),
                 # Patchwork++ configuration
-                "sensor_height": 2.30, #0.25
+                "sensor_height": 0.25, #0.25
                 "num_iter": 3,  # Number of iterations for ground plane estimation using PCA.
-                "num_lpr": 20,  # Maximum number of points to be selected as lowest points representative.
-                "num_min_pts": 10,  # Minimum number of points to be estimated as ground plane in each patch.
+                "num_lpr": 30,  # Maximum number of points to be selected as lowest points representative.
+                "num_min_pts": 1,  # Minimum number of points to be estimated as ground plane in each patch.
                 "th_seeds": 0.2,
                 # threshold for lowest point representatives using in initial seeds selection of ground points.
-                "th_dist": 0.18,  # threshold for thickness of ground.
+                "th_dist": 0.2,  # threshold for thickness of ground.
                 "th_seeds_v": 0.25,
                 # threshold for lowest point representatives using in initial seeds selection of vertical structural points.
-                "th_dist_v": 0.18,  # threshold for thickness of vertical structure.
+                "th_dist_v": 0.1,  # threshold for thickness of vertical structure.
                 "max_range": 80.0,  # max_range of ground estimation area
-                "min_range": 1.8,  # min_range of ground estimation area
-                "uprightness_thr": 0.701,
+                "min_range": 0.8,  # min_range of ground estimation area
+                "uprightness_thr": 0.30,
                 # threshold of uprightness using in Ground Likelihood Estimation(GLE). Please refer paper for more information about GLE.
                 "verbose": False,  # display verbose info
                 "use_mask": LaunchConfiguration("use_mask"),

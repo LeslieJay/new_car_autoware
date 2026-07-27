@@ -795,13 +795,13 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
             v_frame.data[2] = 2;
             // 左转向灯，第0位设为1
             v_frame.data[0] |= (1 << 0);
-            RCLCPP_INFO_STREAM(node_->get_logger(),"左转向:");
+            // RCLCPP_INFO_STREAM(node_->get_logger(),"左转向:");
         }
         // 右转
         if (angle_command > -6001 && angle_command < -500){
             v_frame.data[2] = 3;
             v_frame.data[0] |= (1 << 1);
-            RCLCPP_INFO_STREAM(node_->get_logger(),"右转向.");
+            // RCLCPP_INFO_STREAM(node_->get_logger(),"右转向.");
         }
 
         if (velocity < 0){
@@ -1088,7 +1088,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         // 添加到队列的功能放在所有帧处理的最后
         send_frames.push_back(voice_frame);
         send_queue_->push(send_frames);
-        RCLCPP_INFO_STREAM(node_->get_logger(),"无人驾驶.");
+        // RCLCPP_INFO_STREAM(node_->get_logger(),"无人驾驶.");
     }
 
 

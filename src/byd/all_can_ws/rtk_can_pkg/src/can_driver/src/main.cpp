@@ -5,8 +5,14 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +25,7 @@
 #include <unistd.h>
 
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "can_driver/can_node.hpp"
 #include "can_driver/can_receiver.hpp"
@@ -38,6 +45,7 @@ constexpr const char * kSixDevType = "SDK";
 constexpr int kSixRtcmPort = 4405;
 constexpr const char * kCanFdIf = "can1";
 constexpr canid_t kCanFdId = 0x611;
+constexpr const char * kSixentsLogRoot = "/home/nvidia/autoware/log/sixtens";
 }  // namespace
 
 int g_canfd_socket = -1;
@@ -47,8 +55,21 @@ std::vector<std::shared_ptr<CanReceiver>> g_receivers;
 std::vector<int> g_socket_handles;
 std::string g_ca_cert_path;
 
+std::shared_ptr<rclcpp::Publisher<std_msgs::msg::String>> g_sixents_status_log_pub;
+std::atomic<sixents_uint32> g_latest_sixents_status{0};
+std::mutex g_sixents_log_mutex;
+std::string g_latest_sixents_log;
+
+std::mutex g_sixents_file_mutex;
+std::ofstream g_sixents_log_file;
+std::string g_sixents_log_file_path;
+
 static int init_canfd();
 static void send_rtcm_via_canfd(const unsigned char * data, unsigned int len);
+static bool init_sixents_log_file();
+static std::string current_time_string(const char * format);
+static void publish_sixents_status_log(const char * event_type);
+static void close_sixents_log_file();
 
 void sixents_diff_rtcm_process(const sixents_char * buff, sixents_uint32 len)
 {
@@ -58,10 +79,109 @@ void sixents_diff_rtcm_process(const sixents_char * buff, sixents_uint32 len)
   send_rtcm_via_canfd(reinterpret_cast<const unsigned char *>(buff), len);
 }
 
-void sixents_status_process(sixents_uint32 /*status*/) {}
-
-int sixents_log_process_main(const sixents_char * /*buff*/, sixents_uint16 /*len*/)
+static std::string current_time_string(const char * format)
 {
+  const std::time_t now = std::time(nullptr);
+  std::tm local_tm{};
+  localtime_r(&now, &local_tm);
+
+  std::ostringstream stream;
+  stream << std::put_time(&local_tm, format);
+  return stream.str();
+}
+
+static bool init_sixents_log_file()
+{
+  try {
+    // 加入时分秒，保证同一天多次启动节点时不会覆盖之前的日志。
+    const std::filesystem::path log_dir =
+      std::filesystem::path(kSixentsLogRoot) / current_time_string("%Y%m%d_%H%M%S");
+
+    std::filesystem::create_directories(log_dir);
+    g_sixents_log_file_path = (log_dir / "status.log").string();
+
+    std::lock_guard<std::mutex> lock(g_sixents_file_mutex);
+    g_sixents_log_file.open(g_sixents_log_file_path, std::ios::out | std::ios::trunc);
+    if (!g_sixents_log_file.is_open()) {
+      std::cerr << "[Sixents日志] 无法创建日志文件: "
+                << g_sixents_log_file_path << "\n";
+      return false;
+    }
+
+    g_sixents_log_file << "# Sixents status/log started at "
+                       << current_time_string("%Y-%m-%d %H:%M:%S") << "\n";
+    g_sixents_log_file << "# format: [time] event=... status=... buff=...\n";
+    g_sixents_log_file.flush();
+
+    std::cout << "[Sixents日志] 日志文件: " << g_sixents_log_file_path << "\n";
+    return true;
+  } catch (const std::filesystem::filesystem_error & error) {
+    std::cerr << "[Sixents日志] 创建日志目录失败: " << error.what() << "\n";
+    return false;
+  }
+}
+
+static void close_sixents_log_file()
+{
+  std::lock_guard<std::mutex> lock(g_sixents_file_mutex);
+  if (g_sixents_log_file.is_open()) {
+    g_sixents_log_file << "# Sixents status/log stopped at "
+                       << current_time_string("%Y-%m-%d %H:%M:%S") << "\n";
+    g_sixents_log_file.flush();
+    g_sixents_log_file.close();
+  }
+}
+
+static void publish_sixents_status_log(const char * event_type)
+{
+  std::string latest_log;
+  {
+    std::lock_guard<std::mutex> lock(g_sixents_log_mutex);
+    latest_log = g_latest_sixents_log;
+  }
+
+  const sixents_uint32 latest_status = g_latest_sixents_status.load();
+
+  // 发布 ROS 2 话题。日志文件打开失败时不影响话题发布。
+  if (g_sixents_status_log_pub) {
+    std_msgs::msg::String msg;
+    msg.data = "status=" + std::to_string(latest_status) +
+      "\nbuff=" + latest_log;
+    g_sixents_status_log_pub->publish(msg);
+  }
+
+  // 将和话题相同的数据保存到本次节点启动对应的 status.log。
+  std::lock_guard<std::mutex> lock(g_sixents_file_mutex);
+  if (g_sixents_log_file.is_open()) {
+    g_sixents_log_file << "[" << current_time_string("%Y-%m-%d %H:%M:%S") << "] "
+                       << "event=" << (event_type != nullptr ? event_type : "unknown")
+                       << " status=" << latest_status
+                       << " buff=" << latest_log << "\n";
+    // SDK 状态/日志通常频率不高，立即 flush 可避免节点异常退出时丢失缓存数据。
+    g_sixents_log_file.flush();
+  }
+}
+
+void sixents_status_process(sixents_uint32 status)
+{
+  g_latest_sixents_status.store(status);
+  publish_sixents_status_log("status");
+}
+
+int sixents_log_process_main(const sixents_char * buff, sixents_uint16 len)
+{
+  if (buff == nullptr || len == 0) {
+    return 0;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(g_sixents_log_mutex);
+    g_latest_sixents_log.assign(
+      reinterpret_cast<const char *>(buff),
+      static_cast<std::size_t>(len));
+  }
+
+  publish_sixents_status_log("buff");
   return 0;
 }
 
@@ -234,6 +354,13 @@ int main(int argc, char * argv[])
   auto can_node = std::make_shared<can_driver::CanNode>();
   g_ca_cert_path = can_node->getCaCertPath();
 
+  g_sixents_status_log_pub =
+    can_node->create_publisher<std_msgs::msg::String>("/sixents/status_log", rclcpp::QoS(10));
+
+  // 在启动 Sixents SDK 线程前创建本次运行的日志文件。
+  // 创建失败只打印错误，不阻止节点继续运行和发布 ROS 2 话题。
+  init_sixents_log_file();
+
   std::string interface1 = can_node->getCan1InterfaceName();
   bool can1_use = can_node->getCan1UseStatus();
 
@@ -290,6 +417,8 @@ int main(int argc, char * argv[])
     }
   }
 
+  close_sixents_log_file();
+  g_sixents_status_log_pub.reset();
   rclcpp::shutdown();
   std::cout << "ROS 2 shutdown. Program exiting." << std::endl;
   return 0;
