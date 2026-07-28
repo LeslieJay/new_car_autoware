@@ -2,47 +2,47 @@
   ros__parameters:
     pointcloud:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     unknown:
       enable_check: true
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     car:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     truck:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     bus:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     trailer:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     motorcycle:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     bicycle:
       enable_check: false
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     pedestrian:
       enable_check: true
-      surround_check_front_distance: 0
+      surround_check_front_distance: 0.0
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
 
