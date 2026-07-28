@@ -22,6 +22,7 @@ find_package(behaviortree_cpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(PahoMqttCpp REQUIRED)
 find_package(autoware_system_msgs REQUIRED)
+find_package(autoware_adapi_v1_msgs REQUIRED)
 find_package(ref_slam_interface REQUIRED)
 find_package(agv_interfaces REQUIRED)
 find_package(reverse_parking_planner REQUIRED)
@@ -114,6 +115,7 @@ ament_target_dependencies(
   "rclcpp"
   "reverse_parking_planner"
   "autoware_system_msgs"
+  "autoware_adapi_v1_msgs"
   "rclcpp_action"
   "geometry_msgs"
   "ref_slam_interface"

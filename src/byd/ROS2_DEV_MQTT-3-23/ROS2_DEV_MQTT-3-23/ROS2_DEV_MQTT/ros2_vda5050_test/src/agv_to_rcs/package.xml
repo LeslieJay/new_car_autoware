@@ -19,6 +19,7 @@
   <depend>yaml-cpp</depend>
   <depend>reverse_parking_planner</depend>
   <depend>autoware_system_msgs</depend>
+  <depend>autoware_adapi_v1_msgs</depend>
   <build_depend>ref_slam_interface</build_depend>
   <exec_depend>ref_slam_interface</exec_depend>
   <build_depend>agv_interfaces</build_depend>

@@ -108,7 +108,7 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
     flag_aborted = false;
     flag_canceled = false;
     flag_driving = false;
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"发送目标点请求。");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABefore发送目标点请求到服务端。");
     action_goal_future_ = action_client_->async_send_goal(goal_msg, send_goal_options);
 
     counter = 0;
@@ -117,10 +117,11 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 
 
 void LaserSendMultiPose::cancel_action() {
-    if (current_goal_handle_ && current_goal_handle_->is_active()) {
-        RCLCPP_INFO(node_->get_logger(), "Cancelling active goal...");
-        auto future_cancel = action_client_->async_cancel_goal(current_goal_handle_);
-        // 可选：等待取消结果
+    // 使用 action_client_ 来取消当前目标，而不是 goal_handle 的方法
+    if (current_goal_handle_) {
+        RCLCPP_INFO(node_->get_logger(), "Cancelling current goal...");
+        action_client_->async_cancel_goal(current_goal_handle_);
+        // 取消后句柄会在 result_callback 中被 reset
     } else {
         RCLCPP_INFO(node_->get_logger(), "No active goal to cancel.");
     }
@@ -267,7 +268,8 @@ void QRSendMultiPose::send_goal(std::vector<agv_interfaces::msg::Poses> goal_pos
         //将 pose 添加到 path_poses 容器的末尾
         path_poses.emplace_back(pose);
 
-        RCLCPP_INFO(node_->get_logger(), "目标点[%d]: 坐标(%.2f, %.2f), 标签=%ld, 角度=%.2f, 允许角度偏差=%.2f, 障碍物通道选择=%d", 
+        // 标签类型为 int，使用 %d
+        RCLCPP_INFO(node_->get_logger(), "目标点[%d]: 坐标(%.2f, %.2f), 标签=%d, 角度=%.2f, 允许角度偏差=%.2f, 障碍物通道选择=%d", 
                     i, pose.x, pose.y, pose.label, pose.angle, pose.allowed_deviation_angle, pose.obstacle_channel_select);
 
     }
@@ -332,7 +334,8 @@ void QRSendMultiPose::feedback_callback(GoalHandleAGVSend::SharedPtr goal_handle
     
     if(counter % 20 == 0)
     {
-    RCLCPP_INFO(node_->get_logger(), "Received feedback: label : %ld \t angle : %f", feedback->current_label, feedback->current_angle);
+        // current_label 类型为 long int，使用 %ld
+        RCLCPP_INFO(node_->get_logger(), "Received feedback: label : %ld \t angle : %f", feedback->current_label, feedback->current_angle);
     }
     
 }

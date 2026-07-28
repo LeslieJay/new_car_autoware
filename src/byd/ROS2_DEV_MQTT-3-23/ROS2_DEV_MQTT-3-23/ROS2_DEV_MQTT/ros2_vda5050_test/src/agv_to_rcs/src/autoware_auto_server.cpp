@@ -12,7 +12,8 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "ref_slam_interface/action/autoware_auto.hpp"
 #include "reverse_parking_planner/srv/set_goal_pose.hpp"
-#include "autoware_system_msgs/msg/autoware_state.hpp"   // 实际消息头文件
+#include "autoware_system_msgs/msg/autoware_state.hpp"
+#include "autoware_adapi_v1_msgs/srv/change_operation_mode.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 
@@ -24,7 +25,10 @@ public:
     using AutowareAuto = ref_slam_interface::action::AutowareAuto;
     using GoalHandle = rclcpp_action::ServerGoalHandle<AutowareAuto>;
 
-    AutowareAutoServer() : Node("autoware_auto_server"), current_pose_valid_(false), current_autoware_state_(0)
+    AutowareAutoServer()
+        : Node("autoware_auto_server"),
+          current_autoware_state_(0),    // 先与声明顺序一致
+          current_pose_valid_(false)
     {
         action_server_ = rclcpp_action::create_server<AutowareAuto>(
             this,
@@ -40,7 +44,6 @@ public:
             std::bind(&AutowareAutoServer::pose_callback, this, _1)
         );
 
-        // ========== 订阅 /autoware/state（类型 autoware_system_msgs::msg::AutowareState） ==========
         state_sub_ = this->create_subscription<autoware_system_msgs::msg::AutowareState>(
             "/byd/autoware/state",
             10,
@@ -54,7 +57,13 @@ public:
 
         reverse_parking_client_ = this->create_client<reverse_parking_planner::srv::SetGoalPose>(
             "/reverse_parking_planner/set_goal_pose");
-        std::mutex data_mutex_;   // 添加这一行
+
+        // 操作模式切换客户端
+        autonomous_client_ = this->create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
+            "/api/operation_mode/change_to_autonomous");
+        stop_client_ = this->create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
+            "/api/operation_mode/change_to_stop");
+
         RCLCPP_INFO(this->get_logger(), "Autoware Auto Action Server Ready. Waiting for topics...");
         RCLCPP_INFO(this->get_logger(), "Monitoring /autoware/state for arrival (state == 6).");
         RCLCPP_INFO(this->get_logger(), "Preemption enabled: new goal cancels previous one.");
@@ -66,25 +75,73 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
     rclcpp::Client<reverse_parking_planner::srv::SetGoalPose>::SharedPtr reverse_parking_client_;
 
-    // ---------- /autoware/state 相关 ----------
+    // 操作模式服务客户端
+    rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedPtr autonomous_client_;
+    rclcpp::Client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>::SharedPtr stop_client_;
+
     rclcpp::Subscription<autoware_system_msgs::msg::AutowareState>::SharedPtr state_sub_;
     std::mutex state_mutex_;
-    int current_autoware_state_;   // 当前状态，目标到达时为 6
-    // -----------------------------------------
+    int current_autoware_state_;          // 先声明
 
     std::mutex pose_mutex_;
     geometry_msgs::msg::PoseWithCovarianceStamped current_pose_msg_;
-    bool current_pose_valid_;
+    bool current_pose_valid_;             // 后声明
 
     std::mutex goal_handle_mutex_;
     std::shared_ptr<GoalHandle> current_goal_handle_;
     std::thread execution_thread_;
 
-    static constexpr int ARRIVAL_STATE = 6;         // 到达状态值
-    static constexpr double DIST_TOLERANCE = 0.1;   // 保留（仅用于状态打印）
+    static constexpr int ARRIVAL_STATE = 6;
+    static constexpr double DIST_TOLERANCE = 0.1;
     static constexpr double ANGLE_TOLERANCE = 0.1;
 
-    // /autoware/state 回调
+    // ---------- 模式切换辅助函数 ----------
+    bool call_autonomous_mode()
+    {
+        if (!autonomous_client_->wait_for_service(std::chrono::seconds(2))) {
+            RCLCPP_ERROR(this->get_logger(), "Autonomous mode service not available.");
+            return false;
+        }
+        auto request = std::make_shared<autoware_adapi_v1_msgs::srv::ChangeOperationMode::Request>();
+        auto future = autonomous_client_->async_send_request(request);
+        if (future.wait_for(std::chrono::seconds(1)) == std::future_status::ready) {
+            auto response = future.get();
+            if (response->status.success) {
+                RCLCPP_INFO(this->get_logger(), "Switched to autonomous mode.");
+                return true;
+            } else {
+                RCLCPP_WARN(this->get_logger(), "Autonomous mode switch failed: %s", response->status.message.c_str());
+                return false;
+            }
+        } else {
+            RCLCPP_WARN(this->get_logger(), "Timeout while switching to autonomous mode.");
+            return false;
+        }
+    }
+
+    bool call_stop_mode()
+    {
+        if (!stop_client_->wait_for_service(std::chrono::seconds(2))) {
+            RCLCPP_ERROR(this->get_logger(), "Stop mode service not available.");
+            return false;
+        }
+        auto request = std::make_shared<autoware_adapi_v1_msgs::srv::ChangeOperationMode::Request>();
+        auto future = stop_client_->async_send_request(request);
+        if (future.wait_for(std::chrono::seconds(1)) == std::future_status::ready) {
+            auto response = future.get();
+            if (response->status.success) {
+                RCLCPP_INFO(this->get_logger(), "Switched to stop mode.");
+                return true;
+            } else {
+                RCLCPP_WARN(this->get_logger(), "Stop mode switch failed: %s", response->status.message.c_str());
+                return false;
+            }
+        } else {
+            RCLCPP_WARN(this->get_logger(), "Timeout while switching to stop mode.");
+            return false;
+        }
+    }
+
     void state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -134,7 +191,8 @@ private:
         const std::shared_ptr<GoalHandle> goal_handle)
     {
         (void)goal_handle;
-        RCLCPP_INFO(this->get_logger(), "Cancel request received.");
+        RCLCPP_INFO(this->get_logger(), "Cancel request received. Switching to stop mode.");
+        call_stop_mode();
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
@@ -145,7 +203,8 @@ private:
             auto result = std::make_shared<AutowareAuto::Result>();
             result->success = false;
             result->message = "Preempted by a newer goal";
-            RCLCPP_WARN(this->get_logger(), "Preempting previous goal.");
+            RCLCPP_WARN(this->get_logger(), "Preempting previous goal. Switching to stop mode.");
+            call_stop_mode();
             current_goal_handle_->abort(result);
         }
         if (execution_thread_.joinable()) {
@@ -174,7 +233,7 @@ private:
         auto result = std::make_shared<AutowareAuto::Result>();
         bool forward = goal->forward;
 
-        // ========== 方向策略（前进/倒车） ==========
+        // 方向策略
         if (forward) {
             geometry_msgs::msg::PoseStamped goal_pose_to_pub = goal->goal_pose;
             if (goal_pose_to_pub.header.stamp.sec == 0 &&
@@ -182,14 +241,14 @@ private:
                 goal_pose_to_pub.header.stamp = this->now();
             }
             goal_pub_->publish(goal_pose_to_pub);
-            RCLCPP_INFO(this->get_logger(), ".");
+            RCLCPP_INFO(this->get_logger(), "Forward goal published.");
         } else {
-            RCLCPP_INFO(this->get_logger(), "前往新的倒车目标点，等待倒车服务端响应.");
+            RCLCPP_INFO(this->get_logger(), "Waiting for reverse parking service...");
             if (!reverse_parking_client_->wait_for_service(std::chrono::seconds(5))) {
                 if (goal_handle->is_active()) {
-                    RCLCPP_INFO(this->get_logger(), "倒车服务端响应.");
                     result->success = false;
                     result->message = "Reverse parking service unavailable";
+                    RCLCPP_ERROR(this->get_logger(), "Reverse parking service unavailable.");
                     goal_handle->abort(result);
                 }
                 cleanup();
@@ -220,11 +279,18 @@ private:
             }
             RCLCPP_INFO(this->get_logger(), "Reverse parking goal accepted. Path points: %u", response->path_points_num);
         }
-        // 新增状态重置
+
+        // 下发目标后切换到自主模式
+        if (!call_autonomous_mode()) {
+            RCLCPP_WARN(this->get_logger(), "Could not switch to autonomous mode, but continuing execution.");
+        }
+
+        // 重置 autoware 状态
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
-            current_autoware_state_ = 0;   // 非到达状态，清除残留
+            current_autoware_state_ = 0;
         }
+
         double target_yaw = tf2::getYaw(goal->goal_pose.pose.orientation);
         std::string mode_str = forward ? "FORWARD" : "REVERSE";
         RCLCPP_INFO(this->get_logger(),
@@ -243,7 +309,17 @@ private:
         auto last_status_time = this->now();
 
         while (rclcpp::ok() && goal_handle->is_active()) {
-            // 超时
+            // 检查取消请求
+            if (goal_handle->is_canceling()) {
+                RCLCPP_INFO(this->get_logger(), "Goal is canceling. Switching to stop mode.");
+                call_stop_mode();
+                result->success = false;
+                result->message = "Goal canceled";
+                goal_handle->canceled(result);
+                cleanup();
+                return;
+            }
+
             if ((this->now() - start_time).seconds() > TIMEOUT_SEC) {
                 result->success = false;
                 result->message = "Goal timed out";
@@ -252,7 +328,6 @@ private:
                 return;
             }
 
-            // 获取当前位姿（仅用于反馈）
             geometry_msgs::msg::PoseStamped current_pose;
             bool pose_ok = get_current_pose(current_pose);
             if (pose_ok) {
@@ -261,7 +336,6 @@ private:
                 goal_handle->publish_feedback(feedback);
             }
 
-            // ========== 核心：通过 /autoware/state 判断到达 ==========
             int state = get_autoware_state();
             if (state == ARRIVAL_STATE) {
                 result->success = true;
@@ -271,9 +345,7 @@ private:
                 cleanup();
                 return;
             }
-            // ==========================================================
 
-            // 状态打印（每秒一次）
             auto now = this->now();
             if ((now - last_status_time).seconds() >= 1.0) {
                 double dist = 999.0, yaw_diff = 999.0;
@@ -310,19 +382,3 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
-// ros2 topic pub /byd/autoware/state autoware_system_msgs/msg/AutowareState "{stamp: {sec: 0, nanosec: 0}, state: 6}" --once
-
-
-
-
-// 连续测试
-// ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder "{header_id: 1, timestamp: '2026-07-20T14:03:16.034198+08:00', version: v1, manufacturer: BYD, serial_number: qqa0001, order_id: 'task-p2p-20260720-POIW', order_update_id: 0, zone_set_id: map_floor_1, nodes: [{node_id: '临时测试点1', sequence_id: 0, released: true, node_position: {x: 243.263634335523, y: -37.1419020935746, theta: 0.498337686061859, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: [{action_type: '', action_id: 'pick-action-001', action_description: '', blocking_type: '', action_parameters: [{key: height, value: {array_value: [], boolean_value: false, number_value: 2.0, string_value: ''}}]}]}, {node_id: '临时测试点2', sequence_id: 2, released: true, node_position: {x: 243.263634335523, y: -37.1419020935746, theta: 0.498337686061859, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: [{action_type: LOAD, action_id: 'pick-action-001', action_description: '', blocking_type: HARD, action_parameters: [{key: height, value: {array_value: [], boolean_value: false, number_value: 2.0, string_value: ''}}]}]}], edges: [{edge_id: 'edge_to_2', sequence_id: 1, edge_description: '', released: true, start_node_id: '临时测试点1', end_node_id: '临时测试点2', max_speed: 1.0, max_height: 0.0, orientation: 0.0, orientation_type: TANGENTIAL, direction: '', rotation_allowed: false, max_rotation_speed: 0.0, length: 0.0, obstacle_avoidance_channel: 0, trajectory: {degree: 1, knot_vector: [], control_points: []}, actions: []}]}"
-
-// ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder "{header_id: 1, timestamp: '2026-07-20T14:04:11.185981+08:00', version: v1, manufacturer: BYD, serial_number: qqa0001, order_id: 'task-p2p-20260720-O51P', order_update_id: 0, zone_set_id: map_floor_1, nodes: [{node_id: '1#电池卸料点1', sequence_id: 0, released: true, node_position: {x: 291.183135986328, y: -61.0916442871094, theta: -1.07944893836975, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: []}, {node_id: '1#电池卸料点2', sequence_id: 2, released: true, node_position: {x: 291.183135986328, y: -61.0916442871094, theta: -1.07944893836975, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: [{action_type: UNLOAD, action_id: 'drop-action-001', action_description: '', blocking_type: HARD, action_parameters: [{key: height, value: {array_value: [], boolean_value: false, number_value: 1.0, string_value: ''}}]}]}], edges: [{edge_id: 'edge_to_2', sequence_id: 1, edge_description: '', released: true, start_node_id: '1#电池卸料点1', end_node_id: '1#电池卸料点2', max_speed: 1.0, max_height: 0.0, orientation: 0.0, orientation_type: TANGENTIAL, direction: '', rotation_allowed: false, max_rotation_speed: 0.0, length: 0.0, obstacle_avoidance_channel: 0, trajectory: {degree: 1, knot_vector: [], control_points: []}, actions: []}]}"
-
-// ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder "{header_id: 1, timestamp: '2026-07-15T16:27:46.909346+08:00', version: v1, manufacturer: BYD, serial_number: qqa0001, order_id: 'task-p2p-20260715-EL05', order_update_id: 0, zone_set_id: map_floor_1, nodes: [{node_id: '料点', sequence_id: 0, released: true, node_position: {x: 167.678558349609, y: -194.128631591797, theta: -2.69616770744324, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: []}, {node_id: '2#后段卸料点', sequence_id: 2, released: true, node_position: {x: 167.678558349609, y: -194.128631591797, theta: -2.69616770744324, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: [{action_type: LOAD, action_id: 'pick-action-001', action_description: '', blocking_type: HARD, action_parameters: [{key: height, value: {array_value: [], boolean_value: false, number_value: 1.0, string_value: ''}}]}]}], edges: [{edge_id: 'edge_01_料点', sequence_id: 1, edge_description: '', released: true, start_node_id: '01', end_node_id: '2#后段卸料点', max_speed: 1.0, max_height: 0.0, orientation: 0.0, orientation_type: TANGENTIAL, direction: '', rotation_allowed: false, max_rotation_speed: 0.0, length: 0.0, obstacle_avoidance_channel: 0, trajectory: {degree: 1, knot_vector: [], control_points: []}, actions: []}]}"
-
-// 暂停
-// ros2 topic pub --once /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg/AGVInstantActions "{header_id: 1001, timestamp: '2026-07-23T10:00:00Z', version: 'v1', manufacturer: 'BYD', serial_number: 'qqa0001', actions: [{action_type: 'startPause', action_id: 'b34ec9c6-28fc-4b12-8db0-000000000001', action_description: 'agv暂停', blocking_type: 'HARD', action_parameters: []}]}"
-// 恢复
-// ros2 topic pub --once /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg/AGVInstantActions "{header_id: 1001, timestamp: '2026-07-23T10:00:00Z', version: 'v1', manufacturer: 'BYD', serial_number: 'qqa0001', actions: [{action_type: 'stopPause', action_id: 'b34ec9c6-28fc-4b12-8db0-000000000001', action_description: 'agv恢复', blocking_type: 'HARD', action_parameters: []}]}"

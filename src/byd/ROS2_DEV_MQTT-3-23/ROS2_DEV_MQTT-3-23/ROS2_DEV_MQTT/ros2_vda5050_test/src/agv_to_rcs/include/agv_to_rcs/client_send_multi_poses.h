@@ -58,7 +58,7 @@ public:
 private:
 
     std::shared_ptr<rclcpp::Node> node_;
-
+    std::atomic<bool> goal_active_{false};
     std::shared_ptr<ListenerPose> current_pose_listener_;
     CurrentPose current_pose_;
 
