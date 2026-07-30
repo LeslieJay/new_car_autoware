@@ -51,7 +51,8 @@ ArrivalRecorder::ArrivalRecorder(const std::filesystem::path & output_directory)
   if (!stream_.is_open()) {
     throw std::runtime_error("Failed to open arrival file: " + file_path_.string());
   }
-  stream_ << "goal_name,arrival_time_sec,localization_time_sec,x,y,z,qx,qy,qz,qw\n";
+  stream_ <<
+    "goal_name,arrival_time_sec,localization_time_sec,traveled_distance_m,x,y,z,qx,qy,qz,qw\n";
   stream_.flush();
   if (!stream_) {
     throw std::runtime_error("Failed to write arrival file header: " + file_path_.string());
@@ -67,12 +68,13 @@ ArrivalRecorder::~ArrivalRecorder()
 
 void ArrivalRecorder::append(
   const std::string & goal_name, const rclcpp::Time & arrival_time,
-  const nav_msgs::msg::Odometry & localization)
+  const nav_msgs::msg::Odometry & localization, const double traveled_distance_m)
 {
   const auto & position = localization.pose.pose.position;
   const auto & orientation = localization.pose.pose.orientation;
   stream_ << goal_name << ',' << formatTime(arrival_time.nanoseconds()) << ','
-          << formatTime(localization.header.stamp) << ',' << std::setprecision(17) << position.x
+          << formatTime(localization.header.stamp) << ',' << std::setprecision(17)
+          << traveled_distance_m << ',' << position.x
           << ',' << position.y << ',' << position.z << ',' << orientation.x << ','
           << orientation.y << ',' << orientation.z << ',' << orientation.w << '\n';
   stream_.flush();

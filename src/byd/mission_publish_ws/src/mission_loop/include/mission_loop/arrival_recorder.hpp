@@ -19,7 +19,7 @@ public:
 
   void append(
     const std::string & goal_name, const rclcpp::Time & arrival_time,
-    const nav_msgs::msg::Odometry & localization);
+    const nav_msgs::msg::Odometry & localization, double traveled_distance_m);
 
   const std::filesystem::path & filePath() const;
 

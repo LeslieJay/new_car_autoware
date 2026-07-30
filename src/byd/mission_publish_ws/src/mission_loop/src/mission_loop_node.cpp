@@ -7,6 +7,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
@@ -138,6 +139,14 @@ private:
 
   void localizationCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
+    // Only count motion while driving.  Localization updates during the wait at a
+    // goal must not become part of the next goal-to-goal segment.
+    if (state_ == State::DRIVING && latest_localization_.has_value()) {
+      const auto & previous_position = latest_localization_->pose.pose.position;
+      const auto & current_position = msg->pose.pose.position;
+      traveled_distance_m_ += std::hypot(
+        current_position.x - previous_position.x, current_position.y - previous_position.y);
+    }
     latest_localization_ = *msg;
   }
 
@@ -153,7 +162,12 @@ private:
     if (state_ == State::DRIVING) {
       if (arrival_gate_.shouldHandleArrival(latest_localization_.has_value())) {
         recorder_->append(
-          mission_points_[current_idx_].name, now(), latest_localization_.value());
+          mission_points_[current_idx_].name, now(), latest_localization_.value(),
+          traveled_distance_m_);
+        RCLCPP_INFO(
+          get_logger(), "Arrived point %s; traveled distance=%.3f m",
+          mission_points_[current_idx_].name.c_str(), traveled_distance_m_);
+        traveled_distance_m_ = 0.0;
         arrival_gate_.markHandled();
         wait_start_time_ = now();
         state_ = State::WAIT;
@@ -241,6 +255,7 @@ private:
   size_t current_idx_{0};
 
   std::optional<nav_msgs::msg::Odometry> latest_localization_;
+  double traveled_distance_m_{0.0};
   ArrivalGate arrival_gate_;
   std::unique_ptr<ArrivalRecorder> recorder_;
   std::string arrival_pose_output_dir_;

@@ -37,9 +37,9 @@ TEST(ArrivalRecorder, AppendsMultipleGoalsToOneFile)
     localization.pose.pose.position.z = 3.0;
     localization.pose.pose.orientation.w = 1.0;
 
-    recorder.append("A", rclcpp::Time(10, 250000000), localization);
+    recorder.append("A", rclcpp::Time(10, 250000000), localization, 12.5);
     localization.pose.pose.position.x = 4.0;
-    recorder.append("B", rclcpp::Time(11, 0), localization);
+    recorder.append("B", rclcpp::Time(11, 0), localization, 3.25);
     file = recorder.filePath();
   }
 
@@ -47,9 +47,9 @@ TEST(ArrivalRecorder, AppendsMultipleGoalsToOneFile)
   ASSERT_EQ(lines.size(), 3U);
   EXPECT_EQ(
     lines[0],
-    "goal_name,arrival_time_sec,localization_time_sec,x,y,z,qx,qy,qz,qw");
-  EXPECT_EQ(lines[1], "A,10.250000000,20.500000000,1,2,3,0,0,0,1");
-  EXPECT_EQ(lines[2], "B,11.000000000,20.500000000,4,2,3,0,0,0,1");
+    "goal_name,arrival_time_sec,localization_time_sec,traveled_distance_m,x,y,z,qx,qy,qz,qw");
+  EXPECT_EQ(lines[1], "A,10.250000000,20.500000000,12.5,1,2,3,0,0,0,1");
+  EXPECT_EQ(lines[2], "B,11.000000000,20.500000000,3.25,4,2,3,0,0,0,1");
 
   std::filesystem::remove_all(directory);
 }
