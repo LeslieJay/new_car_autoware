@@ -411,7 +411,13 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
 
     // 电量
     message.battery_state.battery_charge = battery_messages_.battery_level;
-    message.battery_state.charging = battery_messages_.battery_status;
+    if (battery_messages_.battery_status == 3){
+        message.battery_state.charging = 1;
+    }
+    else{
+        message.battery_state.charging = 0;
+    }
+    // message.battery_state.charging = battery_messages_.battery_status;
     message.battery_state.voltage = battery_messages_.total_voltage + 2; // 应rcs要求，这边加上2再发给rcs
     message.battery_state.current = battery_messages_.total_current;
 

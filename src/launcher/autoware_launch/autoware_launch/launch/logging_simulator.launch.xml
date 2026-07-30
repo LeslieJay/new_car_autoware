@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
   <!-- Essential parameters -->
-  <arg name="map_path" description="point cloud and lanelet2 map directory path"/>
-  <arg name="vehicle_model" default="sample_vehicle" description="vehicle model name"/>
-  <arg name="sensor_model" default="sample_sensor_kit" description="sensor model name"/>
+  <arg name="map_path" default="/home/nvidia/autoware_map/3_test/" description="point cloud and lanelet2 map directory path"/>
+  <arg name="vehicle_model" default="byd_vehicle" description="vehicle model name"/>
+  <arg name="sensor_model" default="byd_sensor_kit" description="sensor model name"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)" description="vehicle specific ID"/>
   <arg name="data_path" default="$(env HOME)/autoware_data" description="packages data and artifacts directory path"/>
 
@@ -16,9 +16,9 @@
   <arg name="vehicle" default="true" description="launch vehicle"/>
   <arg name="system" default="true" description="launch system"/>
   <arg name="map" default="true" description="launch map"/>
-  <arg name="sensing" default="true" description="launch sensing"/>
-  <arg name="localization" default="true" description="launch localization"/>
-  <arg name="perception" default="true" description="launch perception"/>
+  <arg name="sensing" default="false" description="launch sensing"/>
+  <arg name="localization" default="false" description="launch localization"/>
+  <arg name="perception" default="false" description="launch perception"/>
   <arg name="planning" default="true" description="launch planning"/>
   <arg name="control" default="true" description="launch control"/>
   <!-- Pointcloud container -->
@@ -26,7 +26,7 @@
   <!-- Vehicle -->
   <arg name="launch_vehicle_interface" default="false"/>
   <!-- Map -->
-  <arg name="lanelet2_map_file" default="lanelet2_map.osm" description="lanelet2 map file name"/>
+  <arg name="lanelet2_map_file" default="0727_lanelet2_map.osm" description="lanelet2 map file name"/>
   <arg name="pointcloud_map_file" default="pointcloud_map.pcd" description="pointcloud map file name"/>
   <!-- System -->
   <arg name="launch_system_monitor" default="false" description="launch system monitor"/>

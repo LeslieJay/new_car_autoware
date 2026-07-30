@@ -92,7 +92,8 @@ void ForkActionServer::execute(
         for(int i = 0; i < 8; i++) {
             v_frame.data[i] = 0;
         }
-        auto fork_goal_height = goal->fork_goal_height - 100;
+        // auto fork_goal_height = goal->fork_goal_height - 100;
+        auto fork_goal_height = goal->fork_goal_height;
         // 根据目标高度设置指令
         if(fork_goal_height == 1) {
             v_frame.data[4] = 1;

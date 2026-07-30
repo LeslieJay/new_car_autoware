@@ -82,7 +82,7 @@ def generate_launch_description():
 
     return launch.LaunchDescription(
         [
-            add_launch_arg("input_pointcloud", "/perception/obstacle_segmentation/pointcloud"),
+            add_launch_arg("input_pointcloud", "/output/noground"),
             add_launch_arg("output_clusters", "/perception/lidar_rule/objects"),
             add_launch_arg("use_pointcloud_container", "false"),
             add_launch_arg("pointcloud_container_name", "pointcloud_container"),

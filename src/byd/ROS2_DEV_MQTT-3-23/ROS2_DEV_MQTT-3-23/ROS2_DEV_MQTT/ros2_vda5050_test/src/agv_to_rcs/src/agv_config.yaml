@@ -50,7 +50,7 @@ micro_distance: 0.05
 max_pause_time: 600	# 最大暂停时长
 
 # 通信配置
-communication_mode: "ros2_only"  # "ros2_only", "mqtt_only", "dual_channel"
+communication_mode: "mqtt_only"  # "ros2_only", "mqtt_only", "dual_channel"
 enable_mqtt_subscription: true
 mqtt_broker_host: "agv.byd.com"  # "10.28.25.114"
 mqtt_broker_port: 1883

@@ -453,7 +453,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         || (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[point_index] && abs(order_messages_.goal_y[point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[point_index] && if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
         ){
             if_reach_point = false;
-            
+            // std::cout << "111111111111111111111111111111111111111111111111111111111" << std::endl;
             std::cout<<"point_index:"<<point_index<<"  "<<order_messages_.msg_state.node_states.size()<<std::endl;
             // 到达目标点附近，更新last_node_id 、last_node_sequence_id，用于上报给rcs，sequence_id标识当前执行到第几个点了，通常和point_index相同，暂时没有想到区别
             order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states[point_index].node_id;
@@ -470,6 +470,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             }
 
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"order_messages_.msg_state.order_update_id: %d",order_messages_.msg_state.order_update_id);
+            // std::cout << "222222222222222222222222222222222222222222222222222222222" << std::endl;
 
             agv_data_publish_->state_timer_callback();
             RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "运行状态更新state!  即将目标坐标(%.2f,%.2f,%.2f),当前坐标(%.2f,%.2f,%.2f)",order_messages_.goal_x[point_index],order_messages_.goal_y[point_index],order_messages_.goal_theta[point_index],current_pose_.current_x,current_pose_.current_y,current_pose_.current_theta);
