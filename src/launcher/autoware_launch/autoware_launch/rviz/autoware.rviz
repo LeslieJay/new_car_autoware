@@ -542,7 +542,12 @@ Visualization Manager:
               Enabled: true
               Name: MonteCarloInitialPose
               Namespaces:
-                {}
+                initial_pose_index_color_marker: true
+                initial_pose_iteration_color_marker: true
+                initial_pose_transform_probability_color_marker: true
+                result_pose_index_color_marker: true
+                result_pose_iteration_color_marker: true
+                result_pose_transform_probability_color_marker: true
               Topic:
                 Depth: 5
                 Durability Policy: Volatile
@@ -2396,7 +2401,8 @@ Visualization Manager:
                           Enabled: true
                           Name: PlanningFactor(SurroundObstacle)
                           Namespaces:
-                            {}
+                            stop_factor_text: true
+                            stop_virtual_wall: true
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2903,22 +2909,14 @@ Visualization Manager:
                 Debug:
                   Control: true
                   Localization:
-                    "": true
+                    EKFPoseHistory: true
+                    NDT pointclouds: true
+                    NDTLoadedPCDMap: true
+                    NDTPoseHistory: true
                     Value: true
                   Map: true
                   Perception:
-                    CameraLidarFusion(purple): true
-                    Centerpoint(red1): true
-                    CenterpointROIFusion(red2): true
-                    CenterpointValidator(red3): true
-                    Detection(yellow): true
-                    DetectionByTracker(orange): true
-                    PointPainting(light_green1): true
-                    PointPaintingROIFusion(light_green2): true
-                    PointPaintingValidator(light_green3): true
-                    Prediction(light_blue): true
-                    RadarFarObjects(white): true
-                    Tracking(green): true
+                    "": true
                     Value: true
                   Planning:
                     "":
@@ -2933,7 +2931,10 @@ Visualization Manager:
                     Value: true
                   Value: true
                   Vehicle:
-                    "": true
+                    Debug: true
+                    Info:
+                      AccelerationMeter: true
+                      Value: true
                     Value: true
                 Localization:
                   EKF:
@@ -4863,25 +4864,25 @@ Visualization Manager:
   Views:
     Current:
       Class: tier4_camera_view_rviz_plugin/ThirdPersonView
-      Distance: 105343.3359375
+      Distance: 236.2411651611328
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
+        X: -0.0456085205078125
+        Y: 0.089996337890625
+        Z: 0.5071451663970947
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7853981852531433
+      Pitch: 1.5697605609893799
       Target Frame: base_link
       Value: ThirdPersonView (tier4_camera_view_rviz_plugin)
-      Yaw: 0.7853981852531433
+      Yaw: 0.22410885989665985
     Saved:
       - Class: rviz_default_plugins/ThirdPersonFollower
         Distance: 18

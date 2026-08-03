@@ -815,7 +815,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         int16_t speed_command = velocity * 1000;
 
         // 基本控制驱动方实行的速度限制，speed_upper_bound_现设置为500，即0.5m/s
-        // speed_upper_bound_ = 800;
+        speed_upper_bound_ = 4000;
         speed_command = std::min(speed_command, (int16_t)speed_upper_bound_);
         speed_command = std::max(speed_command, (int16_t)-speed_upper_bound_);
 

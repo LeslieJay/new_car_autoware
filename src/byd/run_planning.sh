@@ -12,3 +12,5 @@ gnome-terminal --tab -- bash -c "cd /home/nvidia/autoware && source install/setu
 gnome-terminal --tab -- bash -c "cd /home/nvidia/autoware && source install/setup.bash && ros2 launch rosbridge_server rosbridge_websocket_launch.xml address:=0.0.0.0 port:=9090"
 # ros2 service call /api/operation_mode/change_to_autonomous autoware_adapi_v1_msgs/srv/ChangeOperationMod
 # ros2 service call /api/operation_mode/change_to_autonomous
+# ros2 launch byd_launch parallel_bringup.launch.py
+# ros2 launch mission_loop mission_loop.launch.py
