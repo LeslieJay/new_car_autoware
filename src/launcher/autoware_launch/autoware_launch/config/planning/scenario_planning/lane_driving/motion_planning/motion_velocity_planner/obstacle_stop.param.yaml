@@ -2,7 +2,9 @@
   ros__parameters:
     obstacle_stop:
       option:
-        ignore_crossing_obstacle: true
+        # Safety-first profile: an UNKNOWN object's velocity/orientation is often unreliable.
+        # Keep it as a stop candidate even when prediction says it will leave the trajectory.
+        ignore_crossing_obstacle: false
         suppress_sudden_stop: false
 
       stop_planning:
@@ -15,8 +17,8 @@
         stop_margin_opposing_traffic: 10.0 # Ideal stop-margin from moving opposing obstacle when ego comes to a stop
         effective_deceleration_opposing_traffic: 4.0 # Setting a higher value brings the final stop-margin closer to the ideal value above
 
-        min_on_duration: 0.3  # [s] minimum duration needed before a decision can be triggered
-        min_off_duration: 1.0  # [s] minimum duration needed before a decision can be canceled
+        min_on_duration: 0.1  # [s] minimum duration needed before a decision can be triggered
+        min_off_duration: 2.0  # [s] minimum duration needed before a decision can be canceled
         update_distance_th: 0.5 # [m] minimum distance threshold to update stop point
 
         hold_stop_velocity_threshold: 0.05 # The maximum ego velocity to hold stopping [m/s]
@@ -54,10 +56,11 @@
       obstacle_filtering: # All parameters under this namespace can be set for each object type. If you want to set a value different from the default, please add a line.
         check_inside: # If true, the planner checks if the obstacle is inside the ego's footprint; can be tuned for each object type
           default: true
-          pointcloud: false
+          # Classification-independent fallback for missed or malformed objects.
+          pointcloud: true
         check_outside: # If true, the planner checks if the obstacle is outside the ego's footprint. pointcloud obstacles are not supported.
           default: false
-          unknown: false
+          unknown: true
 
         trim_trajectory:
           enable_trimming:
@@ -69,8 +72,9 @@
         lateral_margin: # lateral margin between the obstacles and ego's footprint
           nominal:
             default: 0.15
-            unknown: 0.10
-            pointcloud: 0.10
+            # Cover sparse UNKNOWN polygons and perception lateral error.
+            unknown: 0.60
+            pointcloud: 0.30
           additional: # additional stop margin to the obstacle.
             wheel_off_track_scale: # scale factor for additional stop margin against ego's wheel off-track. Even if this value is set to 0.0, the planner considers the nominal wheel off-track.
               default: 0.0
@@ -82,14 +86,15 @@
 
         detection_height: # [m] height range for collision detection from the ground.
           top_limit:
-            default: 2.0
-            unknown: 1.0
-          bottom_limit: -0.2
+            # BYD vehicle height is 2.4 m; add 0.2 m perception/localization tolerance.
+            default: 2.6
+            unknown: 2.6
+          bottom_limit: -0.3
 
-        min_object_length: 0.25 # [m] minimum object length to consider for stop planning
+        min_object_length: 0.10 # [m] minimum object length to consider for stop planning
 
         min_velocity_to_reach_collision_point: 0.8 # minimum velocity margin to calculate time to reach collision [m/s]
-        stop_obstacle_hold_time_threshold : 0.3 # maximum time for holding closest stop obstacle
+        stop_obstacle_hold_time_threshold : 1.0 # maximum time for holding closest stop obstacle
 
         outside_obstacle: # Parameters for predicting if an obstacle will cut in. Pointcloud obstacles are not supported.
           estimation_time_horizon: 0.5
@@ -115,7 +120,7 @@
           use_estimated_velocity: false
           min_clamp_velocity: 0.0
           max_clamp_velocity: 20.0
-          required_velocity_count: 5
+          required_velocity_count: 2
           lpf_gain: 0.9
         height_margin:
           margin_from_top: 0.5 # [m] margin from the top of the ego vehicle

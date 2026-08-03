@@ -17,7 +17,7 @@ class PedestrianSafetyConfigTest(unittest.TestCase):
             'ros__parameters'
         ]
 
-    def test_only_unknown_and_pedestrian_are_enabled(self):
+    def test_unknown_pedestrian_and_pointcloud_are_enabled(self):
         enabled = {
             label
             for label in (
@@ -33,11 +33,12 @@ class PedestrianSafetyConfigTest(unittest.TestCase):
             if self.params[label]['enable_check']
         }
         self.assertEqual(enabled, {'unknown', 'pedestrian'})
+        self.assertTrue(self.params['pointcloud']['enable_check'])
 
     def test_four_sided_zone_and_release_policy(self):
-        for label in ('unknown', 'pedestrian'):
+        for label in ('pointcloud', 'unknown', 'pedestrian'):
             self.assertEqual(
-                self.params[label]['surround_check_front_distance'], 2.0
+                self.params[label]['surround_check_front_distance'], 3.5
             )
             self.assertEqual(
                 self.params[label]['surround_check_side_distance'], 1.0

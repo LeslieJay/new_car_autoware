@@ -136,6 +136,16 @@ StartPlannerParameters StartPlannerParameters::init(rclcpp::Node & node)
       get_or_declare_parameter<double>(node, ns + "backward_path_update_duration");
     p.ignore_distance_from_lane_end =
       get_or_declare_parameter<double>(node, ns + "ignore_distance_from_lane_end");
+
+    p.enable_agv_reference_path_fallback =
+      get_or_declare_parameter<bool>(node, ns + "agv.enable_reference_path_fallback");
+    p.agv_reference_path_fallback_velocity =
+      get_or_declare_parameter<double>(node, ns + "agv.reference_path_fallback_velocity");
+    if (p.enable_agv_reference_path_fallback && p.agv_reference_path_fallback_velocity <= 0.0) {
+      throw std::runtime_error(
+        "start_planner.agv.reference_path_fallback_velocity must be positive");
+    }
+
     // stop condition
     p.maximum_deceleration_for_stop =
       get_or_declare_parameter<double>(node, ns + "stop_condition.maximum_deceleration_for_stop");

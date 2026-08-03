@@ -19,6 +19,7 @@
   <arg name="sensing" default="false" description="launch sensing"/>
   <arg name="localization" default="false" description="launch localization"/>
   <arg name="perception" default="false" description="launch perception"/>
+  <arg name="didrive_perception" default="false" description="launch didrive perception"/>
   <arg name="planning" default="true" description="launch planning"/>
   <arg name="control" default="true" description="launch control"/>
   <!-- Pointcloud container -->
@@ -51,6 +52,7 @@
       <arg name="launch_sensing" value="$(var sensing)"/>
       <arg name="launch_localization" value="$(var localization)"/>
       <arg name="launch_perception" value="$(var perception)"/>
+      <arg name="launch_didrive_perception" value="$(var didrive_perception)"/>
       <arg name="launch_planning" value="$(var planning)"/>
       <arg name="launch_control" value="$(var control)"/>
       <!-- Global parameters -->

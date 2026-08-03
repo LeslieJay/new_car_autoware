@@ -304,6 +304,7 @@ ego pose.
     const autoware::behavior_path_planner::PullOutPath & path, const Pose & start_pose,
     const autoware::behavior_path_planner::PlannerType & planner_type);
   void updateStatusIfNoSafePathFound();
+  bool updateStatusWithAgvReferencePathFallback();
 
   std::shared_ptr<StartPlannerParameters> parameters_;
   mutable std::shared_ptr<EgoPredictedPathParams> ego_predicted_path_params_;

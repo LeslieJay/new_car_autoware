@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """根据任务点 YAML 和实际到点 CSV 生成 AGV 到点精度 Markdown 报告。
 
-报告不输出章节标题，但保留七列表头、对齐行和数据行。
+报告不输出章节标题，但保留八列表头、对齐行和数据行。
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ class AccuracyRow:
     error_y: float
     planar_error: float
     heading_error_deg: float
+    traveled_distance_m: float
 
 
 def quaternion_to_yaw_deg(qx: float, qy: float, qz: float, qw: float) -> float:
@@ -123,10 +124,13 @@ def load_target_poses(yaml_path: Path) -> dict[str, Pose2D]:
     return targets
 
 
-def load_actual_poses(csv_path: Path) -> list[tuple[str, Pose2D]]:
-    """按 CSV 原始顺序读取所有实际到点位姿。"""
-    required_columns = {"goal_name", "x", "y", "qx", "qy", "qz", "qw"}
-    records: list[tuple[str, Pose2D]] = []
+def load_actual_poses(csv_path: Path) -> list[tuple[str, Pose2D, float]]:
+    """按 CSV 原始顺序读取实际到点位姿和行驶距离。"""
+    required_columns = {
+        "goal_name", "x", "y", "qx", "qy", "qz", "qw",
+        "traveled_distance_m",
+    }
+    records: list[tuple[str, Pose2D, float]] = []
 
     with csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
@@ -151,6 +155,7 @@ def load_actual_poses(csv_path: Path) -> list[tuple[str, Pose2D]]:
                 qy = float(row["qy"])
                 qz = float(row["qz"])
                 qw = float(row["qw"])
+                traveled_distance_m = float(row["traveled_distance_m"])
             except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"{csv_path} 第 {line_number} 行存在无效位姿数值"
@@ -164,6 +169,7 @@ def load_actual_poses(csv_path: Path) -> list[tuple[str, Pose2D]]:
                         y=y,
                         yaw_deg=quaternion_to_yaw_deg(qx, qy, qz, qw),
                     ),
+                    traveled_distance_m,
                 )
             )
 
@@ -174,12 +180,15 @@ def load_actual_poses(csv_path: Path) -> list[tuple[str, Pose2D]]:
 
 
 def calculate_accuracy(
-    targets: dict[str, Pose2D], actual_records: Iterable[tuple[str, Pose2D]]
+    targets: dict[str, Pose2D],
+    actual_records: Iterable[tuple[str, Pose2D, float]],
 ) -> list[AccuracyRow]:
     """按 CSV 顺序计算误差，点位编号按 1～4 循环。"""
     results: list[AccuracyRow] = []
 
-    for record_number, (goal_name, actual) in enumerate(actual_records, start=1):
+    for record_number, (goal_name, actual, traveled_distance_m) in enumerate(
+        actual_records, start=1
+    ):
         index = (record_number - 1) % POINTS_PER_CYCLE + 1
         if goal_name not in targets:
             raise KeyError(f"CSV 中的目标点 {goal_name!r} 未在 YAML points 中定义")
@@ -199,6 +208,7 @@ def calculate_accuracy(
                 error_y=error_y,
                 planar_error=planar_error,
                 heading_error_deg=heading_error,
+                traveled_distance_m=traveled_distance_m,
             )
         )
 
@@ -221,16 +231,16 @@ def format_heading(value: float) -> str:
 
 
 def render_markdown(rows: Iterable[AccuracyRow]) -> str:
-    """输出七列表头、对齐行和数据行，不输出章节标题。"""
+    """输出八列表头、对齐行和数据行，不输出章节标题。"""
     lines: list[str] = [
-        "| 点位 | 目标点 (X,Y) | 实际点 (X,Y) | X误差 (m) | Y误差 (m) | 平面误差 (m) | 航向误差 (°) |",
-        "|:---:|:----------------------:|:----------------------:|---------:|---------:|-----------:|-----------:|",
+        "| 点位 | 目标点 (X,Y) | 实际点 (X,Y) | X误差 (m) | Y误差 (m) | 平面误差 (m) | 航向误差 (°) | traveled_distance_m |",
+        "|:---:|:----------------------:|:----------------------:|---------:|---------:|-----------:|-----------:|--------------------:|",
     ]
 
     for row in rows:
         lines.append(
             "| {index} | ({tx:.4f}, {ty:.4f}) | ({ax:.4f}, {ay:.4f}) | "
-            "{ex} | {ey} | {planar:.4f} | {heading} |".format(
+            "{ex} | {ey} | {planar:.4f} | {heading} | {distance:.4f} |".format(
                 index=row.index,
                 tx=row.target.x,
                 ty=row.target.y,
@@ -240,6 +250,7 @@ def render_markdown(rows: Iterable[AccuracyRow]) -> str:
                 ey=format_signed(row.error_y),
                 planar=row.planar_error,
                 heading=format_heading(row.heading_error_deg),
+                distance=row.traveled_distance_m,
             )
         )
 

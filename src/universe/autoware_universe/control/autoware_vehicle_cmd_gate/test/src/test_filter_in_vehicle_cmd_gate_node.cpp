@@ -408,6 +408,20 @@ std::shared_ptr<VehicleCmdGate> generateNode()
   return std::make_shared<VehicleCmdGate>(node_options);
 }
 
+TEST(VehicleCmdGate, RejectNegativeAutoVelocity)
+{
+  Control command;
+  command.longitudinal.velocity = -1.0F;
+  command.longitudinal.acceleration = -0.5F;
+  command.longitudinal.jerk = -0.25F;
+
+  const auto clamped = autoware::vehicle_cmd_gate::clampNegativeVelocity(command);
+
+  EXPECT_FLOAT_EQ(clamped.longitudinal.velocity, 0.0F);
+  EXPECT_FLOAT_EQ(clamped.longitudinal.acceleration, command.longitudinal.acceleration);
+  EXPECT_FLOAT_EQ(clamped.longitudinal.jerk, command.longitudinal.jerk);
+}
+
 class TestFixture : public ::testing::TestWithParam<CmdParams>
 {
 protected:

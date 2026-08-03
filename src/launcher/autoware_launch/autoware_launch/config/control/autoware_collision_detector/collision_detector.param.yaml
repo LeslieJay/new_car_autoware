@@ -1,10 +1,10 @@
 /**:
   ros__parameters:
-    use_pointcloud: false # use pointcloud as obstacle check
+    use_pointcloud: true # classification-independent collision fallback
     use_dynamic_object: true # use dynamic object as obstacle check
-    collision_distance: 0.1 # Distance at which an object is determined to have collided with ego [m]
+    collision_distance: 0.3 # Conservative final diagnostic envelope [m]
     nearby_filter_radius: 5.0 # Radius to filter nearby objects [m]
-    keep_ignoring_time: 10.0 # Time to keep filtering objects that first appeared in the vicinity
+    keep_ignoring_time: 0.0 # Never suppress a newly appearing nearby safety target
     nearby_object_type_filters: # Classes subject to filtering for objects first appearing in the vicinity
       filter_car: false
       filter_truck: false
@@ -13,9 +13,9 @@
       filter_bicycle: false
       filter_motorcycle: false
       filter_pedestrian: false
-      filter_unknown: true
-    ignore_behind_rear_axle: true  # If true, collisions detected behind the rear axle of the ego vehicle are ignored
+      filter_unknown: false
+    ignore_behind_rear_axle: false  # Reverse motion must be protected as well
     time_buffer:  # buffer to start or stop publishing the ERROR diagnostic
-      on_duration: 0.2  # [s] minimum consecutive detection time before triggering the diagnostic
+      on_duration: 0.1  # [s] minimum consecutive detection time before triggering the diagnostic
       off_duration: 5.0  # [s] minimum consecutive time without collision detection (including the hysteresis) before releasing the diagnostic
       off_distance_hysteresis: 1.0  # [m] extra distance used to detect collisions once the diagnostic is triggered

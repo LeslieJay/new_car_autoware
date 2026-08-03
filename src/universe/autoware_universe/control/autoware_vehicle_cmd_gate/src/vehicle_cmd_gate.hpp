@@ -85,6 +85,9 @@ using EngageMsg = autoware_vehicle_msgs::msg::Engage;
 using EngageSrv = tier4_external_api_msgs::srv::Engage;
 
 using autoware::motion_utils::VehicleStopChecker;
+
+Control clampNegativeVelocity(const Control & command);
+
 struct Commands
 {
   Control control;

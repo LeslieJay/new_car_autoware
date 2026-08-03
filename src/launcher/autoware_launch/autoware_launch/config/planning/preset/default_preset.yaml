@@ -113,16 +113,16 @@ launch:
       default: "true"
   - arg:
       name: launch_obstacle_slow_down_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_obstacle_cruise_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_dynamic_obstacle_stop_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_out_of_lane_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_obstacle_velocity_limiter_module
       default: "false"
@@ -146,7 +146,7 @@ launch:
 
   - arg:
       name: launch_surround_obstacle_checker
-      default: "false"
+      default: "true"
 
   # parking modules
   - arg:

@@ -52,7 +52,8 @@
       check_clothoid_path_lane_departure: true  # enable lane departure check for clothoid path
 
       # search start pose backward
-      enable_back: true
+      # Closed-site low-speed AGV: never solve a forward mission by first driving backward.
+      enable_back: false
       # Planner priority list. Example: ["SHIFT", "GEOMETRIC", "CLOTHOID"]
       search_priority: ["CLOTHOID", "SHIFT"]
       # Search policy: "planner_priority" or "distance_priority"
@@ -61,6 +62,12 @@
       backward_search_resolution: 2.0
       backward_path_update_duration: 3.0
       ignore_distance_from_lane_end: 0.0
+      agv:
+        # If CLOTHOID/SHIFT cannot satisfy their normal pull-out checks, keep the valid routed
+        # centerline instead of publishing only a stop path. Downstream obstacle and pedestrian
+        # modules still decide whether this generated path may be executed.
+        enable_reference_path_fallback: true
+        reference_path_fallback_velocity: 1.0
       # turns signal
       prepare_time_before_start: 0.0
       # freespace planner

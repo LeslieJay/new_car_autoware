@@ -328,6 +328,11 @@ struct StartPlannerParameters
   double backward_search_resolution{0.0};
   double backward_path_update_duration{0.0};
   double ignore_distance_from_lane_end{0.0};
+
+  // Low-speed AGV fallback
+  bool enable_agv_reference_path_fallback{false};
+  double agv_reference_path_fallback_velocity{0.0};
+
   // freespace planner
   bool enable_freespace_planner{false};
   std::string freespace_planner_algorithm;

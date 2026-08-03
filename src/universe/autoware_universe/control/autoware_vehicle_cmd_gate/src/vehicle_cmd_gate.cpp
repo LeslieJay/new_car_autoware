@@ -57,6 +57,15 @@ const char * getControlModeDisplayName(const GateMode::_data_type & gate_mode)
 
 }  // namespace
 
+Control clampNegativeVelocity(const Control & command)
+{
+  auto clamped = command;
+  if (clamped.longitudinal.velocity < 0.0F) {
+    clamped.longitudinal.velocity = 0.0F;
+  }
+  return clamped;
+}
+
 VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
 : Node("vehicle_cmd_gate", node_options), is_engaged_(false), updater_(this)
 {
@@ -377,7 +386,7 @@ bool VehicleCmdGate::isDataReady()
 // for auto
 void VehicleCmdGate::onAutoCtrlCmd(Control::ConstSharedPtr msg)
 {
-  auto_commands_.control = *msg;
+  auto_commands_.control = clampNegativeVelocity(*msg);
 
   if (current_gate_mode_.data == GateMode::AUTO) {
     publishControlCommands(auto_commands_);

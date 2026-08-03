@@ -102,7 +102,10 @@ ControlCmdGate::ControlCmdGate(const rclcpp::NodeOptions & options)
       sources.push_back(std::move(source));
     }
     for (const auto & input : inputs) {
-      auto source = std::make_unique<CommandSubscription>(input, get_source_name(input), *this);
+      const auto name = get_source_name(input);
+      const auto reject_negative_velocity = name == "main";
+      auto source =
+        std::make_unique<CommandSubscription>(input, name, *this, reject_negative_velocity);
       sources.push_back(std::move(source));
     }
     for (auto & source : sources) {

@@ -19,8 +19,9 @@
 namespace autoware::control_command_gate
 {
 
-CommandSubscription::CommandSubscription(uint16_t id, const std::string & name, rclcpp::Node & node)
-: CommandSource(id, name)
+CommandSubscription::CommandSubscription(
+  uint16_t id, const std::string & name, rclcpp::Node & node, bool reject_negative_velocity)
+: CommandSource(id, name), reject_negative_velocity_(reject_negative_velocity)
 {
   using std::placeholders::_1;
   const auto control_qos = rclcpp::QoS(5);
@@ -42,7 +43,11 @@ CommandSubscription::CommandSubscription(uint16_t id, const std::string & name, 
 void CommandSubscription::on_control(const Control & msg)
 {
   // NOTE: Control does not need to be saved because it is sent periodically.
-  send_control(msg);
+  auto command = msg;
+  if (reject_negative_velocity_ && command.longitudinal.velocity < 0.0F) {
+    command.longitudinal.velocity = 0.0F;
+  }
+  send_control(command);
 }
 
 void CommandSubscription::on_gear(const GearCommand & msg)

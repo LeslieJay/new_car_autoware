@@ -27,7 +27,8 @@ namespace autoware::control_command_gate
 class CommandSubscription : public CommandSource
 {
 public:
-  CommandSubscription(uint16_t id, const std::string & name, rclcpp::Node & node);
+  CommandSubscription(
+    uint16_t id, const std::string & name, rclcpp::Node & node, bool reject_negative_velocity);
   void resend_last_command() override;
 
 private:
@@ -41,6 +42,7 @@ private:
   rclcpp::Subscription<TurnIndicatorsCommand>::SharedPtr sub_turn_indicators_;
   rclcpp::Subscription<HazardLightsCommand>::SharedPtr sub_hazard_lights_;
 
+  const bool reject_negative_velocity_;
   std::optional<GearCommand> last_gear_;
   std::optional<TurnIndicatorsCommand> last_turn_indicators_;
   std::optional<HazardLightsCommand> last_hazard_lights_;

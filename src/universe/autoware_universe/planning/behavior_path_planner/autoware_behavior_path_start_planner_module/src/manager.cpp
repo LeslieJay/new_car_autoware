@@ -168,6 +168,11 @@ void StartPlannerModuleManager::updateModuleParams(
       parameters, ns + "backward_path_update_duration", p->backward_path_update_duration);
     update_param<double>(
       parameters, ns + "ignore_distance_from_lane_end", p->ignore_distance_from_lane_end);
+    update_param<bool>(
+      parameters, ns + "agv.enable_reference_path_fallback", p->enable_agv_reference_path_fallback);
+    update_param<double>(
+      parameters, ns + "agv.reference_path_fallback_velocity",
+      p->agv_reference_path_fallback_velocity);
     update_param<double>(
       parameters, ns + "stop_condition.maximum_deceleration_for_stop",
       p->maximum_deceleration_for_stop);

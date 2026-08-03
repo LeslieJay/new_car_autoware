@@ -1,13 +1,15 @@
 /**:
   ros__parameters:
     pointcloud:
-      enable_check: false
-      surround_check_front_distance: 0.0
+      enable_check: true
+      # At 2 m/s and -1.2 m/s^2, ideal braking distance is 1.67 m.
+      # 3.5 m includes processing/control delay and a conservative reserve.
+      surround_check_front_distance: 3.5
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     unknown:
       enable_check: true
-      surround_check_front_distance: 0.0
+      surround_check_front_distance: 3.5
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
     car:
@@ -42,14 +44,15 @@
       surround_check_back_distance: 2.0
     pedestrian:
       enable_check: true
-      surround_check_front_distance: 0.0
+      surround_check_front_distance: 3.5
       surround_check_side_distance: 1.0
       surround_check_back_distance: 2.0
 
     surround_check_hysteresis_distance: 0.5
     state_clear_time: 2.0
     stop_state_ego_speed: 0.1
-    stop_only_when_stopped: true
+    # Protect both lane driving and the custom reverse planner while moving.
+    stop_only_when_stopped: false
     fail_safe_on_data_timeout: true
     data_timeout_sec: 0.5
     request_command_gate_stop: true

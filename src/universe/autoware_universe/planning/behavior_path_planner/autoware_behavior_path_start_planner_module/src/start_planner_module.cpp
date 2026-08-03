@@ -1247,6 +1247,9 @@ void StartPlannerModule::planWithPriority(
     }
   }
   set_planner_evaluation_table(debug_data_vector);
+  if (updateStatusWithAgvReferencePathFallback()) {
+    return;
+  }
   updateStatusIfNoSafePathFound();
 }
 
@@ -1381,6 +1384,59 @@ void StartPlannerModule::updateStatusIfNoSafePathFound()
   }
 }
 
+bool StartPlannerModule::updateStatusWithAgvReferencePathFallback()
+{
+  if (!parameters_->enable_agv_reference_path_fallback) {
+    return false;
+  }
+
+  const auto & goal_pose = planner_data_->route_handler->getGoalPose();
+  const auto & goal_position = goal_pose.position;
+  const auto & goal_orientation = goal_pose.orientation;
+  const double orientation_norm = std::hypot(
+    std::hypot(goal_orientation.x, goal_orientation.y),
+    std::hypot(goal_orientation.z, goal_orientation.w));
+  const bool is_goal_valid = std::isfinite(goal_position.x) && std::isfinite(goal_position.y) &&
+                             std::isfinite(goal_position.z) && std::isfinite(orientation_norm) &&
+                             orientation_norm > 1.0e-6;
+  if (!is_goal_valid) {
+    RCLCPP_ERROR_THROTTLE(getLogger(), *clock_, 5000, "AGV fallback rejected an invalid goal pose");
+    return false;
+  }
+
+  auto fallback_path = getPreviousModuleOutput().reference_path;
+  if (fallback_path.points.size() < 2) {
+    RCLCPP_ERROR_THROTTLE(
+      getLogger(), *clock_, 5000, "AGV fallback requires a non-empty route reference path");
+    return false;
+  }
+
+  for (auto & point : fallback_path.points) {
+    const auto & position = point.point.pose.position;
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+      RCLCPP_ERROR_THROTTLE(
+        getLogger(), *clock_, 5000, "AGV fallback rejected a non-finite reference path");
+      return false;
+    }
+    point.point.longitudinal_velocity_mps =
+      static_cast<float>(parameters_->agv_reference_path_fallback_velocity);
+  }
+  fallback_path.points.back().point.longitudinal_velocity_mps = 0.0F;
+
+  PullOutPath fallback_pull_out_path;
+  fallback_pull_out_path.partial_paths.push_back(fallback_path);
+  fallback_pull_out_path.start_pose = fallback_path.points.front().point.pose;
+  fallback_pull_out_path.end_pose = fallback_path.points.back().point.pose;
+
+  updateStatusWithCurrentPath(
+    fallback_pull_out_path, planner_data_->self_odometry->pose.pose, PlannerType::NONE);
+  RCLCPP_WARN(
+    getLogger(),
+    "No standard pull-out path found. Using forward-only AGV route reference fallback at %.2f m/s",
+    parameters_->agv_reference_path_fallback_velocity);
+  return true;
+}
+
 PathWithLaneId StartPlannerModule::generateStopPath() const
 {
   const auto & current_pose = planner_data_->self_odometry->pose.pose;
@@ -1499,7 +1555,7 @@ void StartPlannerModule::updatePullOutStatus()
 
   // search pull out start candidates backward
   const std::vector<Pose> start_pose_candidates = std::invoke([&]() -> std::vector<Pose> {
-    if (parameters_->enable_back) {
+    if (parameters_->enable_back && !parameters_->enable_agv_reference_path_fallback) {
       auto candidates = searchPullOutStartPoseCandidates(start_pose_candidates_path);
       // Remove the first candidate from searchPullOutStartPoseCandidates
       // (back_distance=0.0, equivalent to current position)
@@ -1788,8 +1844,8 @@ TurnSignalInfo StartPlannerModule::calcTurnSignalInfo()
     }
     constexpr double distance_threshold = 1.0;
     const auto stop_point = status_.pull_out_path.partial_paths.front().points.back();
-    const double distance_from_ego_to_stop_point = std::abs(
-      autoware::motion_utils::calcSignedArcLength(
+    const double distance_from_ego_to_stop_point =
+      std::abs(autoware::motion_utils::calcSignedArcLength(
         path.points, stop_point.point.pose.position, current_pose.position));
     return distance_from_ego_to_stop_point < distance_threshold;
   });
