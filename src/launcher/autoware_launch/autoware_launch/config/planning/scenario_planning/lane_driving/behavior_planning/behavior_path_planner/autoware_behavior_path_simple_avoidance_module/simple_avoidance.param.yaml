@@ -56,7 +56,7 @@
       # 实际侧移距离为 max(横向 jerk 计算距离, min_shifting_distance)。增大后路径
       # 更平缓但需要更早发现障碍物；减小会使横向变化更集中，并可能因路径点不足
       # 导致 PathShifter 无法生成有效侧移段。
-      min_shifting_distance: 20.0
+      min_shifting_distance: 10.0
 
       # [m/s^3] 计算侧移所需纵向距离时使用的横向 jerk 限制。
       # 值越小，允许的横向变化越平缓，计算出的 jerk_distance 通常越长；值越大，
