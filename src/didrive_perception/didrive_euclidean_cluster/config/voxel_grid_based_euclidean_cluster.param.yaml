@@ -9,10 +9,10 @@
     input_frame: "base_link"
     # low height crop box filter param
     use_crop_filter: true
-    max_x: 100.0
+    max_x: 150.0
     min_x: -50.0
-    max_y: 2.0
-    min_y: -2.0
+    max_y: 2.5
+    min_y: -2.5
     max_z: 3.5
     min_z: 0.0
     negative: false

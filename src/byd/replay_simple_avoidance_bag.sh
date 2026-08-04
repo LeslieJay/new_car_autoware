@@ -5,7 +5,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
-BAG_PATH="/media/byd/MyDisk1/weicanming/0803/1136_bag"
+BAG_PATH="/home/nvidia/autoware/log/0803/1136_bag"
 MAP_PATH="/home/nvidia/autoware_map/3_test/"
 LANELET_MAP_FILE="0727_lanelet2_map.osm"
 POINTCLOUD_MAP_FILE="pointcloud_map.pcd"
