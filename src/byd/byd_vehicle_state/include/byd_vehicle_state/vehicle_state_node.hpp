@@ -11,6 +11,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+#include <autoware/motion_utils/vehicle/vehicle_state_checker.hpp>
 #include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
 #include <autoware_adapi_v1_msgs/msg/route_state.hpp>
 #include <autoware_planning_msgs/msg/lanelet_route.hpp>
@@ -20,6 +21,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include <optional>
+#include <memory>
 #include <string>
 
 namespace byd_vehicle_state
@@ -64,6 +66,7 @@ private:
   bool hasActiveMission() const;
   bool isDrivingEngaged() const;
   bool isArrivedAtGoal() const;
+  void logGoalError(const char * event) const;
   uint8_t computeState() const;
   static std::string stateToString(uint8_t state);
 
@@ -80,6 +83,7 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   nav_msgs::msg::Odometry::ConstSharedPtr current_odom_;
+  std::unique_ptr<autoware::motion_utils::VehicleStopChecker> vehicle_stop_checker_;
   std::optional<geometry_msgs::msg::PoseStamped> active_goal_;
   bool has_valid_goal_pose_{false};
   GoalMode goal_mode_{GoalMode::None};
@@ -89,10 +93,11 @@ private:
   bool is_autoware_control_enabled_{false};
   bool operation_mode_received_{false};
 
-  double arrive_distance_th_{1.0};
-  double arrive_yaw_th_{1.0472};
-  double arrive_speed_th_{0.05};
-  double arrive_hold_time_{1.0};
+  double arrival_check_longitudinal_undershoot_distance_{0.03};
+  double arrival_check_longitudinal_overshoot_distance_{0.05};
+  double arrival_check_lateral_distance_{0.02};
+  double arrival_check_angle_rad_{0.0174533};
+  double arrival_check_duration_{1.0};
   double arrived_to_unset_timeout_{2.0};
   double update_rate_{10.0};
 

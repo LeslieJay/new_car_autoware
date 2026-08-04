@@ -37,12 +37,19 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
 : Node("byd_vehicle_state", options)
 {
   update_rate_ = declare_parameter<double>("update_rate", 10.0);
-  arrive_distance_th_ = declare_parameter<double>("arrive_distance_threshold", 1.0);
-  arrive_yaw_th_ = declare_parameter<double>("arrive_yaw_threshold", 1.0472);
-  arrive_speed_th_ = declare_parameter<double>("arrive_speed_threshold", 0.05);
-  arrive_hold_time_ = declare_parameter<double>("arrive_hold_time", 1.0);
+  arrival_check_longitudinal_undershoot_distance_ =
+    declare_parameter<double>("arrival_check_longitudinal_undershoot_distance");
+  arrival_check_longitudinal_overshoot_distance_ =
+    declare_parameter<double>("arrival_check_longitudinal_overshoot_distance");
+  arrival_check_lateral_distance_ =
+    declare_parameter<double>("arrival_check_lateral_distance");
+  arrival_check_angle_rad_ =
+    declare_parameter<double>("arrival_check_angle_deg") * M_PI / 180.0;
+  arrival_check_duration_ = declare_parameter<double>("arrival_check_duration");
   arrived_to_unset_timeout_ = declare_parameter<double>("arrived_to_unset_timeout", 2.0);
   use_route_state_for_forward_ = declare_parameter<bool>("use_route_state_for_forward", true);
+  vehicle_stop_checker_ =
+    std::make_unique<autoware::motion_utils::VehicleStopChecker>(this);
 
   // 前进 goal 发布端(rviz / autoware_auto_server)为 VOLATILE，必须匹配，否则收不到
   const auto forward_goal_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile();
@@ -86,8 +93,11 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
 
   RCLCPP_INFO(
     get_logger(),
-    "byd_vehicle_state ready: dist=%.3f yaw=%.3f speed=%.3f hold=%.1fs",
-    arrive_distance_th_, arrive_yaw_th_, arrive_speed_th_, arrive_hold_time_);
+    "byd_vehicle_state ready: longitudinal=[-%.3f,+%.3f] lateral=%.3f yaw=%.3f "
+    "stop_duration=%.1fs (shared mission planner arrival parameters)",
+    arrival_check_longitudinal_undershoot_distance_,
+    arrival_check_longitudinal_overshoot_distance_, arrival_check_lateral_distance_,
+    arrival_check_angle_rad_, arrival_check_duration_);
 }
 
 void VehicleStateNode::onForwardGoal(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
@@ -232,13 +242,41 @@ bool VehicleStateNode::isArrivedAtGoal() const
   const auto & pose = current_odom_->pose.pose;
   const double dx = pose.position.x - active_goal_->pose.position.x;
   const double dy = pose.position.y - active_goal_->pose.position.y;
-  const double dist = std::hypot(dx, dy);
+  const double goal_yaw = tf2::getYaw(active_goal_->pose.orientation);
+  const double longitudinal_error = std::cos(goal_yaw) * dx + std::sin(goal_yaw) * dy;
+  const double lateral_error = -std::sin(goal_yaw) * dx + std::cos(goal_yaw) * dy;
   const double yaw_diff = std::abs(
-    normalizeAngle(tf2::getYaw(pose.orientation) - tf2::getYaw(active_goal_->pose.orientation)));
+    normalizeAngle(tf2::getYaw(pose.orientation) - goal_yaw));
+  return longitudinal_error >= -arrival_check_longitudinal_undershoot_distance_ &&
+         longitudinal_error <= arrival_check_longitudinal_overshoot_distance_ &&
+         std::abs(lateral_error) <= arrival_check_lateral_distance_ &&
+         yaw_diff <= arrival_check_angle_rad_ &&
+         vehicle_stop_checker_->isVehicleStopped(arrival_check_duration_);
+}
+
+void VehicleStateNode::logGoalError(const char * event) const
+{
+  if (!current_odom_ || !active_goal_ || !has_valid_goal_pose_) {
+    return;
+  }
+
+  const auto & pose = current_odom_->pose.pose;
+  const double dx = pose.position.x - active_goal_->pose.position.x;
+  const double dy = pose.position.y - active_goal_->pose.position.y;
+  const double goal_yaw = tf2::getYaw(active_goal_->pose.orientation);
+  const double longitudinal_error = std::cos(goal_yaw) * dx + std::sin(goal_yaw) * dy;
+  const double lateral_error = -std::sin(goal_yaw) * dx + std::cos(goal_yaw) * dy;
+  const double yaw_error = normalizeAngle(tf2::getYaw(pose.orientation) - goal_yaw);
   const double speed = std::hypot(
     current_odom_->twist.twist.linear.x, current_odom_->twist.twist.linear.y);
 
-  return dist < arrive_distance_th_ && yaw_diff < arrive_yaw_th_ && speed < arrive_speed_th_;
+  RCLCPP_INFO(
+    get_logger(),
+    "%s: goal=(%.4f, %.4f) pose=(%.4f, %.4f) longitudinal=%+.4fm lateral=%+.4fm "
+    "distance=%.4fm yaw=%+.2fdeg speed=%.4fm/s",
+    event, active_goal_->pose.position.x, active_goal_->pose.position.y, pose.position.x,
+    pose.position.y, longitudinal_error, lateral_error, std::hypot(dx, dy),
+    yaw_error * 180.0 / M_PI, speed);
 }
 
 uint8_t VehicleStateNode::computeState() const
@@ -292,18 +330,20 @@ void VehicleStateNode::onTimer()
     if (!arrived_condition_met_) {
       arrived_condition_met_ = true;
       arrived_since_ = now_t;
-      RCLCPP_INFO(get_logger(), "Arrival condition met, starting hold timer (%.1fs)", arrive_hold_time_);
+      logGoalError("Arrival condition met");
+      RCLCPP_INFO(get_logger(), "Arrival condition met");
     } else if (
       arrived_since_.has_value() &&
-      (now_t - arrived_since_.value()).seconds() >= arrive_hold_time_ &&
       !arrived_published_since_.has_value())
     {
       arrived_published_since_ = now_t;
+      logGoalError("Goal arrived");
       RCLCPP_INFO(get_logger(), "Goal arrived (mode=%u)", static_cast<unsigned>(goal_mode_));
     }
   } else if (hasActiveMission() && !arrived_published_since_.has_value()) {
     // 到达条件丢失且尚未对外宣布到达，重置保持计时
     if (arrived_condition_met_) {
+      logGoalError("Arrival condition lost");
       RCLCPP_WARN(get_logger(), "Arrival condition lost, resetting hold timer");
     }
     arrived_condition_met_ = false;

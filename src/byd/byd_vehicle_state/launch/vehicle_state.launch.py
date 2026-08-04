@@ -10,11 +10,24 @@ from launch_ros.actions import Node
 def generate_launch_description():
     pkg_share = get_package_share_directory('byd_vehicle_state')
     default_config = os.path.join(pkg_share, 'config', 'vehicle_state.param.yaml')
+    mission_planner_config = os.path.join(
+        get_package_share_directory('autoware_launch'),
+        'config',
+        'planning',
+        'mission_planning',
+        'mission_planner',
+        'mission_planner.param.yaml',
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'byd_vehicle_state_config_file',
             default_value=default_config,
+        ),
+        DeclareLaunchArgument(
+            'mission_planner_config_file',
+            default_value=mission_planner_config,
+            description='Shared mission planner arrival parameters',
         ),
         DeclareLaunchArgument(
             'input_forward_goal',
@@ -56,7 +69,10 @@ def generate_launch_description():
             executable='vehicle_state_node_exe',
             name='byd_vehicle_state',
             output='screen',
-            parameters=[LaunchConfiguration('byd_vehicle_state_config_file')],
+            parameters=[
+                LaunchConfiguration('mission_planner_config_file'),
+                LaunchConfiguration('byd_vehicle_state_config_file'),
+            ],
             remappings=[
                 ('~/input/forward_goal', LaunchConfiguration('input_forward_goal')),
                 ('~/input/reverse_goal', LaunchConfiguration('input_reverse_goal')),
