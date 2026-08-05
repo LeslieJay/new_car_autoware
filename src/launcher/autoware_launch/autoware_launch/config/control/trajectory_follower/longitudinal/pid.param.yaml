@@ -1,6 +1,8 @@
 /**:
   ros__parameters:
-    delay_compensation_time: 0.1
+    # 0805 chassis step tests: zero-command coast distance was 5.1/12.1/19.7 cm
+    # at 0.1/0.2/0.3 m/s, corresponding to about 0.51/0.61/0.66 s effective delay.
+    delay_compensation_time: 0.6
 
     enable_smooth_stop: true
     # Enabled as safety net: when planning keeps cruise speed until the goal, overshoot emergency
