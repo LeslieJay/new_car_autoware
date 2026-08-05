@@ -33,25 +33,30 @@ class PedestrianSafetyConfigTest(unittest.TestCase):
             if self.params[label]['enable_check']
         }
         self.assertEqual(enabled, {'unknown', 'pedestrian'})
-        self.assertTrue(self.params['pointcloud']['enable_check'])
+        self.assertFalse(self.params['pointcloud']['enable_check'])
 
     def test_four_sided_zone_and_release_policy(self):
-        for label in ('pointcloud', 'unknown', 'pedestrian'):
+        for label in ('pointcloud', 'pedestrian'):
             self.assertEqual(
-                self.params[label]['surround_check_front_distance'], 3.5
+                self.params[label]['surround_check_front_distance'], 0.5
             )
             self.assertEqual(
-                self.params[label]['surround_check_side_distance'], 1.0
+                self.params[label]['surround_check_side_distance'], 0.5
             )
             self.assertEqual(
-                self.params[label]['surround_check_back_distance'], 2.0
+                self.params[label]['surround_check_back_distance'], 0.5
             )
-        self.assertEqual(self.params['surround_check_hysteresis_distance'], 0.5)
-        self.assertEqual(self.params['state_clear_time'], 2.0)
+        for direction in ('front', 'side', 'back'):
+            self.assertEqual(
+                self.params['unknown'][f'surround_check_{direction}_distance'],
+                0.25,
+            )
+        self.assertEqual(self.params['surround_check_hysteresis_distance'], 0.1)
+        self.assertEqual(self.params['state_clear_time'], 0.3)
 
     def test_fail_safe_and_command_gate_are_enabled(self):
-        self.assertFalse(self.params['stop_only_when_stopped'])
-        self.assertTrue(self.params['fail_safe_on_data_timeout'])
+        self.assertTrue(self.params['stop_only_when_stopped'])
+        self.assertFalse(self.params['fail_safe_on_data_timeout'])
         self.assertEqual(self.params['data_timeout_sec'], 0.5)
         self.assertTrue(self.params['request_command_gate_stop'])
         self.assertEqual(

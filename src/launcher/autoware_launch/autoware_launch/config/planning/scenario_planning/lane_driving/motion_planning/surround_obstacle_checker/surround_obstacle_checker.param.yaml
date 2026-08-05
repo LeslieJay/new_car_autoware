@@ -55,6 +55,11 @@
 
     # ego stop state
     stop_state_ego_speed: 0.1 #[m/s]
+    stop_only_when_stopped: true
+    fail_safe_on_data_timeout: false
+    data_timeout_sec: 0.5
+    request_command_gate_stop: false
+    stop_request_source: "surround_obstacle_checker"
 
     # debug
     publish_debug_footprints: true # publish vehicle footprint & footprints with surround_check_distance and surround_check_recover_distance offsets

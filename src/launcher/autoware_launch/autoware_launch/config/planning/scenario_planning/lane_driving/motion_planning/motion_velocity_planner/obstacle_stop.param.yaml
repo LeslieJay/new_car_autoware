@@ -17,8 +17,10 @@
         stop_margin_opposing_traffic: 10.0 # Ideal stop-margin from moving opposing obstacle when ego comes to a stop
         effective_deceleration_opposing_traffic: 4.0 # Setting a higher value brings the final stop-margin closer to the ideal value above
 
-        min_on_duration: 0.1  # [s] minimum duration needed before a decision can be triggered
-        min_off_duration: 2.0  # [s] minimum duration needed before a decision can be canceled
+        # Reject single-frame collision-boundary jitter, but still react well within a normal
+        # low-speed braking horizon. Once the obstacle clears, avoid holding a stale stop for 2 s.
+        min_on_duration: 0.3  # [s] minimum duration needed before a decision can be triggered
+        min_off_duration: 1.0  # [s] minimum duration needed before a decision can be canceled
         update_distance_th: 0.5 # [m] minimum distance threshold to update stop point
 
         hold_stop_velocity_threshold: 0.05 # The maximum ego velocity to hold stopping [m/s]
@@ -72,8 +74,9 @@
         lateral_margin: # lateral margin between the obstacles and ego's footprint
           nominal:
             default: 0.15
-            # Cover sparse UNKNOWN polygons and perception lateral error.
-            unknown: 0.60
+            # UNKNOWN polygons in the 0804 bag remain near the avoidance-path boundary. Keep a
+            # conservative margin, but do not inflate them twice as much as pointcloud obstacles.
+            unknown: 0.30
             pointcloud: 0.30
           additional: # additional stop margin to the obstacle.
             wheel_off_track_scale: # scale factor for additional stop margin against ego's wheel off-track. Even if this value is set to 0.0, the planner considers the nominal wheel off-track.
@@ -94,7 +97,7 @@
         min_object_length: 0.10 # [m] minimum object length to consider for stop planning
 
         min_velocity_to_reach_collision_point: 0.8 # minimum velocity margin to calculate time to reach collision [m/s]
-        stop_obstacle_hold_time_threshold : 1.0 # maximum time for holding closest stop obstacle
+        stop_obstacle_hold_time_threshold : 0.5 # maximum time for holding closest stop obstacle
 
         outside_obstacle: # Parameters for predicting if an obstacle will cut in. Pointcloud obstacles are not supported.
           estimation_time_horizon: 0.5
