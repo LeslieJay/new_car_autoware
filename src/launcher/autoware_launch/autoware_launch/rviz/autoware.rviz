@@ -883,15 +883,7 @@ Visualization Manager:
                     Color: 119; 11; 32
                   Name: PredictedObjects
                   Namespaces:
-                    acceleration: true
-                    label: true
-                    path: true
-                    path confidence: true
-                    position covariance: true
-                    shape: true
-                    twist: true
-                    uuid: true
-                    velocity: true
+                    {}
                   Object Fill Type: skeleton
                   PEDESTRIAN:
                     Alpha: 0.9990000128746033
@@ -2409,8 +2401,7 @@ Visualization Manager:
                           Enabled: true
                           Name: PlanningFactor(SurroundObstacle)
                           Namespaces:
-                            stop_factor_text: true
-                            stop_virtual_wall: true
+                            {}
                           Show Safety Factors: false
                           Topic:
                             Depth: 5
@@ -2936,10 +2927,7 @@ Visualization Manager:
                     Value: true
                   Value: true
                   Vehicle:
-                    Debug: true
-                    Info:
-                      AccelerationMeter: true
-                      Value: true
+                    "": true
                     Value: true
                 Localization:
                   EKF:
@@ -4878,11 +4866,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 0.5861986875534058
+      Scale: 10
       Target Frame: base_link
       Value: TopDownOrtho (rviz_default_plugins)
-      X: -0.0456085205078125
-      Y: 0.089996337890625
+      X: 0
+      Y: 0
     Saved:
       - Class: rviz_default_plugins/ThirdPersonFollower
         Distance: 18
