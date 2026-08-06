@@ -364,14 +364,13 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
   const double ego_half_width = planner_data_->parameters.vehicle_width / 2.0;
 
   std::optional<AvoidanceTarget> nearest_target;
+  std::optional<AvoidanceTarget> spatially_matched_target;
   double min_longitudinal = std::numeric_limits<double>::max();
+  double min_association_distance = std::numeric_limits<double>::max();
+  constexpr double position_threshold = 1.5;
 
   for (const auto & object : planner_data_->dynamic_object->objects) {
     const auto uuid = autoware_utils_uuid::to_hex_string(object.object_id);
-    if (preferred_uuid.has_value() && uuid != *preferred_uuid) {
-      continue;
-    }
-
     const auto & pose = object.kinematics.initial_pose_with_covariance.pose;
     const double speed = std::hypot(
       object.kinematics.initial_twist_with_covariance.twist.linear.x,
@@ -405,18 +404,47 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
       continue;
     }
 
+    AvoidanceTarget target;
+    target.pose = pose;
+    target.longitudinal_distance = longitudinal_distance;
+    target.lateral_offset = lateral_offset;
+    target.object_half_width = object_half_width;
+    target.object_half_length = getObjectHalfLength(object.shape);
+    target.uuid = uuid;
+    target.last_seen = clock_->now();
+
+    if (preferred_uuid.has_value()) {
+      // Keep the same association order as static_obstacle_avoidance::updateStoredObjects():
+      // UUID first, then a position-distance fallback for tracker UUID changes.
+      if (uuid == *preferred_uuid) {
+        return target;
+      }
+      if (active_target_.has_value()) {
+        const auto & previous_position = active_target_->pose.position;
+        const double association_distance =
+          std::hypot(previous_position.x - pose.position.x, previous_position.y - pose.position.y);
+        if (
+          association_distance < position_threshold &&
+          association_distance < min_association_distance) {
+          spatially_matched_target = target;
+          min_association_distance = association_distance;
+        }
+      }
+      continue;
+    }
+
     if (longitudinal_distance < min_longitudinal) {
-      AvoidanceTarget target;
-      target.pose = pose;
-      target.longitudinal_distance = longitudinal_distance;
-      target.lateral_offset = lateral_offset;
-      target.object_half_width = object_half_width;
-      target.object_half_length = getObjectHalfLength(object.shape);
-      target.uuid = uuid;
-      target.last_seen = clock_->now();
       nearest_target = target;
       min_longitudinal = longitudinal_distance;
     }
+  }
+
+  if (preferred_uuid.has_value() && spatially_matched_target.has_value()) {
+    RCLCPP_WARN_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE] target UUID changed old=%s new=%s; associated by position distance=%.2fm",
+      preferred_uuid->c_str(), spatially_matched_target->uuid.c_str(), min_association_distance);
+    return spatially_matched_target;
   }
 
   return nearest_target;
