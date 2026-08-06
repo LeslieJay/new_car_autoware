@@ -41,6 +41,11 @@ ament_target_dependencies(can_node
 target_link_libraries(can_node 
   pthread)
 
+if(BUILD_TESTING)
+  add_executable(test_ramp_time_encoder test/test_ramp_time_encoder.cpp)
+  add_test(NAME test_ramp_time_encoder COMMAND test_ramp_time_encoder)
+endif()
+
 # Install launch files
 install(
   DIRECTORY launch

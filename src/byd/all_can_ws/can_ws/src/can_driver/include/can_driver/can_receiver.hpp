@@ -156,8 +156,10 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Publisher<ref_slam_interface::msg::BatteryState>::SharedPtr battery_publisher_;
         rclcpp::Publisher<vda5050_interfaces::msg::Error>::SharedPtr error_publisher_;
         // linear.x=velocity(m/s), angular.z=steering_angle(rad)
+        // linear.y=acceleration(m/s^2)
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr control_cmd_debug_pub_;
         // linear.x=speed_command(mm/s), angular.z=angle_command(0.01deg)
+        // linear.y=acceleration_time_command(0.1s/bit), linear.z=deceleration_time_command(0.1s/bit)
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr can_cmd_debug_pub_;
 
 
@@ -205,6 +207,9 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Time last_engage_frame_time_{0, 0, RCL_ROS_TIME};
         int voice_frame_period_ms_{200};
         int engage_frame_period_ms_{500};
+        int default_acceleration_time_command_{10};
+        int default_deceleration_time_command_{10};
+        std::atomic<double> current_speed_{0.0};
     };
 
 } // namespace can_driver

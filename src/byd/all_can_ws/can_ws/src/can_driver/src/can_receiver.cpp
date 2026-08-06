@@ -2,6 +2,7 @@
 
 #include "can_driver/can_receiver.hpp"
 #include "can_driver/can_node.hpp"
+#include "can_driver/ramp_time_encoder.hpp"
 #include "can_driver/trailer.hpp"
 
 #include <algorithm>
@@ -87,13 +88,23 @@ namespace can_driver
         node_->declare_parameter("engage_service_call_timeout", 5.0); // 调用服务响应的超时时间
         node_->declare_parameter("voice_frame_period_ms", 200);
         node_->declare_parameter("engage_frame_period_ms", 500);
+        node_->declare_parameter("default_acceleration_time_command", 10);
+        node_->declare_parameter("default_deceleration_time_command", 10);
 
         node_->get_parameter("engage_service_wait_timeout", engage_srv_wait_timeout_);
         node_->get_parameter("engage_service_call_timeout", engage_srv_call_timeout_);
         node_->get_parameter("voice_frame_period_ms", voice_frame_period_ms_);
         node_->get_parameter("engage_frame_period_ms", engage_frame_period_ms_);
+        node_->get_parameter(
+          "default_acceleration_time_command", default_acceleration_time_command_);
+        node_->get_parameter(
+          "default_deceleration_time_command", default_deceleration_time_command_);
         voice_frame_period_ms_ = std::max(voice_frame_period_ms_, 0);
         engage_frame_period_ms_ = std::max(engage_frame_period_ms_, 0);
+        default_acceleration_time_command_ =
+          std::clamp(default_acceleration_time_command_, 1, 255);
+        default_deceleration_time_command_ =
+          std::clamp(default_deceleration_time_command_, 1, 255);
         sendSafetyFrameCallback();
         // 创建安全定时器，之后无需任何调用即可定期执行sendSafetyFrameCallback
         safety_timer_ = node_->create_wall_timer(
@@ -636,6 +647,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 // 读取can构建数据
                 double current_angle = toDecimal(frame.data[1], frame.data[0])*0.01; // 原始单位： 0.01 ° 角度
                 double current_speed = toDecimal(frame.data[3], frame.data[2])*0.001; // 原始单位： mm/s
+                current_speed_.store(current_speed, std::memory_order_relaxed);
                 double heading_rate = (current_speed * tan(current_angle * M_PI / 180.0)) / kWheelbase;
                 this->pushRecord(frame, current_angle, current_speed);
                 // 一个字节有8个标志位，与操作只保留一个，具体含义完全由用户协定
@@ -742,6 +754,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         {
             geometry_msgs::msg::Twist rx_msg;
             rx_msg.linear.x = msg->longitudinal.velocity;
+            rx_msg.linear.y = msg->longitudinal.acceleration;
             rx_msg.angular.z = msg->lateral.steering_tire_angle;
             control_cmd_debug_pub_->publish(rx_msg);
         }
@@ -819,6 +832,23 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         speed_command = std::min(speed_command, (int16_t)speed_upper_bound_);
         speed_command = std::max(speed_command, (int16_t)-speed_upper_bound_);
 
+        uint8_t acceleration_time_command =
+          static_cast<uint8_t>(default_acceleration_time_command_);
+        uint8_t deceleration_time_command =
+          static_cast<uint8_t>(default_deceleration_time_command_);
+        if (msg->longitudinal.is_defined_acceleration) {
+            const double current_speed = current_speed_.load(std::memory_order_relaxed);
+            const uint8_t ramp_time_command = encodeRampTime(
+              velocity, current_speed, msg->longitudinal.acceleration,
+              std::abs(velocity) > std::abs(current_speed) ? acceleration_time_command
+                                                           : deceleration_time_command);
+            if (std::abs(velocity) > std::abs(current_speed)) {
+                acceleration_time_command = ramp_time_command;
+            } else if (std::abs(velocity) < std::abs(current_speed)) {
+                deceleration_time_command = ramp_time_command;
+            }
+        }
+
         // // 舵轮转角超过阈值时, 再次降低车速
         // // TODO: 分阶段降低; 参数化
         // if(std::fabs(angle_command) >= 1000 && std::fabs(speed_command) > 300){
@@ -833,6 +863,8 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         {
             geometry_msgs::msg::Twist can_msg;
             can_msg.linear.x = static_cast<double>(speed_command);
+            can_msg.linear.y = static_cast<double>(acceleration_time_command);
+            can_msg.linear.z = static_cast<double>(deceleration_time_command);
             can_msg.angular.z = static_cast<double>(angle_command);
             can_cmd_debug_pub_->publish(can_msg);
         }
@@ -846,8 +878,8 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         frame.data[2] = agv_info_.steer_command & 0xff;
         frame.data[3] = agv_info_.steer_command >> 8;
         frame.data[4] = 0b00011011;
-        frame.data[5] = 10;
-        frame.data[6] = 10;  
+        frame.data[5] = acceleration_time_command;
+        frame.data[6] = deceleration_time_command;
         frame.data[7] = 0x00;
 
 
