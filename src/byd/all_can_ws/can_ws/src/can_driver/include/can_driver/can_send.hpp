@@ -41,6 +41,12 @@ public:
      */
     void push(const std::vector<struct ::can_frame> &frames);
 
+    /// Replace the stateful 0x201 control frame sent periodically by sendTask().
+    void setLatestControlFrame(const struct ::can_frame & frame);
+
+    /// Configure the periodic control-frame interval (20 ms for the VCU protocol).
+    void setControlFramePeriodMs(int period_ms);
+
     /**
      * @brief 取出并清空队列中所有待发送帧
      * @return 包含所有待发送帧的 vector
@@ -61,6 +67,9 @@ public:
 
 private:
     std::queue<struct ::can_frame> queue_;
+    struct ::can_frame latest_control_frame_{};
+    bool has_latest_control_frame_{false};
+    std::atomic<int> control_frame_period_ms_{20};
     
     mutable std::mutex mtx_; // 保护队列的互斥锁
 };

@@ -2,7 +2,7 @@
 
 #include "can_driver/can_receiver.hpp"
 #include "can_driver/can_node.hpp"
-#include "can_driver/ramp_time_encoder.hpp"
+#include "can_driver/motor_speed_step_encoder.hpp"
 #include "can_driver/trailer.hpp"
 
 #include <algorithm>
@@ -30,6 +30,12 @@ inline can_frame make_frame(const canid_t id)
     frame.can_id = id;
     frame.can_dlc = 8;
     return frame;
+}
+
+inline int64_t steady_now_ns()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 }
 
@@ -88,30 +94,73 @@ namespace can_driver
         node_->declare_parameter("engage_service_call_timeout", 5.0); // 调用服务响应的超时时间
         node_->declare_parameter("voice_frame_period_ms", 200);
         node_->declare_parameter("engage_frame_period_ms", 500);
-        node_->declare_parameter("default_acceleration_time_command", 10);
-        node_->declare_parameter("default_deceleration_time_command", 10);
+        node_->declare_parameter("control_frame_period_ms", 20);
+        node_->declare_parameter("control_command_warn_timeout_ms", 150);
+        node_->declare_parameter("control_command_stop_timeout_ms", 300);
+        node_->declare_parameter("use_dynamic_acceleration_steps", false);
+        node_->declare_parameter("control_cycle_sec", 0.02);
+        node_->declare_parameter("default_acceleration_step_command", 10);
+        node_->declare_parameter("default_deceleration_step_command", 10);
+        node_->declare_parameter("acceleration_step_counts_per_mps2", 0.0);
+        node_->declare_parameter("deceleration_step_counts_per_mps2", 0.0);
+        node_->declare_parameter("speed_command_scale_forward", 1000.0);
+        node_->declare_parameter("speed_command_scale_reverse", 1000.0);
+        node_->declare_parameter("speed_command_offset_forward", 0.0);
+        node_->declare_parameter("speed_command_offset_reverse", 0.0);
+        node_->declare_parameter("steering_command_scale_left", 100.0 * 180.0 / kPi);
+        node_->declare_parameter("steering_command_scale_right", 100.0 * 180.0 / kPi);
+        node_->declare_parameter("steering_command_offset", 0.0);
 
         node_->get_parameter("engage_service_wait_timeout", engage_srv_wait_timeout_);
         node_->get_parameter("engage_service_call_timeout", engage_srv_call_timeout_);
         node_->get_parameter("voice_frame_period_ms", voice_frame_period_ms_);
         node_->get_parameter("engage_frame_period_ms", engage_frame_period_ms_);
-        node_->get_parameter(
-          "default_acceleration_time_command", default_acceleration_time_command_);
-        node_->get_parameter(
-          "default_deceleration_time_command", default_deceleration_time_command_);
+        node_->get_parameter("control_frame_period_ms", control_frame_period_ms_);
+        node_->get_parameter("control_command_warn_timeout_ms", control_command_warn_timeout_ms_);
+        node_->get_parameter("control_command_stop_timeout_ms", control_command_stop_timeout_ms_);
+        node_->get_parameter("use_dynamic_acceleration_steps", use_dynamic_acceleration_steps_);
+        node_->get_parameter("control_cycle_sec", control_cycle_sec_);
+        node_->get_parameter("default_acceleration_step_command", default_acceleration_step_command_);
+        node_->get_parameter("default_deceleration_step_command", default_deceleration_step_command_);
+        node_->get_parameter("acceleration_step_counts_per_mps2", acceleration_step_counts_per_mps2_);
+        node_->get_parameter("deceleration_step_counts_per_mps2", deceleration_step_counts_per_mps2_);
+        node_->get_parameter("speed_command_scale_forward", speed_command_scale_forward_);
+        node_->get_parameter("speed_command_scale_reverse", speed_command_scale_reverse_);
+        node_->get_parameter("speed_command_offset_forward", speed_command_offset_forward_);
+        node_->get_parameter("speed_command_offset_reverse", speed_command_offset_reverse_);
+        node_->get_parameter("steering_command_scale_left", steering_command_scale_left_);
+        node_->get_parameter("steering_command_scale_right", steering_command_scale_right_);
+        node_->get_parameter("steering_command_offset", steering_command_offset_);
         voice_frame_period_ms_ = std::max(voice_frame_period_ms_, 0);
         engage_frame_period_ms_ = std::max(engage_frame_period_ms_, 0);
-        default_acceleration_time_command_ =
-          std::clamp(default_acceleration_time_command_, 1, 255);
-        default_deceleration_time_command_ =
-          std::clamp(default_deceleration_time_command_, 1, 255);
+        control_frame_period_ms_ = std::max(control_frame_period_ms_, 1);
+        control_command_warn_timeout_ms_ = std::max(control_command_warn_timeout_ms_, 0);
+        control_command_stop_timeout_ms_ =
+          std::max(control_command_stop_timeout_ms_, control_command_warn_timeout_ms_ + 1);
+        default_acceleration_step_command_ =
+          std::clamp(default_acceleration_step_command_, 1, 255);
+        default_deceleration_step_command_ =
+          std::clamp(default_deceleration_step_command_, 1, 255);
+        if (use_dynamic_acceleration_steps_ &&
+            (acceleration_step_counts_per_mps2_ <= 0.0 ||
+             deceleration_step_counts_per_mps2_ <= 0.0)) {
+            RCLCPP_WARN(
+              node_->get_logger(),
+              "Dynamic acceleration steps requested without valid coefficients; fixed Byte5/Byte6 fallbacks will be used");
+        }
+        CreateSafetyFrame();
+        send_queue_->setControlFramePeriodMs(control_frame_period_ms_);
+        send_queue_->setLatestControlFrame(safe_frame);
+        last_control_steady_ns_.store(steady_now_ns(), std::memory_order_relaxed);
         sendSafetyFrameCallback();
         // 创建安全定时器，之后无需任何调用即可定期执行sendSafetyFrameCallback
         safety_timer_ = node_->create_wall_timer(
             std::chrono::milliseconds(3000),
             std::bind(&CanReceiver::sendSafetyFrameCallback, this)
         );
-        CreateSafetyFrame();
+        control_watchdog_timer_ = node_->create_wall_timer(
+            std::chrono::milliseconds(50),
+            std::bind(&CanReceiver::controlWatchdogCallback, this));
         publishGearStatus(current_gear_report_);
         last_control_time_ = node_->get_clock()->now();  // 新增
         last_voice_frame_time_ = last_control_time_;
@@ -647,7 +696,6 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 // 读取can构建数据
                 double current_angle = toDecimal(frame.data[1], frame.data[0])*0.01; // 原始单位： 0.01 ° 角度
                 double current_speed = toDecimal(frame.data[3], frame.data[2])*0.001; // 原始单位： mm/s
-                current_speed_.store(current_speed, std::memory_order_relaxed);
                 double heading_rate = (current_speed * tan(current_angle * M_PI / 180.0)) / kWheelbase;
                 this->pushRecord(frame, current_angle, current_speed);
                 // 一个字节有8个标志位，与操作只保留一个，具体含义完全由用户协定
@@ -755,10 +803,14 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
             geometry_msgs::msg::Twist rx_msg;
             rx_msg.linear.x = msg->longitudinal.velocity;
             rx_msg.linear.y = msg->longitudinal.acceleration;
+            rx_msg.linear.z = msg->longitudinal.jerk;
+            rx_msg.angular.y = msg->lateral.steering_tire_rotation_rate;
             rx_msg.angular.z = msg->lateral.steering_tire_angle;
             control_cmd_debug_pub_->publish(rx_msg);
         }
         last_control_time_ = now;   // 新增：记录时间
+        last_control_steady_ns_.store(steady_now_ns(), std::memory_order_relaxed);
+        control_timeout_active_.store(false, std::memory_order_relaxed);
         // 计算挂车后的最大转向角度
         const int trailer_num = trailer_config["trailer_num"];
         const int l = trailer_config["l"];
@@ -792,13 +844,10 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
             }
         }
 
-        // 转化为角度并乘100，转化为epec需要的指令格式
-        int16_t angle_command = static_cast<int16_t>(100 * angle * 180 / kPi);
-        if (angle_command > 6000) {
-            angle_command = 6000;
-        } else if (angle_command < -6000) {
-            angle_command = -6000;
-        }
+        // 转化为VCU转角指令，默认单位为0.01度。
+        const int16_t angle_command = encodeSignedCommand(
+          angle, steering_command_scale_left_, steering_command_scale_right_,
+          steering_command_offset_, steering_command_offset_, 6000);
 
         struct can_frame v_frame = make_frame(0x401);
         // 第4位设为1,打开语音播报
@@ -824,30 +873,21 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         }
         send_frames.push_back(v_frame);
 
-        // 转化为epec需要的指令格式。单位：0.001 m/s,
-        int16_t speed_command = velocity * 1000;
+        // 默认1 count = 0.001 m/s；正反向比例和零点可独立标定。
+        const int16_t speed_limit = static_cast<int16_t>(
+          std::clamp(speed_upper_bound_, 1, static_cast<int>(INT16_MAX)));
+        const int16_t speed_command = encodeSignedCommand(
+          velocity, speed_command_scale_forward_, speed_command_scale_reverse_,
+          speed_command_offset_forward_, speed_command_offset_reverse_, speed_limit);
 
-        // 基本控制驱动方实行的速度限制，speed_upper_bound_现设置为500，即0.5m/s
-        speed_upper_bound_ = 4000;
-        speed_command = std::min(speed_command, (int16_t)speed_upper_bound_);
-        speed_command = std::max(speed_command, (int16_t)-speed_upper_bound_);
-
-        uint8_t acceleration_time_command =
-          static_cast<uint8_t>(default_acceleration_time_command_);
-        uint8_t deceleration_time_command =
-          static_cast<uint8_t>(default_deceleration_time_command_);
-        if (msg->longitudinal.is_defined_acceleration) {
-            const double current_speed = current_speed_.load(std::memory_order_relaxed);
-            const uint8_t ramp_time_command = encodeRampTime(
-              velocity, current_speed, msg->longitudinal.acceleration,
-              std::abs(velocity) > std::abs(current_speed) ? acceleration_time_command
-                                                           : deceleration_time_command);
-            if (std::abs(velocity) > std::abs(current_speed)) {
-                acceleration_time_command = ramp_time_command;
-            } else if (std::abs(velocity) < std::abs(current_speed)) {
-                deceleration_time_command = ramp_time_command;
-            }
-        }
+        const uint8_t acceleration_step_command = encodeMotorSpeedStep(
+          msg->longitudinal.acceleration, acceleration_step_counts_per_mps2_,
+          static_cast<uint8_t>(default_acceleration_step_command_),
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
+        const uint8_t deceleration_step_command = encodeMotorSpeedStep(
+          msg->longitudinal.acceleration, deceleration_step_counts_per_mps2_,
+          static_cast<uint8_t>(default_deceleration_step_command_),
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
 
         // // 舵轮转角超过阈值时, 再次降低车速
         // // TODO: 分阶段降低; 参数化
@@ -857,14 +897,16 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         if ((now - last_can_cmd_log_time_).seconds() >= 1.0) {
             RCLCPP_INFO_STREAM(node_->get_logger(),
                 "实际控制can输出\t angle: " << angle_command << "\t" <<
-                                    "velocity: " << speed_command);
+                                    "velocity: " << speed_command << "\t" <<
+                                    "Byte5: " << static_cast<int>(acceleration_step_command) << "\t" <<
+                                    "Byte6: " << static_cast<int>(deceleration_step_command));
             last_can_cmd_log_time_ = now;
         }
         {
             geometry_msgs::msg::Twist can_msg;
             can_msg.linear.x = static_cast<double>(speed_command);
-            can_msg.linear.y = static_cast<double>(acceleration_time_command);
-            can_msg.linear.z = static_cast<double>(deceleration_time_command);
+            can_msg.linear.y = static_cast<double>(acceleration_step_command);
+            can_msg.linear.z = static_cast<double>(deceleration_step_command);
             can_msg.angular.z = static_cast<double>(angle_command);
             can_cmd_debug_pub_->publish(can_msg);
         }
@@ -878,8 +920,8 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         frame.data[2] = agv_info_.steer_command & 0xff;
         frame.data[3] = agv_info_.steer_command >> 8;
         frame.data[4] = 0b00011011;
-        frame.data[5] = acceleration_time_command;
-        frame.data[6] = deceleration_time_command;
+        frame.data[5] = acceleration_step_command;
+        frame.data[6] = deceleration_step_command;
         frame.data[7] = 0x00;
 
 
@@ -903,8 +945,8 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         //     frame.data[4] = 0b00011011;
         // }
         
-        safe_frame = frame;
-        send_frames.push_back(frame);
+        // 0x201 is stateful. Replace the latest frame instead of appending stale controls to FIFO.
+        send_queue_->setLatestControlFrame(frame);
 
         // 用于手动切换自动模式后完成切换，这个帧有必要一直发吗？
         // 怀疑是想加语音帧加错了，待验证
@@ -1097,9 +1139,33 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         safe_frame.data[2] = 0;
         safe_frame.data[3] = 0;
         safe_frame.data[4] = 0b10000000; // 抱闸状态
-        safe_frame.data[5] = 0;
-        safe_frame.data[6] = 0;
+        safe_frame.data[5] = static_cast<uint8_t>(default_acceleration_step_command_);
+        safe_frame.data[6] = static_cast<uint8_t>(default_deceleration_step_command_);
         safe_frame.data[7] = 0;
+    }
+
+    void CanReceiver::controlWatchdogCallback()
+    {
+        const int64_t age_ns =
+          steady_now_ns() - last_control_steady_ns_.load(std::memory_order_relaxed);
+        const int64_t age_ms = age_ns / 1000000LL;
+
+        if (age_ms >= control_command_warn_timeout_ms_) {
+            RCLCPP_WARN_THROTTLE(
+              node_->get_logger(), *node_->get_clock(), 1000,
+              "Control command is stale: %ld ms (warning=%d ms, stop=%d ms)",
+              static_cast<long>(age_ms), control_command_warn_timeout_ms_,
+              control_command_stop_timeout_ms_);
+        }
+
+        if (age_ms >= control_command_stop_timeout_ms_ &&
+            !control_timeout_active_.exchange(true, std::memory_order_relaxed)) {
+            send_queue_->setLatestControlFrame(safe_frame);
+            RCLCPP_ERROR(
+              node_->get_logger(),
+              "Control command timeout after %ld ms; switching periodic 0x201 to the safety frame",
+              static_cast<long>(age_ms));
+        }
     }
 
     void CanReceiver::sendSafetyFrameCallback() {

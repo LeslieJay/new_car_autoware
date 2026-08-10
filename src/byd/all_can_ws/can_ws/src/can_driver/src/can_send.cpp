@@ -11,6 +11,7 @@
 // src/can_send.cpp
 #include "can_driver/can_send.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <iostream>
@@ -26,8 +27,25 @@ void CanSend::push(const std::vector<struct ::can_frame> & frames) {
     std::lock_guard<std::mutex> lock(mtx_);
    
     for (const auto& frame : frames) {
-        queue_.push(frame);
+        if ((frame.can_id & CAN_SFF_MASK) == 0x201U) {
+            latest_control_frame_ = frame;
+            has_latest_control_frame_ = true;
+        } else {
+            queue_.push(frame);
+        }
     }
+}
+
+void CanSend::setLatestControlFrame(const struct ::can_frame & frame)
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    latest_control_frame_ = frame;
+    has_latest_control_frame_ = true;
+}
+
+void CanSend::setControlFramePeriodMs(const int period_ms)
+{
+    control_frame_period_ms_.store(std::max(period_ms, 1), std::memory_order_relaxed);
 }
 
 std::vector<::can_frame> CanSend::pop_all()
@@ -57,22 +75,36 @@ void CanSend::sendTask(int socket,  std::atomic<bool> &running)
     opt.timeout_per_frame_ms = 50;
     opt.inter_frame_delay_ms = 0;
 
+    auto next_send_time = std::chrono::steady_clock::now();
     while (running)
     {
-        // 将CanSend类变量的所有帧取出来
-        auto frames = pop_all();
-        
-        // std::cout << "sendTask" <<frames.size()<< std::endl;
-        //测试使用
-        // #ifndef DEBUG 
-        // if (frames.empty())  std::cout<<"指令队列为空！！"<<std::endl;
-        //#endif
+        std::vector<::can_frame> frames;
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            // Stateful control is coalesced: only the newest 0x201 is sent each cycle.
+            if (has_latest_control_frame_) {
+                frames.push_back(latest_control_frame_);
+            }
+            // Event frames retain FIFO ordering and are sent after the control heartbeat.
+            while (!queue_.empty()) {
+                frames.push_back(queue_.front());
+                queue_.pop();
+            }
+        }
+
         if (!frames.empty())
         {
-            // std::cout<<"指令队列大小为： "<<frames.size()<<std::endl;
             sendFrames(socket, frames, opt);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+
+        const auto period = std::chrono::milliseconds(
+          control_frame_period_ms_.load(std::memory_order_relaxed));
+        next_send_time += period;
+        const auto now = std::chrono::steady_clock::now();
+        if (next_send_time <= now) {
+            next_send_time = now + period;
+        }
+        std::this_thread::sleep_until(next_send_time);
     }
 }
 

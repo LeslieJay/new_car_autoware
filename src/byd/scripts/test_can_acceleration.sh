@@ -59,7 +59,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cat <<EOF
-CAN 加减速时间指令实车测试
+CAN 电机转速步长指令实车测试
 
 车辆将执行：
   1. 前进加速到 ${TEST_SPEED} m/s，加速度命令 ${TEST_ACCELERATION} m/s^2，持续 ${ACCEL_DURATION}s
@@ -95,6 +95,7 @@ fi
 
 ros2 topic info -v /control/command/control_cmd > "${RESULT_DIR}/control_cmd_topic_info.txt" 2>&1 || true
 ros2 topic list -t > "${RESULT_DIR}/topic_list.txt" 2>&1 || true
+ros2 param dump /can_node > "${RESULT_DIR}/can_node_params.yaml" 2>&1 || true
 
 ros2 topic echo /can_driver/debug/control_cmd_rx > "${RESULT_DIR}/control_cmd_rx.yaml" 2>&1 &
 BACKGROUND_PIDS+=("$!")
@@ -102,6 +103,18 @@ ros2 topic echo /can_driver/debug/control_cmd_can > "${RESULT_DIR}/control_cmd_c
 BACKGROUND_PIDS+=("$!")
 ros2 topic echo /vehicle/status/velocity_status > "${RESULT_DIR}/velocity_status.yaml" 2>&1 &
 BACKGROUND_PIDS+=("$!")
+ros2 topic echo /vehicle/status/steering_status > "${RESULT_DIR}/steering_status.yaml" 2>&1 &
+BACKGROUND_PIDS+=("$!")
+
+if command -v ros2 >/dev/null 2>&1; then
+  ros2 bag record -o "${RESULT_DIR}/rosbag" \
+    /control/command/control_cmd \
+    /can_driver/debug/control_cmd_rx \
+    /can_driver/debug/control_cmd_can \
+    /vehicle/status/velocity_status \
+    /vehicle/status/steering_status > "${RESULT_DIR}/rosbag_record.log" 2>&1 &
+  BACKGROUND_PIDS+=("$!")
+fi
 
 if command -v candump >/dev/null 2>&1 && ip link show "${CAN_INTERFACE}" >/dev/null 2>&1; then
   candump -t a "${CAN_INTERFACE},201:7FF" > "${RESULT_DIR}/can_201.log" 2>&1 &

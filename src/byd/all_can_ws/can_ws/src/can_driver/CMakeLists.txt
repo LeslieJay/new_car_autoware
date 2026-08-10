@@ -42,8 +42,11 @@ target_link_libraries(can_node
   pthread)
 
 if(BUILD_TESTING)
-  add_executable(test_ramp_time_encoder test/test_ramp_time_encoder.cpp)
-  add_test(NAME test_ramp_time_encoder COMMAND test_ramp_time_encoder)
+  add_executable(test_motor_speed_step_encoder test/test_motor_speed_step_encoder.cpp)
+  add_test(NAME test_motor_speed_step_encoder COMMAND test_motor_speed_step_encoder)
+  add_executable(test_can_send_periodic test/test_can_send_periodic.cpp src/can_send.cpp)
+  target_link_libraries(test_can_send_periodic pthread)
+  add_test(NAME test_can_send_periodic COMMAND test_can_send_periodic)
 endif()
 
 # Install launch files

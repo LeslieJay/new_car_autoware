@@ -13,11 +13,27 @@ can_node:
     txqueuelen: 1000 #发送队列大小
     voice_frame_period_ms: 200   # 0x401最小发送周期
     engage_frame_period_ms: 500  # 0x301最小发送周期
+    control_frame_period_ms: 20  # 0x201固定发送周期，20ms=50Hz
+    control_command_warn_timeout_ms: 150
+    control_command_stop_timeout_ms: 300
 
-    # VCU 0x201 Byte5/Byte6: 0.1 s/bit, valid range 1..255.
-    # Used when Control.longitudinal.acceleration is undefined or zero.
-    default_acceleration_time_command: 10
-    default_deceleration_time_command: 10
+    # 0x201 Byte5/Byte6: each count changes target motor speed by 1 r/s per 20 ms cycle.
+    # Keep dynamic conversion disabled until the two coefficients have been calibrated.
+    use_dynamic_acceleration_steps: false
+    control_cycle_sec: 0.02
+    default_acceleration_step_command: 10
+    default_deceleration_step_command: 10
+    acceleration_step_counts_per_mps2: 0.0
+    deceleration_step_counts_per_mps2: 0.0
+
+    # 0x201 command conversion. Defaults preserve the existing wire values.
+    speed_command_scale_forward: 1000.0
+    speed_command_scale_reverse: 1000.0
+    speed_command_offset_forward: 0.0
+    speed_command_offset_reverse: 0.0
+    steering_command_scale_left: 5729.5779513082325
+    steering_command_scale_right: 5729.5779513082325
+    steering_command_offset: 0.0
 
     # 心跳统一配置
     #heartbeat_base_id: 1    # 实际 ID: can0 → 700, can1 → 701

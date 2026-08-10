@@ -155,11 +155,11 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Publisher<autoware_vehicle_msgs::msg::GearReport>::SharedPtr gear_report_publisher_;
         rclcpp::Publisher<ref_slam_interface::msg::BatteryState>::SharedPtr battery_publisher_;
         rclcpp::Publisher<vda5050_interfaces::msg::Error>::SharedPtr error_publisher_;
-        // linear.x=velocity(m/s), angular.z=steering_angle(rad)
-        // linear.y=acceleration(m/s^2)
+        // linear: velocity(m/s), acceleration(m/s^2), jerk(m/s^3)
+        // angular.y=steering_rotation_rate(rad/s), angular.z=steering_angle(rad)
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr control_cmd_debug_pub_;
         // linear.x=speed_command(mm/s), angular.z=angle_command(0.01deg)
-        // linear.y=acceleration_time_command(0.1s/bit), linear.z=deceleration_time_command(0.1s/bit)
+        // linear.y=Byte5 acceleration step, linear.z=Byte6 deceleration step
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr can_cmd_debug_pub_;
 
 
@@ -178,6 +178,7 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         void car_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg);
         void sendSafetyFrameCallback();
         void CreateSafetyFrame();
+        void controlWatchdogCallback();
 
         // engage_调用服务
         void call_engage_service(bool engage);
@@ -198,6 +199,7 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         struct can_frame voice_frame{}; 
         struct can_frame safe_frame{};
         rclcpp::TimerBase::SharedPtr safety_timer_;
+        rclcpp::TimerBase::SharedPtr control_watchdog_timer_;
         int gear = 1;
         uint8_t current_gear_report_ =
           autoware_vehicle_msgs::msg::GearReport::DRIVE;
@@ -207,9 +209,24 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Time last_engage_frame_time_{0, 0, RCL_ROS_TIME};
         int voice_frame_period_ms_{200};
         int engage_frame_period_ms_{500};
-        int default_acceleration_time_command_{10};
-        int default_deceleration_time_command_{10};
-        std::atomic<double> current_speed_{0.0};
+        int control_frame_period_ms_{20};
+        int control_command_warn_timeout_ms_{150};
+        int control_command_stop_timeout_ms_{300};
+        std::atomic<int64_t> last_control_steady_ns_{0};
+        std::atomic<bool> control_timeout_active_{false};
+        bool use_dynamic_acceleration_steps_{false};
+        double control_cycle_sec_{0.02};
+        int default_acceleration_step_command_{10};
+        int default_deceleration_step_command_{10};
+        double acceleration_step_counts_per_mps2_{0.0};
+        double deceleration_step_counts_per_mps2_{0.0};
+        double speed_command_scale_forward_{1000.0};
+        double speed_command_scale_reverse_{1000.0};
+        double speed_command_offset_forward_{0.0};
+        double speed_command_offset_reverse_{0.0};
+        double steering_command_scale_left_{5729.5779513082325};
+        double steering_command_scale_right_{5729.5779513082325};
+        double steering_command_offset_{0.0};
     };
 
 } // namespace can_driver
