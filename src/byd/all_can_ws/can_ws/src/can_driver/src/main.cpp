@@ -12,7 +12,7 @@
 #include "can_driver/can_node.hpp"
 #include "can_driver/can_receiver.hpp"
 #include "can_driver/can_send.hpp"
-#include "can_driver/hook_action_server.hpp"
+#include "can_driver/can_action_server.hpp"
 
 namespace can_driver
 {
@@ -40,7 +40,7 @@ int main(int argc, char * argv[])
   std::signal(SIGTERM, signalHandler);
 
   auto can_node = std::make_shared<can_driver::CanNode>();
-  auto fork_server = std::make_shared<can_driver::ForkActionServer>();
+  auto fork_server = std::make_shared<can_driver::CanActionServer>();
 
   const std::string interface0 = can_node->getCan0InterfaceName();
   const std::string interface1 = can_node->getCan1InterfaceName();

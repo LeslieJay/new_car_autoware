@@ -75,6 +75,7 @@ static void close_sixents_log_file();
 // ========== 简单的 YAML 配置文件加载（无外部依赖）==========
 static void trim(std::string &s)
 {
+  // 去掉首尾空格、制表符、换行符
   s.erase(0, s.find_first_not_of(" \t\r\n"));
   s.erase(s.find_last_not_of(" \t\r\n") + 1);
 }
@@ -91,6 +92,7 @@ static bool loadConfigFromYaml(const std::string &filepath)
   int line_no = 0;
   while (std::getline(file, line)) {
     ++line_no;
+    // 去除注释
     size_t comment = line.find('#');
     if (comment != std::string::npos) {
       line = line.substr(0, comment);
@@ -109,10 +111,12 @@ static bool loadConfigFromYaml(const std::string &filepath)
     trim(key);
     trim(value);
 
+    // 如果值被双引号包围，则去掉引号
     if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
       value = value.substr(1, value.size() - 2);
     }
 
+    // 根据 key 设置对应的全局变量
     if (key == "kCaMaxLen") {
       g_ca_max_len = std::stoi(value);
     } else if (key == "kSixMountPoint") {
@@ -130,7 +134,7 @@ static bool loadConfigFromYaml(const std::string &filepath)
     } else if (key == "kCanFdIf") {
       g_can_fd_if = value;
     } else if (key == "kCanFdId") {
-      g_can_fd_id = std::stoul(value, nullptr, 0);
+      g_can_fd_id = std::stoul(value, nullptr, 0);  // 自动识别十进制或十六进制
     } else if (key == "kSixentsLogRoot") {
       g_sixents_log_root = value;
     } else {
@@ -302,7 +306,7 @@ static void send_rtcm_via_canfd(const unsigned char * data, unsigned int len)
   int packet_idx = 0;
   while (offset < len) {
     struct canfd_frame frame{};
-    frame.can_id = g_can_fd_id;
+    frame.can_id = g_can_fd_id;          // 使用配置的 CAN ID
     frame.flags = CANFD_BRS;
 
     unsigned int chunk = (len - offset) > 64 ? 64 : (len - offset);
@@ -325,6 +329,7 @@ static void send_rtcm_via_canfd(const unsigned char * data, unsigned int len)
 void sixents_thread_func()
 {
   const char * path = g_ca_cert_path.c_str();
+  // 使用动态数组代替原先的静态 char pcount[kCaMaxLen]
   std::vector<char> pcount(g_ca_max_len);
   std::memset(pcount.data(), 0, g_ca_max_len);
 
@@ -351,6 +356,7 @@ void sixents_thread_func()
   param.paramSize = sizeof(param);
   param.keyType = SIXENTS_KEY_TYPE_AK;
 
+  // 使用从配置文件加载的字符串
   std::memcpy(param.key, g_six_ak.c_str(), g_six_ak.length());
   std::memcpy(param.secret, g_six_as.c_str(), g_six_as.length());
   std::memcpy(param.devID, g_six_dev_id.c_str(), g_six_dev_id.length());
@@ -367,7 +373,7 @@ void sixents_thread_func()
   if (param.rootCA != nullptr) {
     strcpy(reinterpret_cast<char *>(const_cast<sixents_char *>(param.rootCA)), pcount.data());
   }
-  param.serverPort = g_six_rtcm_port;
+  param.serverPort = g_six_rtcm_port;   // 使用配置的 RTCM 端口
   std::cout << "RootCA size: " << strlen(reinterpret_cast<const char *>(param.rootCA))
             << " bytes\n";
 
@@ -413,7 +419,9 @@ void signalHandler(int signum)
 
 int main(int argc, char * argv[])
 {
+  // ========== 第一步：从 six.yaml 加载配置（在 ROS 初始化之前或之后均可，这里放在最前面）==========
   loadConfigFromYaml("six.yaml");
+  // ============================================================================================
 
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, signalHandler);
@@ -440,33 +448,25 @@ int main(int argc, char * argv[])
   std::thread sixents_thread(sixents_thread_func);
 
   std::vector<std::thread> receive_threads;
+  std::vector<std::thread> publish_threads;
 
   if (socket1 >= 0) {
     auto receiver = std::make_shared<CanReceiver>(can_node);
     g_receivers.emplace_back(receiver);
     g_socket_handles.push_back(socket1);
 
-    // 只启动一个接收线程，内部直接处理所有数据
     receive_threads.emplace_back(&CanReceiver::receiveTask, receiver.get(), socket1, interface1);
+    publish_threads.emplace_back(&CanReceiver::publishNavSatFixTask, receiver.get());
+    publish_threads.emplace_back(&CanReceiver::publishGnssInsTask, receiver.get());
   } else {
     RCLCPP_ERROR(can_node->get_logger(), "Failed to initialize CAN interface %s", interface1.c_str());
   }
 
   rclcpp::spin(can_node);
 
-  // 停止所有接收器
   g_six_sdk_running = false;
   for (auto & receiver : g_receivers) {
     receiver->stop();
-  }
-
-  // 关闭 CAN socket 以唤醒被 read() 阻塞的线程
-  for (int & handle : g_socket_handles) {
-    if (handle >= 0) {
-      std::cout << "Closing socket handle: " << handle << std::endl;
-      ::close(handle);
-      handle = -1;
-    }
   }
 
   if (sixents_thread.joinable()) {
@@ -477,7 +477,20 @@ int main(int argc, char * argv[])
       t.join();
     }
   }
+  for (auto & t : publish_threads) {
+    if (t.joinable()) {
+      t.join();
+    }
+  }
   g_receivers.clear();
+
+  for (int & handle : g_socket_handles) {
+    if (handle >= 0) {
+      std::cout << "Closing socket handle: " << handle << std::endl;
+      ::close(handle);
+      handle = -1;
+    }
+  }
 
   close_sixents_log_file();
   g_sixents_status_log_pub.reset();

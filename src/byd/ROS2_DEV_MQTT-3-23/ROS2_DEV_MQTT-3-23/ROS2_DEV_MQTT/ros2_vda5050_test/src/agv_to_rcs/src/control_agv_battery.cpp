@@ -51,6 +51,7 @@ void AGVBatteryControl::set_flag_finish(bool flag){
 * @version:    V0.0
 ******************************************************************************************/
 bool AGVBatteryControl::control(){
+    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "已经进入充电模块AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     // 先等10秒，这是因为导航模块尽管已经完成导航，但仍会在几秒内发送0x404去设置驱动使能，这会导致充电使能被关闭，所以需要等它操作完再轮到我们
     std::this_thread::sleep_for(std::chrono::milliseconds(1000*10));
     agv_data_publish_->state_timer_callback();

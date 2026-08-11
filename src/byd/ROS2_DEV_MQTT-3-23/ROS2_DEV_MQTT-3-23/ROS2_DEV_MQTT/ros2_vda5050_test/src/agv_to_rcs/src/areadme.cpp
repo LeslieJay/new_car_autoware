@@ -17,3 +17,12 @@ ros2 topic pub --once /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg
 // 恢复
 ros2 topic pub --once /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg/AGVInstantActions "{header_id: 1001, timestamp: '2026-07-23T10:00:00Z', version: 'v1', manufacturer: 'BYD', serial_number: 'qqa0001', actions: [{action_type: 'stopPause', action_id: 'b34ec9c6-28fc-4b12-8db0-000000000001', action_description: 'agv恢复', blocking_type: 'HARD', action_parameters: []}]}"
 
+
+充电需要两条命令配合，先给一个带动作的order走到动作位置，然后再给一个instantaction，改变状态到充电
+ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder "{header_id: 0, timestamp: '2026-08-05T10:00:00+08:00', version: 'v1', manufacturer: 'BYD', serial_number: 'qqa0001', order_id: 'b32d7a42-2b1e-4b12-9531-31b6f226cee1', order_update_id: 0, zone_set_id: '22', nodes: [{node_id: '22_54', sequence_id: 0, released: true, actions: [], node_position: {x: 167.678558349609, y: -194.128631591797, theta: -2.69616770744324, map_id: '22', allowed_deviation_xy: 1.5, allowed_deviation_theta: 0.5}}, {node_id: '22_53', sequence_id: 2, released: true, actions: [{action_type: 'CHARGE', action_id: '5d962a1c-40e4-4a7d-9006-700720711bc6', blocking_type: 'HARD', action_parameters: []}], node_position: {x: 167.678558349609, y: -194.128631591797, theta: -2.69616770744324, map_id: '22', allowed_deviation_xy: 1.5, allowed_deviation_theta: 0.5}}], edges: [{edge_id: '22_54-22_53', sequence_id: 1, released: true, start_node_id: '22_54', end_node_id: '22_53', actions: [], max_speed: 1.0, orientation: 0.0, orientation_type: 'TANGENTIAL', rotation_allowed: true, trajectory: {degree: 1, knot_vector: [], control_points: [{x: 167.678558349609, y: -194.128631591797, weight: 1.0}, {x: 167.678558349609, y: -194.128631591797, weight: 1.0}]}, obstacle_avoidance_channel: 0}]}"
+
+第一条命令到达目标点后，进入充电函数，但是函数中进入阻塞态，只有instantActions才会改变标志位，从阻塞中唤醒，开始尝试联系充电服务端
+ros2 topic pub /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg/AGVInstantActions "{header_id: 1, timestamp: '2026-08-05T10:02:00.000000', version: 'v1', manufacturer: 'BYD', serial_number: 'qqa0001', actions: [{action_type: 'start_charge', action_id: 'f9459907-a47a-49ca-a19e-c1aa7c5f0862', action_description: '', blocking_type: 'HARD', action_parameters: []}]}" --once
+如果充电服务端没有启动，发布这条命令就会报错
+
+

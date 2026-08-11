@@ -102,10 +102,12 @@ geometry_msgs::msg::Quaternion attiToQuaternion(const int16_t atti[2], const uin
 {
   const double DEG_TO_RAD = M_PI / 180.0;
 
+  // Protocol scale: [pitch, roll, yaw_north_cw]
   const double pitch = static_cast<double>(atti[0]) / INT_ATTI * DEG_TO_RAD;
   const double roll = static_cast<double>(atti[1]) / INT_ATTI * DEG_TO_RAD;
   const double yaw_north_cw = static_cast<double>(atti3) / INT_ATTI * DEG_TO_RAD;
 
+  // Vendor intrinsic order y -> x -> -z, quaternion array [w, x, y, z]
   const double sina = std::sin(pitch * 0.5);
   const double sinb = std::sin(roll * 0.5);
   const double sinc = std::sin(yaw_north_cw * 0.5);
@@ -130,6 +132,7 @@ geometry_msgs::msg::Quaternion attiToQuaternion(const int16_t atti[2], const uin
   tf2::Quaternion q_vendor(
     q_vendor_array[1], q_vendor_array[2], q_vendor_array[3], q_vendor_array[0]);
 
+  // North-CW -> ROS ENU East-CCW
   tf2::Quaternion q_ref;
   q_ref.setRotation(tf2::Vector3(0.0, 0.0, 1.0), M_PI_2);
 
@@ -174,6 +177,8 @@ CanReceiver::CanReceiver(std::shared_ptr<rclcpp::Node> node) : node_(node), runn
 CanReceiver::~CanReceiver()
 {
   running_ = false;
+  nav_cv_.notify_all();
+  gnss_cv_.notify_all();
   if (raw_log_file_.is_open()) {
     raw_log_file_.close();
   }
@@ -187,10 +192,13 @@ bool CanReceiver::isRunning() const
 void CanReceiver::stop()
 {
   running_ = false;
+  nav_cv_.notify_all();
+  gnss_cv_.notify_all();
 }
 
 bool CanReceiver::initRawLogging()
 {
+  // Ensure parent directory exists
   const auto slash = raw_log_basename_.find_last_of('/');
   if (slash != std::string::npos) {
     const std::string dir = raw_log_basename_.substr(0, slash);
@@ -289,14 +297,10 @@ void CanReceiver::writeRawFrame(const CanFrame & frame, const rclcpp::Time & sta
   }
 }
 
-// 单线程接收与处理：收一帧，立刻处理一帧
 void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/)
 {
   running_ = true;
   struct canfd_frame frame{};
-
-  // 用于每秒输出一次 RTK 状态的计时变量
-  auto last_status_time = std::chrono::steady_clock::now();
 
   while (running_ && rclcpp::ok()) {
     int nbytes = read(handle, &frame, sizeof(frame));
@@ -312,12 +316,38 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
     writeRawFrame(can_frame, node_->now());
 
     if (frame.can_id == 0x603) {
-      // ------------------ 处理导航/姿态帧 (原 handleNavFrame) ------------------
+      std::lock_guard<std::mutex> lock(nav_queue_mutex_);
+      nav_queue_.push_back(can_frame);
+      nav_cv_.notify_one();
+    } else if (frame.can_id == 0x604) {
+      std::lock_guard<std::mutex> lock(gnss_queue_mutex_);
+      gnss_queue_.push_back(can_frame);
+      gnss_cv_.notify_one();
+    }
+  }
+}
+
+void CanReceiver::publishNavSatFixTask()
+{
+  std::deque<CanFrame> frames_to_publish;
+  auto last_status_time = std::chrono::steady_clock::now();
+
+  while (rclcpp::ok()) {
+    {
+      std::unique_lock<std::mutex> lock(nav_queue_mutex_);
+      nav_cv_.wait(lock, [this] { return !nav_queue_.empty() || !running_; });
+      if (!running_ && nav_queue_.empty()) {
+        break;
+      }
+      nav_queue_.swap(frames_to_publish);
+    }
+
+    for (auto & frame : frames_to_publish) {
       ins_pos_can_t dataPos;
-      if (can_frame.dataLen < sizeof(dataPos)) {
+      if (frame.dataLen < sizeof(dataPos)) {
         continue;
       }
-      std::memcpy(&dataPos, can_frame.data, sizeof(dataPos));
+      std::memcpy(&dataPos, frame.data, sizeof(dataPos));
 
       sensor_msgs::msg::NavSatFix msg;
       auto stamp = toRosTime(
@@ -329,7 +359,6 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
       msg.altitude = static_cast<double>(dataPos.pos_ins[2]) / INT_POS;
       msg.status.status = dataPos.state;
 
-      // 每秒输出一次状态
       auto now = std::chrono::steady_clock::now();
       if (std::chrono::duration_cast<std::chrono::seconds>(now - last_status_time).count() >= 1) {
         last_status_time = now;
@@ -352,6 +381,7 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
       autoware_sensing_msgs::msg::GnssInsOrientationStamped gnss_msg;
       gnss_msg.header.stamp = stamp;
       gnss_msg.header.frame_id = "imu_link";
+      // Copy atti to avoid packed-member address warning
       int16_t atti_copy[2] = {dataPos.atti[0], dataPos.atti[1]};
       gnss_msg.orientation.orientation = attiToQuaternion(atti_copy, dataPos.atti3);
       if (rtk_GnssInsOrientationStamped_publisher_) {
@@ -387,13 +417,31 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
         twist_msg.twist.covariance.fill(0.0);
         rtk_velocity_twist_publisher_->publish(twist_msg);
       }
-    } else if (frame.can_id == 0x604) {
-      // ------------------ 处理 IMU 帧 (原 handleImuFrame) ------------------
+    }
+    frames_to_publish.clear();
+  }
+}
+
+void CanReceiver::publishGnssInsTask()
+{
+  std::deque<CanFrame> frames_to_publish;
+
+  while (rclcpp::ok()) {
+    {
+      std::unique_lock<std::mutex> lock(gnss_queue_mutex_);
+      gnss_cv_.wait(lock, [this] { return !gnss_queue_.empty() || !running_; });
+      if (!running_ && gnss_queue_.empty()) {
+        break;
+      }
+      gnss_queue_.swap(frames_to_publish);
+    }
+
+    for (auto & frame : frames_to_publish) {
       ins_atti_can_t dataPos;
-      if (can_frame.dataLen < sizeof(dataPos)) {
+      if (frame.dataLen < sizeof(dataPos)) {
         continue;
       }
-      std::memcpy(&dataPos, can_frame.data, sizeof(dataPos));
+      std::memcpy(&dataPos, frame.data, sizeof(dataPos));
 
       sensor_msgs::msg::Imu imu_msg;
       imu_msg.header.stamp = node_->now();
@@ -420,6 +468,7 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
         imu_publisher_->publish(imu_msg);
       }
     }
+    frames_to_publish.clear();
   }
 }
 
