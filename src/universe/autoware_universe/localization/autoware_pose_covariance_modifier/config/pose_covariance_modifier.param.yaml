@@ -21,4 +21,16 @@
     # If GNSS data is not received for this duration, trust only NDT
     gnss_pose_timeout_sec: 1.0
 
+    # Degrade quickly, but require a longer stable period before trusting GNSS again
+    switch_to_ndt_count_threshold: 5
+    switch_to_gnss_count_threshold: 20
+
+    # GNSS recovery is allowed only when it agrees with the continuously running NDT localizer
+    gnss_ndt_position_difference_threshold: 0.3
+    gnss_ndt_yaw_difference_threshold_deg: 3.0
+
+    # Experimental: use the latest GNSS position and NDT orientation while GNSS remains usable.
+    # Output is published at the NDT rate. If GNSS degrades or times out, the node falls back to NDT.
+    use_ndt_orientation_with_gnss_position: false
+
     enable_debug_topics: true

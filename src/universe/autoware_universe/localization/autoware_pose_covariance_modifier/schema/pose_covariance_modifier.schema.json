@@ -38,8 +38,38 @@
         },
         "gnss_pose_timeout_sec": {
           "type": "number",
+          "minimum": 0.0,
           "default": 1.0,
           "description": "If GNSS data is not received for this duration, trust only NDT"
+        },
+        "switch_to_ndt_count_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Number of consecutive degraded GNSS poses required before switching toward NDT"
+        },
+        "switch_to_gnss_count_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Number of consecutive recovered GNSS poses required before switching toward GNSS"
+        },
+        "gnss_ndt_position_difference_threshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.3,
+          "description": "Maximum GNSS/NDT horizontal position difference allowed when recovering GNSS"
+        },
+        "gnss_ndt_yaw_difference_threshold_deg": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 3.0,
+          "description": "Maximum GNSS/NDT yaw difference allowed when recovering GNSS"
+        },
+        "use_ndt_orientation_with_gnss_position": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental mode: publish GNSS position with NDT orientation while GNSS is usable"
         },
         "enable_debug_topics": {
           "type": "boolean",
@@ -53,6 +83,11 @@
         "threshold_gnss_stddev_xy_bound_lower",
         "threshold_gnss_stddev_xy_bound_upper",
         "gnss_pose_timeout_sec",
+        "switch_to_ndt_count_threshold",
+        "switch_to_gnss_count_threshold",
+        "gnss_ndt_position_difference_threshold",
+        "gnss_ndt_yaw_difference_threshold_deg",
+        "use_ndt_orientation_with_gnss_position",
         "enable_debug_topics"
       ],
       "additionalProperties": false

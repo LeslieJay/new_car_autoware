@@ -14,9 +14,10 @@ It outputs a single pose with covariance:
 - Directly the GNSS pose and its covariance.
 - Directly the NDT pose and its covariance.
 - Both GNSS and NDT poses with modified covariances.
+- Optionally, for testing, a hybrid pose containing the GNSS position and NDT orientation.
 
-> - This package doesn't modify the pose information it receives.
-> - It only modifies NDT covariance values under certain conditions.
+By default, this package does not modify pose values and only modifies NDT covariance values under
+certain conditions. The experimental hybrid mode is the exception.
 
 ## Assumptions
 
@@ -158,6 +159,20 @@ in [config/pose_covariance_modifier.param.yaml](config/pose_covariance_modifier.
 
 {{ json_to_markdown(
   "localization/autoware_pose_covariance_modifier/schema/pose_covariance_modifier.schema.json") }}
+
+### Experimental GNSS-position/NDT-orientation mode
+
+Set `use_ndt_orientation_with_gnss_position` to `true` to test a hybrid measurement:
+
+- Position and position covariance come from the latest GNSS pose.
+- Orientation and orientation covariance come from the current NDT pose.
+- Position/orientation covariance cross terms are cleared.
+- The output timestamp and frequency follow NDT.
+- If GNSS becomes unusable or times out, normal NDT-only fallback remains active.
+
+This mode uses the latest GNSS sample rather than exact timestamp synchronization. Test it at low
+speed first, especially during turns, and disable it when NDT reports poor matching or the vehicle
+is outside the pointcloud-map range.
 
 ## FAQ
 

@@ -20,6 +20,8 @@
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include <cstddef>
+
 namespace autoware::pose_covariance_modifier
 {
 class PoseCovarianceModifierNode : public rclcpp::Node
@@ -48,11 +50,19 @@ private:
   double ndt_std_dev_bound_lower_;
   double ndt_std_dev_bound_upper_;
   double gnss_pose_timeout_sec_;
+  int switch_to_ndt_count_threshold_;
+  int switch_to_gnss_count_threshold_;
+  double gnss_ndt_position_difference_threshold_;
+  double gnss_ndt_yaw_difference_threshold_deg_;
+  bool use_ndt_orientation_with_gnss_position_;
   bool debug_mode_;
 
   rclcpp::Time gnss_pose_received_time_last_;
   geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr gnss_pose_with_cov_last_;
+  geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr ndt_pose_with_cov_last_;
   PoseSource pose_source_;
+  PoseSource candidate_pose_source_;
+  std::size_t candidate_pose_source_count_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
     sub_gnss_pose_with_cov_;
@@ -75,8 +85,19 @@ private:
   PoseSource pose_source_from_gnss_stddev(
     double gnss_pose_yaw_stddev_deg, double gnss_pose_stddev_z, double gnss_pose_stddev_xy) const;
 
+  void update_pose_source(PoseSource requested_pose_source);
+
+  bool gnss_and_ndt_are_consistent(
+    const geometry_msgs::msg::PoseWithCovarianceStamped & gnss_pose,
+    const geometry_msgs::msg::PoseWithCovarianceStamped & ndt_pose, double & position_difference,
+    double & yaw_difference_deg) const;
+
   std::array<double, 36> update_ndt_covariances_from_gnss(
     const std::array<double, 36> & ndt_covariance_in);
+
+  geometry_msgs::msg::PoseWithCovarianceStamped make_gnss_position_ndt_orientation_pose(
+    const geometry_msgs::msg::PoseWithCovarianceStamped & gnss_pose,
+    const geometry_msgs::msg::PoseWithCovarianceStamped & ndt_pose) const;
 
   void publish_pose_type(const PoseSource & pose_source);
 };

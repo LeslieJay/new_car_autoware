@@ -10,9 +10,9 @@
 
   <include file="$(find-pkg-share lidar_transform)/launch/concatenated_pointclouds.xml">
     <arg name="RadiusOutlierFilter"  value="1.5"/>
-    <arg name="transform_x" value="0.99565"/>
+    <arg name="transform_x" value="1.15341"/>
     <arg name="transform_y"  value="0.0"/>
-    <arg name="transform_z"  value="2.08054"/>
+    <arg name="transform_z"  value="2.0085"/>
     <arg name="transform_roll"  value="0.0"/>
     <arg name="transform_pitch"  value="0.0"/>
     <arg name="transform_yaw" value="0.0"/>
