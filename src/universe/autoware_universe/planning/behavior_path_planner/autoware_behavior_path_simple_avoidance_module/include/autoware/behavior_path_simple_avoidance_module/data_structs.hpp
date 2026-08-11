@@ -16,6 +16,7 @@
 #define AUTOWARE__BEHAVIOR_PATH_SIMPLE_AVOIDANCE_MODULE__DATA_STRUCTS_HPP_
 
 #include "autoware/behavior_path_planner_common/utils/path_shifter/path_shifter.hpp"
+#include "autoware/behavior_path_simple_avoidance_module/trailer_geometry.hpp"
 
 #include <rclcpp/time.hpp>
 
@@ -24,6 +25,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace autoware::behavior_path_planner
 {
@@ -34,6 +37,10 @@ enum class InfeasibleReason {
   NO_ROOM,
   INSUFFICIENT_DISTANCE,
   PATH_GENERATION_FAILED,
+  TRAILER_COLLISION,
+  ROAD_BOUNDARY,
+  ARTICULATION_LIMIT,
+  COMPUTATION_TIMEOUT,
 };
 
 inline const char * toString(const InfeasibleReason reason)
@@ -49,6 +56,14 @@ inline const char * toString(const InfeasibleReason reason)
       return "infeasible_distance";
     case InfeasibleReason::PATH_GENERATION_FAILED:
       return "path_generation_failed";
+    case InfeasibleReason::TRAILER_COLLISION:
+      return "trailer_collision";
+    case InfeasibleReason::ROAD_BOUNDARY:
+      return "road_boundary";
+    case InfeasibleReason::ARTICULATION_LIMIT:
+      return "articulation_limit";
+    case InfeasibleReason::COMPUTATION_TIMEOUT:
+      return "computation_timeout";
   }
   return "unknown";
 }
@@ -68,6 +83,15 @@ struct SimpleAvoidanceParameters
   double target_lost_time_threshold{1.0};
   double target_hold_lateral_hysteresis{0.3};
   double lateral_execution_threshold{0.05};
+  std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
+  double tractor_rear_axle_to_hitch{0.6};
+  double trailer_footprint_sampling_interval{0.5};
+  double trailer_lateral_search_resolution{0.1};
+  double trailer_return_search_resolution{0.5};
+  double trailer_max_extra_return_distance{20.0};
+  double trailer_max_planning_time_ms{20.0};
+  double trailer_stationary_speed_threshold{0.05};
+  std::unordered_map<std::string, TrailerGeometry> trailer_types;
   bool publish_debug_marker{false};
 };
 

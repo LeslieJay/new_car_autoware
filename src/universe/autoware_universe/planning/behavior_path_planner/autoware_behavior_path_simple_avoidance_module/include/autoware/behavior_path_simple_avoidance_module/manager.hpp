@@ -18,6 +18,8 @@
 #include "autoware/behavior_path_planner_common/interface/scene_module_manager_interface.hpp"
 #include "autoware/behavior_path_simple_avoidance_module/scene.hpp"
 
+#include <byd_vehicle_msgs/msg/trailer_configuration.hpp>
+
 #include <memory>
 #include <vector>
 
@@ -34,14 +36,19 @@ public:
   std::unique_ptr<SceneModuleInterface> createNewSceneModuleInstance() override
   {
     return std::make_unique<SimpleAvoidanceModule>(
-      name_, *node_, parameters_, rtc_interface_ptr_map_,
+      name_, *node_, parameters_, trailer_configuration_store_, rtc_interface_ptr_map_,
       objects_of_interest_marker_interface_ptr_map_, planning_factor_interface_);
   }
 
   void updateModuleParams(const std::vector<rclcpp::Parameter> & parameters) override;
 
 private:
+  void onTrailerConfiguration(const byd_vehicle_msgs::msg::TrailerConfiguration & message);
+
   std::shared_ptr<SimpleAvoidanceParameters> parameters_;
+  std::shared_ptr<TrailerConfigurationStore> trailer_configuration_store_;
+  rclcpp::Subscription<byd_vehicle_msgs::msg::TrailerConfiguration>::SharedPtr
+    trailer_configuration_sub_;
 };
 
 }  // namespace autoware::behavior_path_planner

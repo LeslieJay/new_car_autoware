@@ -19,6 +19,7 @@
   <depend>autoware_planning_factor_interface</depend>
   <depend>autoware_utils</depend>
   <depend>autoware_utils_uuid</depend>
+  <depend>byd_vehicle_msgs</depend>
   <depend>lanelet2_core</depend>
   <depend>geometry_msgs</depend>
   <depend>pluginlib</depend>

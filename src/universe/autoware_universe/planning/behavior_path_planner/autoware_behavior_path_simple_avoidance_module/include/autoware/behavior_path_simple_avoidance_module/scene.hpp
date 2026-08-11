@@ -32,6 +32,7 @@ public:
   SimpleAvoidanceModule(
     const std::string & name, rclcpp::Node & node,
     const std::shared_ptr<SimpleAvoidanceParameters> & parameters,
+    const std::shared_ptr<TrailerConfigurationStore> & trailer_configuration_store,
     const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> & rtc_interface_ptr_map,
     std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
       objects_of_interest_marker_interface_ptr_map,
@@ -68,7 +69,14 @@ private:
   std::optional<AvoidanceTarget> getActiveTargetOrHeldTarget();
   bool isEgoOnShiftLine() const;
   NoTargetDiagnosis diagnoseNoTarget() const;
-  ShiftLineArray buildShiftLines(const AvoidanceTarget & target, double shift_length) const;
+  ShiftLineArray buildShiftLines(
+    const AvoidanceTarget & target, double shift_length, double extra_return_distance = 0.0) const;
+  InfeasibleReason validateArticulatedPath(const PathWithLaneId & path) const;
+  std::optional<ShiftedPath> generateTrailerAwarePath(
+    const AvoidanceTarget & target, double initial_shift_length, ShiftLineArray & selected_lines,
+    InfeasibleReason & failure_reason) const;
+  BehaviorModuleOutput stopForInfeasibleTrailerPath(
+    InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const;
   BehaviorModuleOutput adjustDrivableArea(const ShiftedPath & path) const;
   BehaviorModuleOutput passThrough(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info = {}) const;
@@ -78,6 +86,8 @@ private:
   PathWithLaneId reference_path_{};
   lanelet::ConstLanelets current_lanelets_{};
   std::shared_ptr<SimpleAvoidanceParameters> parameters_;
+  std::shared_ptr<TrailerConfigurationStore> trailer_configuration_store_;
+  ResolvedTrailerConfiguration active_trailer_configuration_;
   PathShifter path_shifter_;
   ShiftedPath prev_output_{};
   std::optional<AvoidanceTarget> active_target_;

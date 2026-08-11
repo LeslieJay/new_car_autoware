@@ -88,6 +88,26 @@
       # 均不大于此值时，避障流程才可完成。过小可能长期无法结束，过大可能提前结束。
       lateral_execution_threshold: 0.1
 
+      trailer:
+        configuration_topic: /vehicle/status/trailer_configuration
+        tractor_rear_axle_to_hitch: 0.60
+        footprint_sampling_interval: 0.50
+        lateral_search_resolution: 0.10
+        return_search_resolution: 0.50
+        max_extra_return_distance: 20.0
+        max_planning_time_ms: 20.0
+        stationary_speed_threshold: 0.05
+        type_names: [default]
+        types:
+          # 仅用于接口和仿真验证；实车挂接拖斗前必须替换为实测尺寸。
+          default:
+            width: 1.305
+            axle_to_body_front: 1.00
+            axle_to_body_rear: 0.70
+            front_hitch_to_axle: 0.90
+            axle_to_rear_hitch: 0.60
+            max_articulation_angle_deg: 45.0
+
       # 是否发布避障目标和侧移线等调试 marker。
       # true 便于在 RViz 中确认目标筛选与路径生成；正式运行若关注通信和可视化开销，
       # 可在完成调试后设为 false。该参数不改变避障决策本身。

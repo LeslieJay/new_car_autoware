@@ -22,10 +22,16 @@
 #include "autoware/behavior_path_simple_avoidance_module/utils.hpp"
 
 #include <autoware/motion_utils/trajectory/path_shift.hpp>
+#include <autoware_utils/geometry/boost_geometry.hpp>
 #include <autoware_utils/geometry/geometry.hpp>
 #include <autoware_utils_uuid/uuid_helper.hpp>
 
+#include <boost/geometry/algorithms/distance.hpp>
+#include <boost/geometry/algorithms/correct.hpp>
+#include <boost/geometry/algorithms/intersects.hpp>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -235,12 +241,14 @@ void logPassThroughDetails(
 SimpleAvoidanceModule::SimpleAvoidanceModule(
   const std::string & name, rclcpp::Node & node,
   const std::shared_ptr<SimpleAvoidanceParameters> & parameters,
+  const std::shared_ptr<TrailerConfigurationStore> & trailer_configuration_store,
   const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> & rtc_interface_ptr_map,
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
     objects_of_interest_marker_interface_ptr_map,
   const std::shared_ptr<PlanningFactorInterface> & planning_factor_interface)
 : SceneModuleInterface{name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map, planning_factor_interface},
-  parameters_{parameters}
+  parameters_{parameters},
+  trailer_configuration_store_{trailer_configuration_store}
 {
 }
 
@@ -258,6 +266,10 @@ void SimpleAvoidanceModule::initVariables()
 
 void SimpleAvoidanceModule::processOnEntry()
 {
+  active_trailer_configuration_ = trailer_configuration_store_->snapshot();
+  RCLCPP_INFO(
+    getLogger(), "[SIMPLE_AVOIDANCE] frozen trailer configuration: count=%zu",
+    active_trailer_configuration_.geometries.size());
 }
 
 void SimpleAvoidanceModule::processOnExit()
@@ -637,7 +649,8 @@ NoTargetDiagnosis SimpleAvoidanceModule::diagnoseNoTarget() const
 }
 
 ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
-  const AvoidanceTarget & target, const double shift_length) const
+  const AvoidanceTarget & target, const double shift_length,
+  const double extra_return_distance) const
 {
   const auto ego_idx = planner_data_->findEgoIndex(reference_path_.points);
   const auto ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
@@ -649,7 +662,8 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   const double dist_to_avoid_end =
     dist_to_avoid_start + std::max(jerk_distance, parameters_->min_shifting_distance);
   const double dist_to_return_start = target.longitudinal_distance + target.object_half_length +
-                                      parameters_->return_distance_after_object;
+                                      parameters_->return_distance_after_object +
+                                      extra_return_distance;
   const double dist_to_return_end =
     dist_to_return_start + std::max(jerk_distance, parameters_->min_shifting_distance);
 
@@ -670,6 +684,163 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   return_shift.end = reference_path_.points.at(return_shift.end_idx).point.pose;
 
   return {avoid_shift, return_shift};
+}
+
+InfeasibleReason SimpleAvoidanceModule::validateArticulatedPath(const PathWithLaneId & path) const
+{
+  if (active_trailer_configuration_.geometries.empty()) {
+    return InfeasibleReason::NONE;
+  }
+
+  std::vector<geometry_msgs::msg::Pose> sampled_poses;
+  if (path.points.empty()) {
+    return InfeasibleReason::PATH_GENERATION_FAILED;
+  }
+  sampled_poses.push_back(path.points.front().point.pose);
+  double accumulated_distance = 0.0;
+  for (size_t i = 1; i < path.points.size(); ++i) {
+    accumulated_distance += autoware_utils::calc_distance2d(
+      path.points.at(i - 1).point.pose.position, path.points.at(i).point.pose.position);
+    if (accumulated_distance >= parameters_->trailer_footprint_sampling_interval) {
+      sampled_poses.push_back(path.points.at(i).point.pose);
+      accumulated_distance = 0.0;
+    }
+  }
+  if (
+    autoware_utils::calc_distance2d(
+      sampled_poses.back().position, path.points.back().point.pose.position) > 1e-3) {
+    sampled_poses.push_back(path.points.back().point.pose);
+  }
+
+  const auto articulated_path = predictArticulatedPath(
+    sampled_poses, active_trailer_configuration_.geometries,
+    parameters_->tractor_rear_axle_to_hitch);
+  if (!articulated_path.articulation_valid) {
+    return InfeasibleReason::ARTICULATION_LIMIT;
+  }
+
+  const auto ego_position = planner_data_->self_odometry->pose.pose.position;
+  size_t ego_sample_index = 0;
+  double min_ego_distance = std::numeric_limits<double>::max();
+  for (size_t i = 0; i < sampled_poses.size(); ++i) {
+    const double distance =
+      autoware_utils::calc_distance2d(ego_position, sampled_poses.at(i).position);
+    if (distance < min_ego_distance) {
+      min_ego_distance = distance;
+      ego_sample_index = i;
+    }
+  }
+
+  autoware_utils::LineString2d left_bound;
+  autoware_utils::LineString2d right_bound;
+  for (const auto & point : reference_path_.left_bound) {
+    left_bound.emplace_back(point.x, point.y);
+  }
+  for (const auto & point : reference_path_.right_bound) {
+    right_bound.emplace_back(point.x, point.y);
+  }
+
+  std::vector<autoware_utils::Polygon2d> static_obstacles;
+  if (planner_data_->dynamic_object) {
+    for (const auto & object : planner_data_->dynamic_object->objects) {
+      const auto & twist = object.kinematics.initial_twist_with_covariance.twist;
+      if (std::hypot(twist.linear.x, twist.linear.y) < parameters_->th_moving_speed) {
+        static_obstacles.push_back(autoware_utils::to_polygon2d(object));
+      }
+    }
+  }
+
+  const auto tractor_footprint = planner_data_->parameters.vehicle_info.createFootprint();
+  for (size_t path_index = ego_sample_index; path_index < articulated_path.poses.size();
+       ++path_index) {
+    const auto & articulated_pose = articulated_path.poses.at(path_index);
+    std::vector<autoware_utils::Polygon2d> footprints;
+    autoware_utils::Polygon2d tractor_polygon;
+    tractor_polygon.outer() = autoware_utils::transform_vector(
+      tractor_footprint, autoware_utils::pose2transform(articulated_pose.tractor));
+    boost::geometry::correct(tractor_polygon);
+    footprints.push_back(std::move(tractor_polygon));
+    for (size_t i = 0; i < articulated_pose.trailers.size(); ++i) {
+      footprints.push_back(createTrailerFootprint(
+        articulated_pose.trailers.at(i), active_trailer_configuration_.geometries.at(i)));
+    }
+
+    for (const auto & footprint : footprints) {
+      if (
+        (!left_bound.empty() && boost::geometry::intersects(footprint, left_bound)) ||
+        (!right_bound.empty() && boost::geometry::intersects(footprint, right_bound))) {
+        return InfeasibleReason::ROAD_BOUNDARY;
+      }
+      for (const auto & obstacle : static_obstacles) {
+        if (
+          boost::geometry::intersects(footprint, obstacle) ||
+          boost::geometry::distance(footprint, obstacle) < parameters_->lateral_margin) {
+          return InfeasibleReason::TRAILER_COLLISION;
+        }
+      }
+    }
+  }
+
+  return InfeasibleReason::NONE;
+}
+
+std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
+  const AvoidanceTarget & target, const double initial_shift_length,
+  ShiftLineArray & selected_lines, InfeasibleReason & failure_reason) const
+{
+  const auto start_time = std::chrono::steady_clock::now();
+  const double direction = initial_shift_length >= 0.0 ? 1.0 : -1.0;
+  const double initial_magnitude = std::abs(initial_shift_length);
+  failure_reason = InfeasibleReason::TRAILER_COLLISION;
+
+  for (double shift_magnitude = initial_magnitude;
+       shift_magnitude <= parameters_->max_shift_length + 1e-6;
+       shift_magnitude += parameters_->trailer_lateral_search_resolution) {
+    for (double extra_return = 0.0;
+         extra_return <= parameters_->trailer_max_extra_return_distance + 1e-6;
+         extra_return += parameters_->trailer_return_search_resolution) {
+      const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time)
+          .count();
+      if (elapsed_ms > parameters_->trailer_max_planning_time_ms) {
+        failure_reason = InfeasibleReason::COMPUTATION_TIMEOUT;
+        return std::nullopt;
+      }
+
+      const auto lines = buildShiftLines(target, direction * shift_magnitude, extra_return);
+      auto candidate_shifter = path_shifter_;
+      candidate_shifter.setShiftLines(lines);
+      ShiftedPath candidate;
+      if (!candidate_shifter.generate(&candidate) || candidate.path.points.empty()) {
+        failure_reason = InfeasibleReason::PATH_GENERATION_FAILED;
+        continue;
+      }
+      setOrientation(&candidate.path);
+      failure_reason = validateArticulatedPath(candidate.path);
+      if (failure_reason == InfeasibleReason::NONE) {
+        selected_lines = lines;
+        return candidate;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasibleTrailerPath(
+  const InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const
+{
+  auto output = getPreviousModuleOutput();
+  if (!output.path.points.empty()) {
+    const size_t ego_index = planner_data_->findEgoIndex(output.path.points);
+    for (size_t i = ego_index; i < output.path.points.size(); ++i) {
+      output.path.points.at(i).point.longitudinal_velocity_mps = 0.0;
+    }
+  }
+  debug_data_.last_reason = reason;
+  logPassThroughDetails(
+    getLogger(), *clock_, reason, debug_info, *parameters_,
+    planner_data_->parameters.vehicle_width * 0.5);
+  return output;
 }
 
 BehaviorModuleOutput SimpleAvoidanceModule::passThrough(
@@ -767,16 +938,27 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
     return passThrough(feasibility_result.reason, debug_info);
   }
 
-  const auto shift_lines = buildShiftLines(*target, shift_result.shift_length);
-  path_shifter_.setShiftLines(shift_lines);
+  ShiftedPath shifted_path;
+  ShiftLineArray shift_lines;
+  if (active_trailer_configuration_.geometries.empty()) {
+    shift_lines = buildShiftLines(*target, shift_result.shift_length);
+    path_shifter_.setShiftLines(shift_lines);
+    if (!path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
+      return passThrough(InfeasibleReason::PATH_GENERATION_FAILED, debug_info);
+    }
+    setOrientation(&shifted_path.path);
+  } else {
+    InfeasibleReason trailer_failure_reason{InfeasibleReason::TRAILER_COLLISION};
+    const auto trailer_path = generateTrailerAwarePath(
+      *target, shift_result.shift_length, shift_lines, trailer_failure_reason);
+    if (!trailer_path.has_value()) {
+      return stopForInfeasibleTrailerPath(trailer_failure_reason, debug_info);
+    }
+    shifted_path = *trailer_path;
+    path_shifter_.setShiftLines(shift_lines);
+  }
   debug_info.shift_lines_count = shift_lines.size();
 
-  ShiftedPath shifted_path;
-  if (!path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
-    return passThrough(InfeasibleReason::PATH_GENERATION_FAILED, debug_info);
-  }
-
-  setOrientation(&shifted_path.path);
   prev_output_ = shifted_path;
   debug_data_.last_reason = InfeasibleReason::NONE;
   debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
@@ -823,12 +1005,22 @@ CandidateOutput SimpleAvoidanceModule::planCandidate() const
     return CandidateOutput(getPreviousModuleOutput().path);
   }
 
-  auto path_shifter_local = path_shifter_;
-  path_shifter_local.setShiftLines(buildShiftLines(*active_target_, shift_result.shift_length));
-
   ShiftedPath shifted_path;
-  path_shifter_local.generate(&shifted_path);
-  setOrientation(&shifted_path.path);
+  if (active_trailer_configuration_.geometries.empty()) {
+    auto path_shifter_local = path_shifter_;
+    path_shifter_local.setShiftLines(buildShiftLines(*active_target_, shift_result.shift_length));
+    path_shifter_local.generate(&shifted_path);
+    setOrientation(&shifted_path.path);
+  } else {
+    ShiftLineArray selected_lines;
+    InfeasibleReason failure_reason{InfeasibleReason::TRAILER_COLLISION};
+    const auto trailer_path = generateTrailerAwarePath(
+      *active_target_, shift_result.shift_length, selected_lines, failure_reason);
+    if (!trailer_path.has_value()) {
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
+    shifted_path = *trailer_path;
+  }
   return CandidateOutput(shifted_path.path);
 }
 

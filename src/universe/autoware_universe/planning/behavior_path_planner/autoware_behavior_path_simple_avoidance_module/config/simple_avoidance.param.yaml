@@ -16,4 +16,23 @@
       target_lost_time_threshold: 1.0
       target_hold_lateral_hysteresis: 0.3
       lateral_execution_threshold: 0.05
+      trailer:
+        configuration_topic: /vehicle/status/trailer_configuration
+        tractor_rear_axle_to_hitch: 0.60
+        footprint_sampling_interval: 0.50
+        lateral_search_resolution: 0.10
+        return_search_resolution: 0.50
+        max_extra_return_distance: 20.0
+        max_planning_time_ms: 20.0
+        stationary_speed_threshold: 0.05
+        type_names: [default]
+        types:
+          # Example dimensions for simulation only. Replace with measured values before vehicle use.
+          default:
+            width: 1.305
+            axle_to_body_front: 1.00
+            axle_to_body_rear: 0.70
+            front_hitch_to_axle: 0.90
+            axle_to_rear_hitch: 0.60
+            max_articulation_angle_deg: 45.0
       publish_debug_marker: true
