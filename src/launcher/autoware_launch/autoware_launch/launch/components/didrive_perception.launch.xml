@@ -4,6 +4,7 @@
   <arg name="pointcloud_container_name" default="perception_container" description="name of pointcloud container"/>
   <arg name="use_pointcloud_container" default="true"/>
   <arg name="enable_lane_detection" default="false" description="Enable lane detection module"/>
+  <!-- <arg name="use_detection_by_tracker" default="false" description="enable detection_by_tracker module"/> -->
   <arg name="pointcloud" default="/sensing/lidar/concatenated/pointcloud" description="use simulator time"/>
   <arg name="occupancy_grid_map_method" default="pointcloud_based_occupancy_grid_map" description="options: pointcloud_based_occupancy_grid_map, laserscan_based_occupancy_grid_map, multi_lidar_pointcloud_based_occupancy_grid_map"/>
   <arg name="occupancy_grid_map_updater" default="binary_bayes_filter" description="options: binary_bayes_filter"/>
@@ -78,24 +79,33 @@
             <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/objects"/>
           </include>
         </group>
-      
-        
-        <!-- bevfusion (commented out)
+
+        <!-- 
+        detection_by_tracker
+        <group if="$(var use_detection_by_tracker)">
+          <include file="$(find-pkg-share autoware_detection_by_tracker)/launch/detection_by_tracker.launch.xml">
+            <arg name="input/initial_objects" value="/perception/object_recognition/detection/lidar_rule/objects"/>
+            <arg name="input/tracked_objects" value="/perception/object_recognition/tracking/objects"/>
+            <arg name="output" value="/perception/object_recognition/detection/detection_by_tracker/objects"/>
+          </include>
+        </group>
+        -->
+
+        <!--         
+        bevfusion
         <group>
           <include file="$(find-pkg-share didrive_ros2_bevfusion_async)/launch/bevfusion.launch.py">
             <arg name="model_path" value="$(find-pkg-share didrive_ros2_bevfusion_async)/models/resnet50_v1/onnx_int8"/>
             <arg name="precision" value="int8"/>
             <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
             <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
-            <arg name="lidar_topic" value="/rslidar_points"/>
+            <arg name="lidar_topic" value="/perception/obstacle_segmentation/pointcloud"/>
             <arg name="detection_topic" value="/perception/object_recognition/detection/lidar_dnn/objects"/>
           </include>
-        </group>
-        -->
+        </group> -->
 
-        
+        <!-- centerpoint (commented out) -->
         <group>
-          <!-- centerpoint -->
           <include file="$(find-pkg-share autoware_lidar_centerpoint)/launch/lidar_centerpoint.launch.xml">
             <arg name="input/pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
             <arg name="output/objects" value="/perception/object_recognition/detection/lidar_dnn/objects"/>
@@ -106,8 +116,7 @@
           </include>
         </group>
        
-
-                
+       
         <group>
           <!-- object merge -->
           <include file="$(find-pkg-share didrive_object_merger)/launch/object_association_merger.launch.xml">
@@ -131,9 +140,17 @@
       <!-- tracking module -->
       <group>
         <push-ros-namespace namespace="tracking"/>
-        <!-- tracker -->
+        <!-- original tracker (didrive_multi_object_tracker) - commented out
         <include file="$(find-pkg-share didrive_multi_object_tracker)/launch/multi_object_tracker.launch.xml">
           <arg name="output" value="/perception/object_recognition/tracking/objects"/>
+        </include>
+        -->
+
+        <!-- autoware_multi_object_tracker -->
+        <include file="$(find-pkg-share autoware_multi_object_tracker)/launch/multi_object_tracker.launch.xml">
+          <arg name="input/detection01/channel" value="detected_objects"/>
+          <arg name="input/detection01/objects" value="/perception/object_recognition/detection/objects"/>
+          <arg name="output/objects" value="/perception/object_recognition/tracking/objects"/>
         </include>
       </group>
       

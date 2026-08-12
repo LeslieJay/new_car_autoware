@@ -5,7 +5,6 @@ project(can_driver)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED) 
-find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(agv_interfaces REQUIRED)
 find_package(autoware_control_msgs REQUIRED)
@@ -24,14 +23,13 @@ add_executable(can_node
 src/can_node.cpp 
 src/can_receiver.cpp 
 src/can_send.cpp 
-src/hook_action_server.cpp
+src/can_action_server.cpp
 src/main.cpp)
 
 # 链接依赖和库
 ament_target_dependencies(can_node 
   agv_interfaces
   rclcpp
-  rcl_interfaces
   autoware_system_msgs
   rclcpp_action
   geometry_msgs

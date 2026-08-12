@@ -37,24 +37,22 @@ RequestChargingClient::RequestChargingClient(std::shared_ptr<rclcpp::Node> node)
     
 }
 
-// // 连接服务端，如果连接成功返回true否则返回false
-// bool RequestChargingClient::connect_server(){
-
-//     // 等待5s
-//     while (!client_->wait_for_service(5s)){
-
-//         // ctrl+c的特殊处理
-//         if (!rclcpp::ok()){
-//             RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"force client termination!");
-//             return false;
-//         }
-//         RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"connecting with server!");
-//     }
-//     return true;
-// }
+// 连接服务端，如果连接成功返回true否则返回false
 bool RequestChargingClient::connect_server(){
-    return false;
+    // 等待5s
+    while (!client_->wait_for_service(5s)){
+
+        // ctrl+c的特殊处理
+        if (!rclcpp::ok()){
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"force client termination!");
+            return false;
+        }
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"connecting with server!");
+    }
+    return true;
 }
+
+
 /*****************************************************************************************
 * @brief:      客户端发送数据到服务端
 * @param:      charging ：发送的数据（0：关闭充电，1：打开充电，2：查看充电状态）
