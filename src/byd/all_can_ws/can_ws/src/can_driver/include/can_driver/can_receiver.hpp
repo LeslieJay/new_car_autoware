@@ -25,6 +25,7 @@
 #include <linux/can.h>
 
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "ref_slam_interface/msg/battery_state.hpp"
 #include "can_driver/can_send.hpp"
 #include "autoware_control_msgs/msg/control.hpp"
@@ -179,6 +180,8 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         void sendSafetyFrameCallback();
         void CreateSafetyFrame();
         void controlWatchdogCallback();
+        rcl_interfaces::msg::SetParametersResult onCalibrationParameters(
+          const std::vector<rclcpp::Parameter> & parameters);
 
         // engage_调用服务
         void call_engage_service(bool engage);
@@ -198,6 +201,7 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         // 每1分钟只向cu发送一次前进和自动驾驶的语音播报，防止其他语音被淹没
         struct can_frame voice_frame{}; 
         struct can_frame safe_frame{};
+        std::mutex safe_frame_mutex_;
         rclcpp::TimerBase::SharedPtr safety_timer_;
         rclcpp::TimerBase::SharedPtr control_watchdog_timer_;
         int gear = 1;
@@ -210,14 +214,14 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         int voice_frame_period_ms_{200};
         int engage_frame_period_ms_{500};
         int control_frame_period_ms_{20};
-        int control_command_warn_timeout_ms_{150};
-        int control_command_stop_timeout_ms_{300};
+        int control_command_warn_timeout_ms_{60};
+        int control_command_stop_timeout_ms_{100};
         std::atomic<int64_t> last_control_steady_ns_{0};
         std::atomic<bool> control_timeout_active_{false};
         bool use_dynamic_acceleration_steps_{false};
         double control_cycle_sec_{0.02};
-        int default_acceleration_step_command_{10};
-        int default_deceleration_step_command_{10};
+        std::atomic<int> default_acceleration_step_command_{10};
+        std::atomic<int> default_deceleration_step_command_{10};
         double acceleration_step_counts_per_mps2_{0.0};
         double deceleration_step_counts_per_mps2_{0.0};
         double speed_command_scale_forward_{1000.0};
@@ -227,6 +231,8 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         double steering_command_scale_left_{5729.5779513082325};
         double steering_command_scale_right_{5729.5779513082325};
         double steering_command_offset_{0.0};
+        rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+          calibration_parameter_callback_;
     };
 
 } // namespace can_driver

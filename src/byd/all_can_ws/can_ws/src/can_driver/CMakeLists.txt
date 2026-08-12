@@ -5,6 +5,7 @@ project(can_driver)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED) 
+find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(agv_interfaces REQUIRED)
 find_package(autoware_control_msgs REQUIRED)
@@ -30,6 +31,7 @@ src/main.cpp)
 ament_target_dependencies(can_node 
   agv_interfaces
   rclcpp
+  rcl_interfaces
   autoware_system_msgs
   rclcpp_action
   geometry_msgs

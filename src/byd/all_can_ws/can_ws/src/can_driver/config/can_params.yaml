@@ -14,8 +14,8 @@ can_node:
     voice_frame_period_ms: 200   # 0x401最小发送周期
     engage_frame_period_ms: 500  # 0x301最小发送周期
     control_frame_period_ms: 20  # 0x201固定发送周期，20ms=50Hz
-    control_command_warn_timeout_ms: 150
-    control_command_stop_timeout_ms: 300
+    control_command_warn_timeout_ms: 60   # 连续丢失约3个50Hz控制周期后告警
+    control_command_stop_timeout_ms: 100  # 连续丢失约5个周期后切换零速抱闸帧
 
     # 0x201 Byte5/Byte6: each count changes target motor speed by 1 r/s per 20 ms cycle.
     # Keep dynamic conversion disabled until the two coefficients have been calibrated.

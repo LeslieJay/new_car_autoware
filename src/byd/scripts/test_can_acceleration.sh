@@ -36,13 +36,13 @@ publish_for() {
   local velocity="$2"
   local acceleration="$3"
   timeout --signal=INT "${duration}" \
-    ros2 topic pub -r 10 /control/command/control_cmd \
+    ros2 topic pub -r 50 /control/command/control_cmd \
     autoware_control_msgs/msg/Control \
     "$(control_message "${velocity}" "${acceleration}")" >/dev/null 2>&1 || true
 }
 
 send_stop() {
-  ros2 topic pub --times 3 -r 10 /control/command/control_cmd \
+  ros2 topic pub --times 5 -r 50 /control/command/control_cmd \
     autoware_control_msgs/msg/Control \
     "$(control_message 0.0 "${TEST_DECELERATION}")" >/dev/null 2>&1 || true
 }

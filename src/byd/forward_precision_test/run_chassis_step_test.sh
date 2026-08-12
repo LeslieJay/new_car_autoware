@@ -96,7 +96,7 @@ control_message() {
 publish_for() {
   local velocity=$1
   local seconds=$2
-  timeout --signal=INT "${seconds}" ros2 topic pub -r 20 \
+  timeout --signal=INT "${seconds}" ros2 topic pub -r 50 \
     /external/selected/control_cmd autoware_control_msgs/msg/Control \
     "$(control_message "${velocity}")" >/dev/null 2>&1 || true
 }

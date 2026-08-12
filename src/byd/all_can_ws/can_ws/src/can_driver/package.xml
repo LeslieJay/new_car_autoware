@@ -13,6 +13,7 @@
   <!-- 依赖项 -->
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
+  <depend>rcl_interfaces</depend>
   <depend>autoware_control_msgs</depend>
   <depend>tier4_external_api_msgs</depend>
   <depend>agv_interfaces</depend>

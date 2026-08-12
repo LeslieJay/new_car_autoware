@@ -1,4 +1,4 @@
 /**:
   ros__parameters:
-    ctrl_period: 0.03
+    ctrl_period: 0.02  # 50 Hz control cycle
     timeout_thr_sec: 0.5

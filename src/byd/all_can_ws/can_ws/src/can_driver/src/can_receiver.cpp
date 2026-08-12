@@ -95,8 +95,8 @@ namespace can_driver
         node_->declare_parameter("voice_frame_period_ms", 200);
         node_->declare_parameter("engage_frame_period_ms", 500);
         node_->declare_parameter("control_frame_period_ms", 20);
-        node_->declare_parameter("control_command_warn_timeout_ms", 150);
-        node_->declare_parameter("control_command_stop_timeout_ms", 300);
+        node_->declare_parameter("control_command_warn_timeout_ms", 60);
+        node_->declare_parameter("control_command_stop_timeout_ms", 100);
         node_->declare_parameter("use_dynamic_acceleration_steps", false);
         node_->declare_parameter("control_cycle_sec", 0.02);
         node_->declare_parameter("default_acceleration_step_command", 10);
@@ -120,8 +120,10 @@ namespace can_driver
         node_->get_parameter("control_command_stop_timeout_ms", control_command_stop_timeout_ms_);
         node_->get_parameter("use_dynamic_acceleration_steps", use_dynamic_acceleration_steps_);
         node_->get_parameter("control_cycle_sec", control_cycle_sec_);
-        node_->get_parameter("default_acceleration_step_command", default_acceleration_step_command_);
-        node_->get_parameter("default_deceleration_step_command", default_deceleration_step_command_);
+        int acceleration_step_command = 10;
+        int deceleration_step_command = 10;
+        node_->get_parameter("default_acceleration_step_command", acceleration_step_command);
+        node_->get_parameter("default_deceleration_step_command", deceleration_step_command);
         node_->get_parameter("acceleration_step_counts_per_mps2", acceleration_step_counts_per_mps2_);
         node_->get_parameter("deceleration_step_counts_per_mps2", deceleration_step_counts_per_mps2_);
         node_->get_parameter("speed_command_scale_forward", speed_command_scale_forward_);
@@ -137,10 +139,12 @@ namespace can_driver
         control_command_warn_timeout_ms_ = std::max(control_command_warn_timeout_ms_, 0);
         control_command_stop_timeout_ms_ =
           std::max(control_command_stop_timeout_ms_, control_command_warn_timeout_ms_ + 1);
-        default_acceleration_step_command_ =
-          std::clamp(default_acceleration_step_command_, 1, 255);
-        default_deceleration_step_command_ =
-          std::clamp(default_deceleration_step_command_, 1, 255);
+        default_acceleration_step_command_.store(
+          std::clamp(acceleration_step_command, 1, 255), std::memory_order_relaxed);
+        default_deceleration_step_command_.store(
+          std::clamp(deceleration_step_command, 1, 255), std::memory_order_relaxed);
+        calibration_parameter_callback_ = node_->add_on_set_parameters_callback(
+          std::bind(&CanReceiver::onCalibrationParameters, this, std::placeholders::_1));
         if (use_dynamic_acceleration_steps_ &&
             (acceleration_step_counts_per_mps2_ <= 0.0 ||
              deceleration_step_counts_per_mps2_ <= 0.0)) {
@@ -159,7 +163,7 @@ namespace can_driver
             std::bind(&CanReceiver::sendSafetyFrameCallback, this)
         );
         control_watchdog_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(50),
+            std::chrono::milliseconds(20),
             std::bind(&CanReceiver::controlWatchdogCallback, this));
         publishGearStatus(current_gear_report_);
         last_control_time_ = node_->get_clock()->now();  // 新增
@@ -882,11 +886,11 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
 
         const uint8_t acceleration_step_command = encodeMotorSpeedStep(
           msg->longitudinal.acceleration, acceleration_step_counts_per_mps2_,
-          static_cast<uint8_t>(default_acceleration_step_command_),
+          static_cast<uint8_t>(default_acceleration_step_command_.load(std::memory_order_relaxed)),
           use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
         const uint8_t deceleration_step_command = encodeMotorSpeedStep(
           msg->longitudinal.acceleration, deceleration_step_counts_per_mps2_,
-          static_cast<uint8_t>(default_deceleration_step_command_),
+          static_cast<uint8_t>(default_deceleration_step_command_.load(std::memory_order_relaxed)),
           use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
 
         // // 舵轮转角超过阈值时, 再次降低车速
@@ -1130,6 +1134,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
     }
 
     void CanReceiver::CreateSafetyFrame() {
+        std::lock_guard<std::mutex> lock(safe_frame_mutex_);
         // 构造安全报文 - 速度为0，转角为0，抱闸
         safe_frame.can_id = 0x201;
         safe_frame.can_dlc = 8;
@@ -1139,9 +1144,49 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         safe_frame.data[2] = 0;
         safe_frame.data[3] = 0;
         safe_frame.data[4] = 0b10000000; // 抱闸状态
-        safe_frame.data[5] = static_cast<uint8_t>(default_acceleration_step_command_);
-        safe_frame.data[6] = static_cast<uint8_t>(default_deceleration_step_command_);
+        safe_frame.data[5] = static_cast<uint8_t>(
+          default_acceleration_step_command_.load(std::memory_order_relaxed));
+        safe_frame.data[6] = static_cast<uint8_t>(
+          default_deceleration_step_command_.load(std::memory_order_relaxed));
         safe_frame.data[7] = 0;
+    }
+
+    rcl_interfaces::msg::SetParametersResult CanReceiver::onCalibrationParameters(
+      const std::vector<rclcpp::Parameter> & parameters)
+    {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+
+        for (const auto & parameter : parameters) {
+            const auto & name = parameter.get_name();
+            if (name != "default_acceleration_step_command" &&
+                name != "default_deceleration_step_command") {
+                continue;
+            }
+            if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+                result.successful = false;
+                result.reason = name + " must be an integer";
+                return result;
+            }
+            const int64_t value = parameter.as_int();
+            if (value < 1 || value > 255) {
+                result.successful = false;
+                result.reason = name + " must be in [1, 255]";
+                return result;
+            }
+        }
+
+        for (const auto & parameter : parameters) {
+            if (parameter.get_name() == "default_acceleration_step_command") {
+                default_acceleration_step_command_.store(
+                  static_cast<int>(parameter.as_int()), std::memory_order_relaxed);
+            } else if (parameter.get_name() == "default_deceleration_step_command") {
+                default_deceleration_step_command_.store(
+                  static_cast<int>(parameter.as_int()), std::memory_order_relaxed);
+            }
+        }
+        CreateSafetyFrame();
+        return result;
     }
 
     void CanReceiver::controlWatchdogCallback()
@@ -1160,7 +1205,12 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
 
         if (age_ms >= control_command_stop_timeout_ms_ &&
             !control_timeout_active_.exchange(true, std::memory_order_relaxed)) {
-            send_queue_->setLatestControlFrame(safe_frame);
+            can_frame safety_frame{};
+            {
+                std::lock_guard<std::mutex> lock(safe_frame_mutex_);
+                safety_frame = safe_frame;
+            }
+            send_queue_->setLatestControlFrame(safety_frame);
             RCLCPP_ERROR(
               node_->get_logger(),
               "Control command timeout after %ld ms; switching periodic 0x201 to the safety frame",
