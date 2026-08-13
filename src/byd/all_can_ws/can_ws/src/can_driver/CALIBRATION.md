@@ -11,6 +11,22 @@ CAN ID `0x201` is sent every 20 ms. Byte 5 and Byte 6 are not time values:
 The dynamic conversion is disabled until calibration coefficients are available. In fixed mode,
 `default_acceleration_step_command` and `default_deceleration_step_command` are sent unchanged.
 
+## Calibration objective
+
+Calibrate the complete boundary from `autoware_control_msgs/msg/Control` to VCU `0x201` and
+vehicle feedback. Treat the following as four separate mappings; completing Byte 5/6 alone is not
+a complete `control_cmd` calibration:
+
+| Control field | 0x201 field | Candidate parameters |
+|---|---|---|
+| longitudinal velocity | Bytes 0-1 signed target speed | forward/reverse speed scale and offset |
+| steering tire angle | Bytes 2-3 signed steering target | left/right steering scale and zero offset |
+| positive acceleration | Byte 5 motor-speed increment/cycle | acceleration counts per m/s^2 |
+| negative acceleration | Byte 6 motor-speed decrement/cycle | deceleration counts per m/s^2 |
+
+Jerk and steering rotation rate have no `0x201` field and are recorded only; do not fit parameters
+for them.
+
 ## Low-speed calibration
 
 Use lifted drive wheels or a roller bed first. Ensure no other node publishes
@@ -25,23 +41,47 @@ source /home/byd/weicanming/github_projects/new_car_autoware/src/byd/all_can_ws/
 /home/byd/weicanming/github_projects/new_car_autoware/src/byd/scripts/run_can_step_calibration.py
 ```
 
-The script continuously publishes at 50 Hz, records one bag for the full run, scans
+The script continuously publishes at 50 Hz, records raw velocity samples and one bag for the full
+run, scans
 `1,2,3,5,8,10,15` three times for each byte, and waits for `NEXT` after every byte value so the
 vehicle can be repositioned. Runtime parameter updates require this version of `can_driver`.
 The CAN adapter keeps its own 20 ms clock and transmits the latest command available at each
 tick, so ROS and CAN have the same nominal frequency without requiring phase alignment.
 
-1. Verify raw `0x201` byte order with fixed Byte 5/6 values 1, 2, 3, 5, 8, 10, and 15.
-2. At a low fixed step, command 0.05, 0.10, 0.20, 0.30, 0.40, and 0.50 m/s in both directions.
-   Repeat each point three times and fit forward/reverse speed scale and offset separately.
-3. From rest to 0.4 m/s, sweep Byte 5 through the same sequence. Measure acceleration over the
-   10%-80% speed interval and fit actual acceleration against Byte 5.
-4. From a stable 0.4 m/s to zero, sweep Byte 6. Fit deceleration separately and record stopping
-   delay and distance.
-5. Command steering angles 0, +/-2, +/-5, +/-10, +/-20, and +/-30 degrees three times. Fit left
-   and right scale independently and then fit the common zero offset.
-6. Write the fitted values to `can_params.yaml`, enable `use_dynamic_acceleration_steps`, and run
+1. **Wire verification:** verify signed little-endian Bytes 0-3 and fixed Byte 5/6 values 1, 2, 3,
+   5, 8, 10, and 15 directly in `can_201.log`. Reject a trial if the wire value differs.
+2. **Speed mapping:** with conservative Byte 5/6, command 0.05, 0.10, 0.20, 0.30, 0.40, and
+   0.50 m/s in DRIVE and REVERSE. Hold each point until stable for one second, repeat three times,
+   and fit actual steady velocity against raw signed Bytes 0-1 independently by direction. Invert
+   those fits to obtain forward/reverse scale and offset.
+3. **Acceleration mapping:** from rest to 0.5 m/s, sweep Byte 5. Fit only samples between the
+   `accelerate` phase start and `target_speed`; use the 10%-80% velocity interval. Never include
+   hold or stopping samples. Compute each candidate as `Byte5 / measured_acceleration`.
+4. **Deceleration mapping:** from a stable 0.5 m/s to zero, sweep Byte 6. Fit only samples between
+   the `stop` phase start and `zero_speed`; use the 80%-10% interval. Compute each candidate as
+   `Byte6 / abs(measured_deceleration)`.
+5. **Steering mapping:** at zero longitudinal target, command 0, +/-2, +/-5, +/-10, +/-20, and
+   +/-30 degrees. Hold until steering feedback is stable, repeat three times, fit left and right
+   independently against raw signed Bytes 2-3, then invert the fits for scale and common offset.
+6. **Cross-validation:** write accepted values to `can_params.yaml`, enable
+   `use_dynamic_acceleration_steps`, and run
    `0 -> 0.2 -> 0.4 -> 0.2 -> 0 m/s` three times in each direction.
+
+Each three-run group uses its median. A run more than 30% from the group median is flagged as an
+outlier and excluded from the candidate coefficient, but remains in the CSV. At least three Byte
+groups must remain monotonic before a coefficient is marked ready. Do not automatically write
+candidates into the vehicle configuration.
+
+To reanalyse a completed result directory without moving the vehicle:
+
+```bash
+run_can_step_calibration.py --analyze-result <result-directory>
+```
+
+The command reads `velocity_samples.csv`, or falls back to the recorded rosbag for older runs, and
+produces `calibration_analysis.csv`, `calibration_groups.csv`, and
+`calibration_candidates.yaml`. Missing mapping stages are explicitly reported as `not_ready` or
+`not_calibrated`.
 
 For acceleration, the implemented conversion is:
 
