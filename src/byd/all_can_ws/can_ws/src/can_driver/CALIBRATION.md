@@ -86,11 +86,13 @@ produces `calibration_analysis.csv`, `calibration_groups.csv`, and
 For acceleration, the implemented conversion is:
 
 ```text
-Byte5 = round(abs(acceleration) * acceleration_step_counts_per_mps2)
-Byte6 = round(abs(acceleration) * deceleration_step_counts_per_mps2)
+positive acceleration: Byte5 = round(acceleration * acceleration_step_counts_per_mps2)
+negative acceleration: Byte6 = round(abs(acceleration) * deceleration_step_counts_per_mps2)
 ```
 
-Non-zero results are clamped to 1-255. Undefined or zero acceleration uses the fixed fallback.
+Non-zero results are clamped to 1-255. During positive acceleration Byte6 uses its fixed fallback;
+during negative acceleration Byte5 uses its fixed fallback. Undefined or zero acceleration uses both
+fixed fallbacks.
 
 ## Acceptance criteria
 

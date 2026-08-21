@@ -40,10 +40,10 @@ run_worker() {
         wait_before_close 2
       fi
       export ROS_LOG_DIR="${session_dir}/ros"
-      mkdir -p "${ROS_LOG_DIR}" "${session_dir}/stages"
-      echo "[$(date --iso-8601=seconds)] 启动 BYD bringup" | tee -a "${session_dir}/bringup.log"
-      ros2 launch byd_launch bringup.launch.py \
-        log_root:="${session_dir}/stages" 2>&1 | tee -a "${session_dir}/bringup.log" || status=${PIPESTATUS[0]}
+      mkdir -p "${ROS_LOG_DIR}"
+      echo "[$(date --iso-8601=seconds)] 启动 BYD parallel bringup" | tee -a "${session_dir}/parallel_bringup.log"
+      ros2 launch byd_launch parallel_bringup.launch.py \
+        log_root:="${session_dir}" 2>&1 | tee -a "${session_dir}/parallel_bringup.log" || status=${PIPESTATUS[0]}
       ;;
     rosbag)
       echo "[$(date --iso-8601=seconds)] 启动 rosbag 记录" | tee -a "${session_dir}/rosbag.log"

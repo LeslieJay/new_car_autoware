@@ -19,6 +19,10 @@ rclcpp_components_register_node(${PROJECT_NAME}_node
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  ament_auto_add_gtest(test_route_arrival_gate
+    test/test_route_arrival_gate.cpp
+  )
 endif()
 
 ament_auto_package(

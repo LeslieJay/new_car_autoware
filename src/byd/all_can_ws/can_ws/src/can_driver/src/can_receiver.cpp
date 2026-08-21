@@ -884,14 +884,14 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
           velocity, speed_command_scale_forward_, speed_command_scale_reverse_,
           speed_command_offset_forward_, speed_command_offset_reverse_, speed_limit);
 
-        const uint8_t acceleration_step_command = encodeMotorSpeedStep(
+        const uint8_t acceleration_step_command = encodeDirectionalMotorSpeedStep(
           msg->longitudinal.acceleration, acceleration_step_counts_per_mps2_,
           static_cast<uint8_t>(default_acceleration_step_command_.load(std::memory_order_relaxed)),
-          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
-        const uint8_t deceleration_step_command = encodeMotorSpeedStep(
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration, true);
+        const uint8_t deceleration_step_command = encodeDirectionalMotorSpeedStep(
           msg->longitudinal.acceleration, deceleration_step_counts_per_mps2_,
           static_cast<uint8_t>(default_deceleration_step_command_.load(std::memory_order_relaxed)),
-          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration);
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration, false);
 
         // // 舵轮转角超过阈值时, 再次降低车速
         // // TODO: 分阶段降低; 参数化

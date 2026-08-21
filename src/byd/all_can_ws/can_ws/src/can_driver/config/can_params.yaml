@@ -19,12 +19,12 @@ can_node:
 
     # 0x201 Byte5/Byte6: each count changes target motor speed by 1 r/s per 20 ms cycle.
     # Keep dynamic conversion disabled until the two coefficients have been calibrated.
-    use_dynamic_acceleration_steps: false
+    use_dynamic_acceleration_steps: true
     control_cycle_sec: 0.02
     default_acceleration_step_command: 10
     default_deceleration_step_command: 10
-    acceleration_step_counts_per_mps2: 0.0
-    deceleration_step_counts_per_mps2: 0.0
+    acceleration_step_counts_per_mps2: 16.0
+    deceleration_step_counts_per_mps2: 17.25
 
     # 0x201 command conversion. Defaults preserve the existing wire values.
     speed_command_scale_forward: 1000.0

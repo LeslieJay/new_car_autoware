@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
     # motion state constraints
-    stop_decel: -1.5         # deceleration at a stop point[m/ss]
+    stop_decel: -1.0         # deceleration at a stop point[m/ss]
 
     # external velocity limit parameter
     margin_to_insert_external_velocity_limit: 0.3   #  margin distance to insert external velocity limit [m]

@@ -38,7 +38,7 @@
   <!-- System -->
   <arg name="system_run_mode" default="logging_simulation" description="run mode in system"/>
   <arg name="launch_system_monitor" default="true" description="launch system monitor"/>
-  <arg name="launch_mrm" default="false" description="launch MRM handler and operators"/>
+  <arg name="launch_mrm" default="true" description="launch MRM handler and operators"/>
   <arg name="launch_dummy_diag_publisher" default="false" description="launch dummy diag publisher"/>
   <arg name="diagnostic_graph_aggregator_graph_path" default="$(find-pkg-share autoware_launch)/config/system/diagnostics/autoware-main.yaml" description="diagnostic graph config"/>
   <!-- Tools -->

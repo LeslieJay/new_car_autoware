@@ -2,6 +2,8 @@ mission_loop:
   ros__parameters:
 
     arrival_pose_output_dir: /home/nvidia/autoware/log/mission_arrivals
+    next_goal_max_speed_mps: 0.05
+    next_goal_stop_duration_s: 1.0
 
     points: ["A", "B", "C", "D"]
 

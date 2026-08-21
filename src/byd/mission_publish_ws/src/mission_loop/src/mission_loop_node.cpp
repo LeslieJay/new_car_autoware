@@ -1,5 +1,6 @@
 #include "mission_loop/arrival_gate.hpp"
 #include "mission_loop/arrival_recorder.hpp"
+#include "mission_loop/stop_gate.hpp"
 
 #include <autoware_system_msgs/msg/autoware_state.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -51,6 +52,8 @@ public:
     }
 
     recorder_ = std::make_unique<ArrivalRecorder>(arrival_pose_output_dir_);
+    stop_gate_ = std::make_unique<StopGate>(
+      next_goal_max_speed_mps_, next_goal_stop_duration_s_);
 
     auto qos = rclcpp::QoS(1).transient_local().reliable();
 
@@ -89,12 +92,16 @@ private:
   {
     declare_parameter<std::string>(
       "arrival_pose_output_dir", "/home/nvidia/autoware/log/mission_arrivals");
+    declare_parameter<double>("next_goal_max_speed_mps", 0.05);
+    declare_parameter<double>("next_goal_stop_duration_s", 1.0);
     declare_parameter<std::vector<std::string>>("points", std::vector<std::string>{});
   }
 
   void loadParameters()
   {
     get_parameter("arrival_pose_output_dir", arrival_pose_output_dir_);
+    get_parameter("next_goal_max_speed_mps", next_goal_max_speed_mps_);
+    get_parameter("next_goal_stop_duration_s", next_goal_stop_duration_s_);
   }
 
   void loadMissionPoints()
@@ -169,6 +176,7 @@ private:
           mission_points_[current_idx_].name.c_str(), traveled_distance_m_);
         traveled_distance_m_ = 0.0;
         arrival_gate_.markHandled();
+        stop_gate_->reset();
         wait_start_time_ = now();
         state_ = State::WAIT;
         RCLCPP_INFO(
@@ -180,17 +188,22 @@ private:
           "Arrival state received but localization is unavailable");
       }
     } else if (state_ == State::WAIT) {
-      double wait_elapsed =
-        (now() - wait_start_time_).seconds();
+      const auto now_time = now();
+      const double wait_elapsed = (now_time - wait_start_time_).seconds();
+      const auto & twist = latest_localization_->twist.twist.linear;
+      const double speed_mps = std::hypot(twist.x, twist.y);
+      stop_gate_->observe(speed_mps, now_time.seconds());
+      const bool stop_confirmed = stop_gate_->isSatisfied(now_time.seconds());
 
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), 500,
-        "[WAIT] goal=%s  wait_elapsed=%.2f / %.1f s",
+        "[WAIT] goal=%s wait_elapsed=%.2f / %.1f s speed=%.3f m/s stop_confirmed=%s",
         mission_points_[current_idx_].name.c_str(),
-        wait_elapsed, mission_points_[current_idx_].wait_time);
+        wait_elapsed, mission_points_[current_idx_].wait_time, speed_mps,
+        stop_confirmed ? "true" : "false");
 
       if (wait_elapsed >
-        mission_points_[current_idx_].wait_time)
+        mission_points_[current_idx_].wait_time && stop_confirmed)
       {
         RCLCPP_INFO(
           get_logger(),
@@ -258,7 +271,10 @@ private:
   double traveled_distance_m_{0.0};
   ArrivalGate arrival_gate_;
   std::unique_ptr<ArrivalRecorder> recorder_;
+  std::unique_ptr<StopGate> stop_gate_;
   std::string arrival_pose_output_dir_;
+  double next_goal_max_speed_mps_{0.05};
+  double next_goal_stop_duration_s_{1.0};
 
   State state_{State::DRIVING};
 

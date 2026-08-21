@@ -1,0 +1,34 @@
+topics:
+
+# TF
+- /tf
+- /tf_static
+
+
+# localization
+- /localization/kinematic_state
+- /localization/acceleration
+
+
+# perception
+- /perception/object_recognition/objects
+- /perception/occupancy_grid_map/map
+
+
+# planning
+- /planning/scenario_planning/trajectory
+- /planning/scenario_planning/velocity
+
+
+# control
+- /control/trajectory_follower/control_cmd
+
+
+# vehicle
+- /vehicle/status/velocity_status
+- /vehicle/status/steering_status
+
+
+# sensors
+- /sensing/imu/imu_data
+- /sensing/gnss/pose

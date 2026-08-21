@@ -23,6 +23,15 @@ inline uint8_t encodeMotorSpeedStep(
   return static_cast<uint8_t>(std::clamp(command, 1L, 255L));
 }
 
+inline uint8_t encodeDirectionalMotorSpeedStep(
+  const double acceleration, const double step_counts_per_mps2, const uint8_t fallback,
+  const bool enabled, const bool encode_acceleration) noexcept
+{
+  const bool direction_matches = encode_acceleration ? acceleration > 0.0 : acceleration < 0.0;
+  return encodeMotorSpeedStep(
+    acceleration, step_counts_per_mps2, fallback, enabled && direction_matches);
+}
+
 inline int16_t encodeSignedCommand(
   const double value, const double positive_scale, const double negative_scale,
   const double positive_offset, const double negative_offset, const int16_t limit) noexcept

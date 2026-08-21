@@ -102,6 +102,7 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
 
 void VehicleStateNode::onForwardGoal(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
 {
+  route_arrival_gate_.reset(route_state_);
   setActiveGoal(*msg, GoalMode::Forward);
 }
 
@@ -120,6 +121,7 @@ void VehicleStateNode::onRouteState(
 {
   const uint8_t prev = route_state_;
   route_state_ = msg->state;
+  route_arrival_gate_.observe(route_state_);
 
   // AD API / SetRoutePoints 设点时不一定发 PoseStamped goal；用路由 SET 进入前进任务
   using RouteState = autoware_adapi_v1_msgs::msg::RouteState;
@@ -230,7 +232,7 @@ bool VehicleStateNode::isArrivedAtGoal() const
   // Autoware 官方路由到达信号（阈值很严，横向常要 ≤2cm）
   if (
     use_route_state_for_forward_ && goal_mode_ != GoalMode::Reverse &&
-    route_state_ == autoware_adapi_v1_msgs::msg::RouteState::ARRIVED)
+    route_arrival_gate_.accepts(route_state_))
   {
     return true;
   }

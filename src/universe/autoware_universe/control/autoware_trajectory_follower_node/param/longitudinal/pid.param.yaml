@@ -1,6 +1,7 @@
 /**:
   ros__parameters:
-    delay_compensation_time: 0.1
+    # Preliminary chassis effective delay; validate with endpoint stop tests.
+    delay_compensation_time: 0.33
 
     enable_smooth_stop: true
     enable_overshoot_emergency: true

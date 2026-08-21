@@ -55,6 +55,11 @@ if(BUILD_TESTING)
     test/test_arrival_gate.cpp
   )
   target_link_libraries(test_arrival_gate ${PROJECT_NAME})
+
+  ament_auto_add_gtest(test_stop_gate
+    test/test_stop_gate.cpp
+  )
+  target_link_libraries(test_stop_gate ${PROJECT_NAME})
 endif()
 
 # -------- install runtime files --------

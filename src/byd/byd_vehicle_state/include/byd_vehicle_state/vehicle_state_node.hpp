@@ -9,7 +9,7 @@
 #ifndef BYD_VEHICLE_STATE__VEHICLE_STATE_NODE_HPP_
 #define BYD_VEHICLE_STATE__VEHICLE_STATE_NODE_HPP_
 
-#include <rclcpp/rclcpp.hpp>
+#include "byd_vehicle_state/route_arrival_gate.hpp"
 
 #include <autoware/motion_utils/vehicle/vehicle_state_checker.hpp>
 #include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
@@ -18,10 +18,11 @@
 #include <autoware_system_msgs/msg/autoware_state.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include <optional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace byd_vehicle_state
@@ -89,6 +90,7 @@ private:
   GoalMode goal_mode_{GoalMode::None};
   bool use_route_state_for_forward_{true};
   uint8_t route_state_{autoware_adapi_v1_msgs::msg::RouteState::UNKNOWN};
+  RouteArrivalGate route_arrival_gate_;
   uint8_t operation_mode_{autoware_adapi_v1_msgs::msg::OperationModeState::UNKNOWN};
   bool is_autoware_control_enabled_{false};
   bool operation_mode_received_{false};
