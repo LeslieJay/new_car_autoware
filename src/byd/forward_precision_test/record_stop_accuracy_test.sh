@@ -3,7 +3,7 @@
 # 只记录数据，不发布目标、不修改参数。
 # 用法: ./record_stop_accuracy_test.sh [测试名称]
 
-set -euo pipefail
+set -eo pipefail
 
 TEST_NAME="${1:-stop_accuracy_$(date +%Y%m%d_%H%M%S)}"
 RESULT_ROOT="${RESULT_ROOT:-/home/nvidia/autoware/log}"
