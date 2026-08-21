@@ -77,7 +77,7 @@ bool MQTTClient::connect() {
         auto token = client_->connect(conn_opts);
         
         // 等待连接完成（最多等待5秒）
-        if (token->wait_for(std::chrono::seconds(5))) {
+        if (token->wait_for(std::chrono::seconds(15))) {
             status_ = ConnectionStatus::CONNECTED;
             RCLCPP_INFO(logger_, "MQTT连接成功，最大缓冲区消息数: %d", config_.max_inflight_messages);
             return true;
@@ -104,7 +104,7 @@ void MQTTClient::disconnect() {
     try {
         if (client_->is_connected()) {
             auto token = client_->disconnect();
-            token->wait_for(std::chrono::seconds(3));
+            token->wait_for(std::chrono::seconds(13));
         }
         status_ = ConnectionStatus::DISCONNECTED;
         RCLCPP_INFO(logger_, "MQTT连接已断开");
@@ -147,7 +147,7 @@ bool MQTTClient::subscribe(const std::string& topic, int qos) {
         auto token = client_->subscribe(topic, qos);
         
         // 等待订阅完成（最多等待3秒）
-        if (token->wait_for(std::chrono::seconds(3))) {
+        if (token->wait_for(std::chrono::seconds(13))) {
             RCLCPP_INFO(logger_, "成功订阅主题: %s (QoS: %d)", topic.c_str(), qos);
             
             // 记录订阅的主题（用于重连后自动重新订阅）
@@ -187,7 +187,7 @@ bool MQTTClient::unsubscribe(const std::string& topic) {
         auto token = client_->unsubscribe(topic);
         
         // 等待取消订阅完成（最多等待3秒）
-        if (token->wait_for(std::chrono::seconds(3))) {
+        if (token->wait_for(std::chrono::seconds(13))) {
             RCLCPP_INFO(logger_, "成功取消订阅主题: %s", topic.c_str());
             
             // 从记录中移除该主题
@@ -270,7 +270,7 @@ void MQTTClient::resubscribe_topics() {
             auto token = client_->subscribe(sub.topic, sub.qos);
             
                 // 等待订阅完成（最多等待5秒）
-                if (token->wait_for(std::chrono::seconds(5))) {
+                if (token->wait_for(std::chrono::seconds(15))) {
                     RCLCPP_INFO(logger_, "重新订阅成功: %s (QoS: %d)%s", 
                                sub.topic.c_str(), sub.qos,
                                retry > 0 ? (" (重试第" + std::to_string(retry) + "次)").c_str() : "");

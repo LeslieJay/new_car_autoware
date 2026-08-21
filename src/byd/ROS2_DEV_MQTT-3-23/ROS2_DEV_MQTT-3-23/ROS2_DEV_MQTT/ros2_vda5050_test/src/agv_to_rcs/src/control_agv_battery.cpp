@@ -94,6 +94,8 @@ bool AGVBatteryControl::control(){
     auto result = future_and_requestid.future.get();
 
     battery_messages_ = battery_listener_->get_battery_messages();
+    // can服务端下发充电帧，但是车辆电流话题仍然是放电，只有充电点刷块弹出来，才能进入充电模式，
+    // 这个等待时间太短就会报错，行为树进入错误的逻辑中，把之前的order又执行了一遍？
     while(battery_messages_.battery_status != 1)
     {
         connect_times++;

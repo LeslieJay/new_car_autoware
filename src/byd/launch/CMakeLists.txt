@@ -6,6 +6,7 @@ find_package(ament_cmake REQUIRED)
 install(FILES
   bringup.launch.py
   parallel_bringup.launch.py
+  parallel_bringup.launch1.py
   drivers.launch.py
   applications.launch.py
   reverse_parking.launch.py

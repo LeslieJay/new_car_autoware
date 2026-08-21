@@ -203,9 +203,9 @@ int main(int argc, char const *argv[])
             mqtt_sub_config.port = agv_config.mqtt_broker_port;
             mqtt_sub_config.username = agv_config.mqtt_username;
             mqtt_sub_config.password = agv_config.mqtt_password;
-            mqtt_sub_config.keepalive = 5;  // 减少keepalive时间，加快异常断开检测（5秒）
+            mqtt_sub_config.keepalive = 60;  // 减少keepalive时间，加快异常断开检测（5秒）
             mqtt_sub_config.clean_session = true;
-            mqtt_sub_config.max_inflight_messages = 1000;  // 增加缓冲区，避免消息积压
+            mqtt_sub_config.max_inflight_messages = 100;  // 增加缓冲区，避免消息积压
             
             // 订阅者通常不需要遗嘱信息（可选）
             // mqtt_sub_config.will.enabled = false;
@@ -279,9 +279,9 @@ int main(int argc, char const *argv[])
     mqtt_config.port = agv_config.mqtt_broker_port;
     mqtt_config.username = agv_config.mqtt_username;
     mqtt_config.password = agv_config.mqtt_password;
-    mqtt_config.keepalive = 5;  // 减少keepalive时间，加快异常断开检测（5秒）
+    mqtt_config.keepalive = 60;  // 减少keepalive时间，加快异常断开检测（5秒）
     mqtt_config.clean_session = true;
-    mqtt_config.max_inflight_messages = 1000;  // 增加缓冲区，避免消息积压
+    mqtt_config.max_inflight_messages = 100;  // 增加缓冲区，避免消息积压
     
     // 配置MQTT遗嘱信息（当AGV异常断开时，自动发布离线消息）
     // 参考 connection_timer_callback 的方式，创建完整的 AGVConnection 消息
