@@ -48,6 +48,7 @@ def _launch_everything(context: LaunchContext):
     }
 
     autoware_launch = _share_path("autoware_launch", "launch", "autoware.launch.xml")
+    can_driver_launch = _share_path("can_driver", "launch", "can_launch.py")
     rslidar_launch = _share_path("rslidar_sdk", "launch", "start_3.py")
     vehicle_state_launch = _share_path(
         "byd_vehicle_state", "launch", "vehicle_state.launch.py"
@@ -72,11 +73,11 @@ def _launch_everything(context: LaunchContext):
             parameters=[LaunchConfiguration("can_rtk_params_file")],
             **driver_common,
         ),
-        Node(
-            package="can_driver",
-            executable="can_node",
-            parameters=[LaunchConfiguration("can_driver_params_file")],
-            **driver_common,
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(can_driver_launch),
+            launch_arguments={
+                "params_file": LaunchConfiguration("can_driver_params_file"),
+            }.items(),
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(rslidar_launch),
