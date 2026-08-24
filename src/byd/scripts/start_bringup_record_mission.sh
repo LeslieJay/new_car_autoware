@@ -5,7 +5,8 @@ set -eo pipefail
 WORKSPACE="${AUTOWARE_WORKSPACE:-/home/nvidia/autoware}"
 SCRIPT_PATH="${WORKSPACE}/src/byd/scripts/start_bringup_record_mission.sh"
 ROSBAG_SCRIPT="${WORKSPACE}/src/byd/scripts/rosbag_record_command.sh"
-LOG_ROOT="${AUTOWARE_LOG_ROOT:-${HOME}/autoware/log}"
+LOG_ROOT="/mnt/driving_recorder"
+MIN_FREE_BYTES=$((200 * 1024 * 1024 * 1024))
 
 setup_ros_environment() {
   source /opt/ros/humble/setup.bash
@@ -55,7 +56,18 @@ run_worker() {
         wait_before_close 2
       fi
       echo "[$(date --iso-8601=seconds)] 等待初始位姿就绪（/localization/kinematic_state）" | tee -a "${session_dir}/mission_loop.log"
-      ros2 topic echo --once /localization/kinematic_state >/dev/null
+      until ros2 topic echo --once /localization/kinematic_state >/dev/null 2>&1; do
+        sleep 1
+      done
+      echo "[$(date --iso-8601=seconds)] 等待 Autoware 路由服务就绪（/api/routing/set_route_points）" | tee -a "${session_dir}/mission_loop.log"
+      until ros2 service list 2>/dev/null | grep -Fxq "/api/routing/set_route_points"; do
+        sleep 1
+      done
+      echo "[$(date --iso-8601=seconds)] 等待 Autoware 开始接受终点（/planning/mission_planning/goal）" | tee -a "${session_dir}/mission_loop.log"
+      until ros2 topic info /planning/mission_planning/goal 2>/dev/null |
+        grep -Eq "Subscription count: [1-9][0-9]*"; do
+        sleep 1
+      done
       echo "[$(date --iso-8601=seconds)] 启动 mission_loop" | tee -a "${session_dir}/mission_loop.log"
       ros2 launch mission_loop mission_loop.launch.py 2>&1 | tee -a "${session_dir}/mission_loop.log" || status=${PIPESTATUS[0]}
       ;;
@@ -78,6 +90,28 @@ fi
 
 if ! command -v gnome-terminal >/dev/null 2>&1; then
   echo "错误：未找到 gnome-terminal，无法按要求打开独立终端。"
+  exit 1
+fi
+
+if [[ ! -d "${LOG_ROOT}" ]]; then
+  echo "错误：存储目录 ${LOG_ROOT} 不存在，请确认磁盘已正确挂载。"
+  exit 1
+fi
+
+if [[ ! -w "${LOG_ROOT}" ]]; then
+  echo "错误：存储目录 ${LOG_ROOT} 不可写，请检查目录权限。"
+  exit 1
+fi
+
+if ! available_bytes="$(df --output=avail -B1 "${LOG_ROOT}" | tail -n 1 | tr -d '[:space:]')" ||
+  [[ ! "${available_bytes}" =~ ^[0-9]+$ ]]; then
+  echo "错误：无法获取 ${LOG_ROOT} 的可用存储空间。"
+  exit 1
+fi
+
+if (( available_bytes < MIN_FREE_BYTES )); then
+  available_space="$(df -h --output=avail "${LOG_ROOT}" | tail -n 1 | tr -d '[:space:]')"
+  echo "错误：${LOG_ROOT} 可用空间仅 ${available_space}，至少需要 200 GiB，已退出。"
   exit 1
 fi
 
