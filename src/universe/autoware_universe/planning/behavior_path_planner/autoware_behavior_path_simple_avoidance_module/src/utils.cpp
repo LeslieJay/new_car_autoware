@@ -210,4 +210,59 @@ bool canCompleteAvoidance(const AvoidanceCompletionStatus & status)
   return true;
 }
 
+AvoidanceLifecycleDecision decideAvoidanceLifecycle(
+  const AvoidanceLifecycleObservation & observation, const double path_generation_failure_timeout,
+  const size_t completion_stable_count_required)
+{
+  AvoidanceLifecycleDecision decision;
+  decision.next_state = observation.state;
+
+  if (!observation.generation_succeeded) {
+    if (
+      observation.has_continuous_previous_path &&
+      observation.failure_duration < path_generation_failure_timeout) {
+      decision.action = AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH;
+      return decision;
+    }
+    decision.next_state = AvoidanceLifecycleState::STOPPING;
+    if (observation.has_continuous_previous_path) {
+      decision.action = AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP;
+    }
+    return decision;
+  }
+
+  if (observation.state == AvoidanceLifecycleState::CANDIDATE) {
+    if (observation.commitment_detected) {
+      decision.next_state = AvoidanceLifecycleState::COMMITTED;
+    } else if (!observation.target_available) {
+      decision.next_state = AvoidanceLifecycleState::IDLE;
+      decision.action = AvoidanceLifecycleAction::CANCEL_CANDIDATE;
+    }
+    return decision;
+  }
+
+  if (
+    observation.state == AvoidanceLifecycleState::COMMITTED &&
+    (observation.target_expired || !observation.target_available)) {
+    decision.next_state = AvoidanceLifecycleState::RETURNING;
+    decision.action = AvoidanceLifecycleAction::KEEP_COMMITTED_PATH;
+    return decision;
+  }
+
+  if (observation.state == AvoidanceLifecycleState::RETURNING) {
+    if (!observation.return_to_center_complete) {
+      return decision;
+    }
+    const size_t next_stable_count = observation.completion_stable_count + 1;
+    if (next_stable_count >= completion_stable_count_required) {
+      decision.next_state = AvoidanceLifecycleState::IDLE;
+      decision.action = AvoidanceLifecycleAction::COMPLETE_MANEUVER;
+      return decision;
+    }
+    decision.completion_stable_count = next_stable_count;
+  }
+
+  return decision;
+}
+
 }  // namespace autoware::behavior_path_planner

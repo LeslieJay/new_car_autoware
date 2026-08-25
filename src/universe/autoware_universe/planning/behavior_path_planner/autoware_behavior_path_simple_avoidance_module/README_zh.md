@@ -22,16 +22,16 @@ launch_simple_avoidance: "true"
 | 维度 | Static Avoidance（原版） | Simple Avoidance（本模块） |
 |------|--------------------------|----------------------------|
 | 代码规模 | ~8000 行（scene + utils + shift_line_generator + debug） | ~600 行（scene + utils + manager） |
-| 参数数量 | 300+ 项（按对象类型、策略分组） | 14 项 |
+| 参数数量 | 300+ 项（按对象类型、策略分组） | 少量核心参数与拖车参数 |
 | 目标处理 | 多目标，复杂过滤链 | **仅最近一个**静止目标 |
 | 对象类型 | 按 PEDESTRIAN / CAR / TRUCK 等分别配置 | 不区分类型，统一处理 |
 | 偏移线生成 | AvoidOutline → merge/trim/combine 多阶段 | 直接生成 avoid + return 两条 ShiftLine |
 | RTC 审批 | 支持左右侧 RTC，ambiguous 车辆需人工批准 | **无 RTC**，`isExecutionReady()` 恒为 true |
 | 安全检查 | 相邻车道来车、对向车、hysteresis | **无** |
-| 速度规划 | insertPrepareVelocity / insertWaitPoint / insertStopPoint 等 | **不修改速度**，沿用上游路径速度 |
-| 状态机 | avoid / yield / stop / wait-and-see | 仅 RUNNING → SUCCESS（偏移归零后退出） |
-| 不可行时行为 | 插入等待点或停车点 | **透传**上游路径（passThrough） |
-| 感知丢失补偿 | 有（compensateLostTargetObjects） | 无 |
+| 速度规划 | insertPrepareVelocity / insertWaitPoint / insertStopPoint 等 | 正常绕障不修改速度；连续生成失败时例外停车 |
+| 状态机 | avoid / yield / stop / wait-and-see | IDLE / CANDIDATE / COMMITTED / RETURNING / STOPPING |
+| 不可行时行为 | 插入等待点或停车点 | 承诺前透传；承诺后短时复用连续路径，超时停车 |
+| 感知丢失补偿 | 有（compensateLostTargetObjects） | 锁定目标短时保持；承诺后沿既有轨迹回正 |
 | 适用场景 | 开放道路、多类型障碍物、需人机协同 | 封闭道路、低速 AGV、环境可预期 |
 
 ---
@@ -222,8 +222,8 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 **本模块：**
 
 - 无安全检查
-- 不可行时 `passThrough()` 返回上游路径，仅打 WARN 日志
-- 不插入停车/等待/减速点
+- 承诺前不可行时 `passThrough()` 返回上游路径并记录 WARN
+- 承诺后禁止瞬间切回基准路径：短时复用最后一条连续轨迹，持续失败则在该轨迹停车
 
 **为什么这样改：**
 
@@ -231,7 +231,7 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 - 原版 yield/stop 与下游 `obstacle_stop` 叠加，难以区分停车原因
 - 停车逻辑交给 behavior velocity planner（如 obstacle_stop）统一处理，绕障模块只负责"能不能绕、怎么绕"
 
-### 4.8 不修改路径速度
+### 4.8 正常绕障不修改路径速度
 
 **原版** 在 `updateEgoBehavior()` 中按阶段写入速度：
 
@@ -239,7 +239,9 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 - `insertAvoidanceVelocity()` — 偏移中加速度限制
 - `insertReturnDeadLine()` — 回正截止点前减速
 
-**本模块** 只输出偏移后的几何路径，速度完全来自上游 lane following / motion planning。
+**本模块** 正常运行时只输出偏移后的几何路径，速度来自上游 lane following / motion
+planning。唯一例外是已承诺轨迹持续生成失败：模块会在最后一条连续轨迹上插入可行停车点；若连
+续旧轨迹也不存在，则不发布替代几何，由下游 command-timeout / MRM 安全边界停车。
 
 **为什么这样改：**
 
@@ -266,6 +268,8 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 | `target_lost_time_threshold` | 1.0 | 已锁定目标短暂丢失时的保持时间 [s] |
 | `target_hold_lateral_hysteresis` | 0.3 | 已锁定目标 overlap 判断的横向迟滞 [m] |
 | `lateral_execution_threshold` | 0.05 | 判断 base offset / ego shift 已回零的阈值 [m] |
+| `path_generation_failure_timeout` | 0.5 | 生成失败时复用最后连续轨迹的最长时间 [s] |
+| `completion_stable_count` | 3 | 回正条件连续满足多少个周期后才退出 |
 | `publish_debug_marker` | true | 是否发布 shift line 调试 marker |
 
 **与原版关键参数对照：**

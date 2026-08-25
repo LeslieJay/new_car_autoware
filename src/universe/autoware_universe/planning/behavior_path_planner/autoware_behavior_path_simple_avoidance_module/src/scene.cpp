@@ -26,8 +26,8 @@
 #include <autoware_utils/geometry/geometry.hpp>
 #include <autoware_utils_uuid/uuid_helper.hpp>
 
-#include <boost/geometry/algorithms/distance.hpp>
 #include <boost/geometry/algorithms/correct.hpp>
+#include <boost/geometry/algorithms/distance.hpp>
 #include <boost/geometry/algorithms/intersects.hpp>
 
 #include <algorithm>
@@ -259,6 +259,10 @@ void SimpleAvoidanceModule::initVariables()
   path_shifter_ = PathShifter{};
   prev_output_ = ShiftedPath{};
   active_target_.reset();
+  lifecycle_state_ = AvoidanceLifecycleState::IDLE;
+  completion_stable_count_ = 0;
+  path_generation_failure_started_.reset();
+  route_id_.reset();
   debug_data_ = SimpleAvoidanceDebugData{};
   resetPathCandidate();
   resetPathReference();
@@ -266,6 +270,8 @@ void SimpleAvoidanceModule::initVariables()
 
 void SimpleAvoidanceModule::processOnEntry()
 {
+  lifecycle_state_ = AvoidanceLifecycleState::CANDIDATE;
+  route_id_ = planner_data_->route_handler->getRouteUuid();
   active_trailer_configuration_ = trailer_configuration_store_->snapshot();
   RCLCPP_INFO(
     getLogger(), "[SIMPLE_AVOIDANCE] frozen trailer configuration: count=%zu",
@@ -296,6 +302,10 @@ bool SimpleAvoidanceModule::isExecutionRequested() const
 
 bool SimpleAvoidanceModule::canTransitSuccessState()
 {
+  if (lifecycle_state_ == AvoidanceLifecycleState::STOPPING) {
+    const double speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+    return speed <= parameters_->trailer_stationary_speed_threshold;
+  }
   if (active_target_.has_value()) {
     if (const auto updated = updateTargetMetrics(*active_target_)) {
       active_target_ = updated;
@@ -327,7 +337,19 @@ bool SimpleAvoidanceModule::canTransitSuccessState()
     getClosestShiftLength(prev_output_, getEgoPose().position),
     parameters_->lateral_execution_threshold};
 
-  const bool can_complete = canCompleteAvoidance(status);
+  const bool return_to_center_complete = canCompleteAvoidance(status);
+  AvoidanceLifecycleObservation observation;
+  observation.state = lifecycle_state_;
+  observation.return_to_center_complete = return_to_center_complete;
+  observation.completion_stable_count = completion_stable_count_;
+  const auto decision = decideAvoidanceLifecycle(
+    observation, parameters_->path_generation_failure_timeout,
+    parameters_->completion_stable_count);
+  lifecycle_state_ = decision.next_state;
+  completion_stable_count_ = decision.completion_stable_count;
+  const bool can_complete =
+    decision.action == AvoidanceLifecycleAction::COMPLETE_MANEUVER ||
+    (decision.action == AvoidanceLifecycleAction::CANCEL_CANDIDATE && return_to_center_complete);
   if (!can_complete) {
     RCLCPP_INFO_THROTTLE(
       getLogger(), *clock_, 2000,
@@ -342,6 +364,16 @@ bool SimpleAvoidanceModule::canTransitSuccessState()
 
 void SimpleAvoidanceModule::updateData()
 {
+  if (
+    route_id_.has_value() && *route_id_ != planner_data_->route_handler->getRouteUuid() &&
+    (lifecycle_state_ == AvoidanceLifecycleState::COMMITTED ||
+     lifecycle_state_ == AvoidanceLifecycleState::RETURNING)) {
+    lifecycle_state_ = AvoidanceLifecycleState::STOPPING;
+    path_generation_failure_started_ =
+      clock_->now() - rclcpp::Duration::from_seconds(parameters_->path_generation_failure_timeout);
+    return;
+  }
+
   if (getPreviousModuleOutput().path.points.size() < 2) {
     return;
   }
@@ -843,6 +875,96 @@ BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasibleTrailerPath(
   return output;
 }
 
+bool SimpleAvoidanceModule::isGeneratedPathContinuous(const ShiftedPath & path) const
+{
+  if (prev_output_.path.points.empty() || path.path.points.empty()) {
+    return prev_output_.path.points.empty();
+  }
+  const auto & ego_position = getEgoPose().position;
+  const double previous_shift = getClosestShiftLength(prev_output_, ego_position);
+  const double generated_shift = getClosestShiftLength(path, ego_position);
+  constexpr double max_lateral_jump = 0.1;
+  return std::abs(previous_shift - generated_shift) <= max_lateral_jump;
+}
+
+bool SimpleAvoidanceModule::isCommitmentDetected() const
+{
+  const auto shift_lines = path_shifter_.getShiftLines();
+  if (shift_lines.empty() || reference_path_.points.empty()) {
+    return false;
+  }
+  const size_t ego_idx = planner_data_->findEgoIndex(reference_path_.points);
+  const double ego_shift = getClosestShiftLength(prev_output_, getEgoPose().position);
+  return ego_idx >= shift_lines.front().start_idx || isEgoOnShiftLine() ||
+         std::abs(ego_shift) > parameters_->lateral_execution_threshold ||
+         std::abs(path_shifter_.getBaseOffset()) > parameters_->lateral_execution_threshold;
+}
+
+bool SimpleAvoidanceModule::hasReusablePreviousPath() const
+{
+  if (prev_output_.path.points.size() < 2) {
+    return false;
+  }
+  const auto & ego_position = getEgoPose().position;
+  const size_t ego_idx = planner_data_->findEgoIndex(prev_output_.path.points);
+  if (ego_idx >= prev_output_.path.points.size() - 1) {
+    return false;
+  }
+  constexpr double minimum_forward_coverage = 1.0;
+  return autoware::motion_utils::calcSignedArcLength(
+           prev_output_.path.points, ego_position,
+           prev_output_.path.points.back().point.pose.position) >= minimum_forward_coverage;
+}
+
+BehaviorModuleOutput SimpleAvoidanceModule::handlePathGenerationFailure(
+  const PassThroughDebugInfo & debug_info)
+{
+  const auto now = clock_->now();
+  if (!path_generation_failure_started_.has_value()) {
+    path_generation_failure_started_ = now;
+  }
+
+  AvoidanceLifecycleObservation observation;
+  observation.state = lifecycle_state_;
+  observation.generation_succeeded = false;
+  observation.has_continuous_previous_path = hasReusablePreviousPath();
+  observation.failure_duration = (now - *path_generation_failure_started_).seconds();
+  const auto decision = decideAvoidanceLifecycle(
+    observation, parameters_->path_generation_failure_timeout,
+    parameters_->completion_stable_count);
+  lifecycle_state_ = decision.next_state;
+
+  if (decision.action == AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH) {
+    debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
+    return adjustDrivableArea(prev_output_);
+  }
+  if (decision.action == AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP) {
+    auto output = adjustDrivableArea(prev_output_);
+    // Conservative fixed fallback because the common planner data exposes acceleration but no
+    // longitudinal jerk limit. Keep this local rather than adding another lifecycle parameter.
+    constexpr double conservative_longitudinal_jerk = 1.0;
+    const auto stop_pose = utils::insert_feasible_stop_point(
+      output.path, planner_data_, planner_data_->parameters.min_acc, conservative_longitudinal_jerk,
+      "simple avoidance path generation failure");
+    if (!stop_pose.has_value()) {
+      const size_t ego_index = planner_data_->findEgoIndex(output.path.points);
+      for (size_t i = ego_index; i < output.path.points.size(); ++i) {
+        output.path.points.at(i).point.longitudinal_velocity_mps = 0.0;
+      }
+    }
+    debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
+    return output;
+  }
+  debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
+  logPassThroughDetails(
+    getLogger(), *clock_, InfeasibleReason::PATH_GENERATION_FAILED, debug_info, *parameters_,
+    planner_data_->parameters.vehicle_width * 0.5);
+  // No continuous geometry exists. Publishing the upstream/reference path here could command an
+  // instantaneous lateral reset, so deliberately publish no replacement path and let the
+  // downstream command-timeout/MRM boundary stop the vehicle.
+  return BehaviorModuleOutput{};
+}
+
 BehaviorModuleOutput SimpleAvoidanceModule::passThrough(
   const InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const
 {
@@ -890,21 +1012,42 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   PassThroughDebugInfo debug_info;
   debug_info.reference_path_points = reference_path_.points.size();
 
+  if (lifecycle_state_ == AvoidanceLifecycleState::STOPPING) {
+    return handlePathGenerationFailure(debug_info);
+  }
+
   if (reference_path_.points.size() < 2) {
     debug_info.no_target = diagnoseNoTarget();
     return passThrough(InfeasibleReason::NO_TARGET, debug_info);
   }
 
-  const auto target = getActiveTargetOrHeldTarget();
+  if (lifecycle_state_ == AvoidanceLifecycleState::CANDIDATE && isCommitmentDetected()) {
+    lifecycle_state_ = AvoidanceLifecycleState::COMMITTED;
+  }
+
+  const auto target = lifecycle_state_ == AvoidanceLifecycleState::RETURNING
+                        ? std::optional<AvoidanceTarget>{}
+                        : getActiveTargetOrHeldTarget();
   if (!target.has_value()) {
+    if (lifecycle_state_ == AvoidanceLifecycleState::CANDIDATE) {
+      path_shifter_.setShiftLines({});
+      prev_output_ = ShiftedPath{};
+      lifecycle_state_ = AvoidanceLifecycleState::IDLE;
+      debug_info.no_target = diagnoseNoTarget();
+      return passThrough(InfeasibleReason::NO_TARGET, debug_info);
+    }
     if (!path_shifter_.getShiftLines().empty()) {
       ShiftedPath shifted_path;
-      if (!path_shifter_.generate(&shifted_path)) {
-        return passThrough(InfeasibleReason::PATH_GENERATION_FAILED, debug_info);
+      if (
+        !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty() ||
+        !isGeneratedPathContinuous(shifted_path)) {
+        return handlePathGenerationFailure(debug_info);
       }
       if (!shifted_path.path.points.empty()) {
         setOrientation(&shifted_path.path);
         prev_output_ = shifted_path;
+        lifecycle_state_ = AvoidanceLifecycleState::RETURNING;
+        path_generation_failure_started_.reset();
         debug_data_.last_reason = InfeasibleReason::NONE;
         debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
         path_reference_ =
@@ -916,6 +1059,17 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
       }
     }
     debug_info.no_target = diagnoseNoTarget();
+    if (
+      lifecycle_state_ == AvoidanceLifecycleState::COMMITTED ||
+      lifecycle_state_ == AvoidanceLifecycleState::RETURNING) {
+      lifecycle_state_ = AvoidanceLifecycleState::RETURNING;
+      if (hasReusablePreviousPath() && path_shifter_.getShiftLines().empty()) {
+        path_generation_failure_started_.reset();
+        return adjustDrivableArea(prev_output_);
+      }
+      return handlePathGenerationFailure(debug_info);
+    }
+    lifecycle_state_ = AvoidanceLifecycleState::IDLE;
     return passThrough(InfeasibleReason::NO_TARGET, debug_info);
   }
 
@@ -943,8 +1097,10 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   if (active_trailer_configuration_.geometries.empty()) {
     shift_lines = buildShiftLines(*target, shift_result.shift_length);
     path_shifter_.setShiftLines(shift_lines);
-    if (!path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
-      return passThrough(InfeasibleReason::PATH_GENERATION_FAILED, debug_info);
+    if (
+      !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty() ||
+      !isGeneratedPathContinuous(shifted_path)) {
+      return handlePathGenerationFailure(debug_info);
     }
     setOrientation(&shifted_path.path);
   } else {
@@ -960,6 +1116,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   debug_info.shift_lines_count = shift_lines.size();
 
   prev_output_ = shifted_path;
+  lifecycle_state_ = isCommitmentDetected() ? AvoidanceLifecycleState::COMMITTED
+                                            : AvoidanceLifecycleState::CANDIDATE;
+  path_generation_failure_started_.reset();
   debug_data_.last_reason = InfeasibleReason::NONE;
   debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
   path_reference_ = std::make_shared<PathWithLaneId>(getPreviousModuleOutput().reference_path);

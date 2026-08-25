@@ -16,6 +16,8 @@
       target_lost_time_threshold: 1.0
       target_hold_lateral_hysteresis: 0.3
       lateral_execution_threshold: 0.05
+      path_generation_failure_timeout: 0.5
+      completion_stable_count: 3
       trailer:
         configuration_topic: /vehicle/status/trailer_configuration
         tractor_rear_axle_to_hitch: 0.60

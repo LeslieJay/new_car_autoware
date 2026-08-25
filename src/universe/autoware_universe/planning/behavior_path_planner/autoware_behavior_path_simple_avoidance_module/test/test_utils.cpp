@@ -193,6 +193,92 @@ TEST_F(SimpleAvoidanceUtilsTest, TargetHoldExpiresAfterThreshold)
   EXPECT_TRUE(isTargetHoldExpired(target, rclcpp::Time(11, 100000000, RCL_ROS_TIME), 1.0));
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsLostCandidateBeforeCommitment)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::CANDIDATE;
+  observation.target_available = false;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::IDLE);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::CANCEL_CANDIDATE);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleCommitsCandidateAfterExecutionStarts)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::CANDIDATE;
+  observation.target_available = true;
+  observation.commitment_detected = true;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::COMMITTED);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::NONE);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleKeepsCommittedPathWhenTargetExpires)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::COMMITTED;
+  observation.target_available = false;
+  observation.target_expired = true;
+  observation.generation_succeeded = true;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::RETURNING);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::KEEP_COMMITTED_PATH);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleReusesValidPathDuringTransientGenerationFailure)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::COMMITTED;
+  observation.target_available = true;
+  observation.generation_succeeded = false;
+  observation.has_continuous_previous_path = true;
+  observation.failure_duration = 0.49;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::COMMITTED);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleStopsAfterSustainedGenerationFailure)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::RETURNING;
+  observation.generation_succeeded = false;
+  observation.has_continuous_previous_path = true;
+  observation.failure_duration = 0.5;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::STOPPING);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleCompletesOnlyAfterStableReturnToCenter)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::RETURNING;
+  observation.generation_succeeded = true;
+  observation.return_to_center_complete = true;
+  observation.completion_stable_count = 1;
+
+  const auto not_yet_complete = decideAvoidanceLifecycle(observation, 0.5, 3);
+  EXPECT_EQ(not_yet_complete.next_state, AvoidanceLifecycleState::RETURNING);
+  EXPECT_EQ(not_yet_complete.completion_stable_count, 2U);
+
+  observation.completion_stable_count = not_yet_complete.completion_stable_count;
+  const auto complete = decideAvoidanceLifecycle(observation, 0.5, 3);
+  EXPECT_EQ(complete.next_state, AvoidanceLifecycleState::IDLE);
+  EXPECT_EQ(complete.action, AvoidanceLifecycleAction::COMPLETE_MANEUVER);
+}
+
 TEST_F(SimpleAvoidanceUtilsTest, CompletionBlockedByTargetOrShiftState)
 {
   AvoidanceCompletionStatus status;

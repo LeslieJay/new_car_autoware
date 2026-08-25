@@ -53,6 +53,10 @@ bool isTargetHoldExpired(
 
 bool canCompleteAvoidance(const AvoidanceCompletionStatus & status);
 
+AvoidanceLifecycleDecision decideAvoidanceLifecycle(
+  const AvoidanceLifecycleObservation & observation, double path_generation_failure_timeout,
+  size_t completion_stable_count_required);
+
 }  // namespace autoware::behavior_path_planner
 
 #endif  // AUTOWARE__BEHAVIOR_PATH_SIMPLE_AVOIDANCE_MODULE__UTILS_HPP_

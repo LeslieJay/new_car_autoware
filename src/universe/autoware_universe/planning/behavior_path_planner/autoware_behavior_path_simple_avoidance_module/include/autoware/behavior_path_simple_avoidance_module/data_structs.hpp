@@ -83,6 +83,8 @@ struct SimpleAvoidanceParameters
   double target_lost_time_threshold{1.0};
   double target_hold_lateral_hysteresis{0.3};
   double lateral_execution_threshold{0.05};
+  double path_generation_failure_timeout{0.5};
+  size_t completion_stable_count{3};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
   double tractor_rear_axle_to_hitch{0.6};
   double trailer_footprint_sampling_interval{0.5};
@@ -115,6 +117,37 @@ struct AvoidanceCompletionStatus
   double base_offset{0.0};
   double ego_shift{0.0};
   double lateral_execution_threshold{0.05};
+};
+
+enum class AvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING, STOPPING };
+
+enum class AvoidanceLifecycleAction {
+  NONE,
+  CANCEL_CANDIDATE,
+  KEEP_COMMITTED_PATH,
+  KEEP_LAST_VALID_PATH,
+  INSERT_FEASIBLE_STOP,
+  COMPLETE_MANEUVER,
+};
+
+struct AvoidanceLifecycleObservation
+{
+  AvoidanceLifecycleState state{AvoidanceLifecycleState::IDLE};
+  bool target_available{false};
+  bool target_expired{false};
+  bool commitment_detected{false};
+  bool generation_succeeded{true};
+  bool has_continuous_previous_path{false};
+  double failure_duration{0.0};
+  bool return_to_center_complete{false};
+  size_t completion_stable_count{0};
+};
+
+struct AvoidanceLifecycleDecision
+{
+  AvoidanceLifecycleState next_state{AvoidanceLifecycleState::IDLE};
+  AvoidanceLifecycleAction action{AvoidanceLifecycleAction::NONE};
+  size_t completion_stable_count{0};
 };
 
 enum class TargetRejectReason { MOVING, OUT_OF_LANE, LONGITUDINAL, NO_OVERLAP };

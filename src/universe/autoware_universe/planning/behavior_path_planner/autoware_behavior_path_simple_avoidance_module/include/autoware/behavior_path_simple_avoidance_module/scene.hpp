@@ -18,6 +18,8 @@
 #include "autoware/behavior_path_planner_common/interface/scene_module_interface.hpp"
 #include "autoware/behavior_path_simple_avoidance_module/data_structs.hpp"
 
+#include <unique_identifier_msgs/msg/uuid.hpp>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -77,6 +79,10 @@ private:
     InfeasibleReason & failure_reason) const;
   BehaviorModuleOutput stopForInfeasibleTrailerPath(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const;
+  BehaviorModuleOutput handlePathGenerationFailure(const PassThroughDebugInfo & debug_info);
+  bool isGeneratedPathContinuous(const ShiftedPath & path) const;
+  bool isCommitmentDetected() const;
+  bool hasReusablePreviousPath() const;
   BehaviorModuleOutput adjustDrivableArea(const ShiftedPath & path) const;
   BehaviorModuleOutput passThrough(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info = {}) const;
@@ -91,6 +97,10 @@ private:
   PathShifter path_shifter_;
   ShiftedPath prev_output_{};
   std::optional<AvoidanceTarget> active_target_;
+  AvoidanceLifecycleState lifecycle_state_{AvoidanceLifecycleState::IDLE};
+  size_t completion_stable_count_{0};
+  std::optional<rclcpp::Time> path_generation_failure_started_;
+  std::optional<unique_identifier_msgs::msg::UUID> route_id_;
   mutable SimpleAvoidanceDebugData debug_data_;
 };
 

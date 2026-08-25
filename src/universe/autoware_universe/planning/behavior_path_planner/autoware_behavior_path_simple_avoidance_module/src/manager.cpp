@@ -47,6 +47,10 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
     node->declare_parameter<double>(ns + "target_hold_lateral_hysteresis", 0.3);
   p.lateral_execution_threshold =
     node->declare_parameter<double>(ns + "lateral_execution_threshold", 0.05);
+  p.path_generation_failure_timeout =
+    node->declare_parameter<double>(ns + "path_generation_failure_timeout", 0.5);
+  p.completion_stable_count = static_cast<size_t>(
+    std::max<int64_t>(node->declare_parameter<int64_t>(ns + "completion_stable_count", 3), 1));
   p.trailer_configuration_topic = node->declare_parameter<std::string>(
     ns + "trailer.configuration_topic", "/vehicle/status/trailer_configuration");
   p.tractor_rear_axle_to_hitch =
@@ -145,6 +149,11 @@ void SimpleAvoidanceModuleManager::updateModuleParams(
   update_param(
     parameters, ns + "target_hold_lateral_hysteresis", p->target_hold_lateral_hysteresis);
   update_param(parameters, ns + "lateral_execution_threshold", p->lateral_execution_threshold);
+  update_param(
+    parameters, ns + "path_generation_failure_timeout", p->path_generation_failure_timeout);
+  int64_t completion_stable_count = static_cast<int64_t>(p->completion_stable_count);
+  update_param(parameters, ns + "completion_stable_count", completion_stable_count);
+  p->completion_stable_count = static_cast<size_t>(std::max<int64_t>(completion_stable_count, 1));
   update_param(
     parameters, ns + "trailer.tractor_rear_axle_to_hitch", p->tractor_rear_axle_to_hitch);
   update_param(
