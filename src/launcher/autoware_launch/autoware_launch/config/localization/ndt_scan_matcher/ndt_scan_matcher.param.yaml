@@ -125,10 +125,11 @@
 
     dynamic_map_loading:
       # Dynamic map loading distance
-      update_distance: 20.0
+      update_distance: 10.0
 
       # Dynamic map loading loading radius
-      map_radius: 80.0
+      map_radius: 100.0
 
       # Radius of input LiDAR range (used for diagnostics of dynamic map loading)
-      lidar_radius: 100.0
+      # The localization crop box is +/-50 m in x/y (70.7 m at the corners).
+      lidar_radius: 72.0

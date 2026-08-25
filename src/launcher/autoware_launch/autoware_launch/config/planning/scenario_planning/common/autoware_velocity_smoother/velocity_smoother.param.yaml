@@ -35,13 +35,13 @@
     stopping_distance: 8.0    # distance for the stopping_velocity [m]. 0 means the stopping velocity is not applied.
 
     # path extraction parameters
-    extract_ahead_dist: 100.0         # forward trajectory distance used for planning [m]
+    extract_ahead_dist: 60.0          # forward trajectory distance used for low-speed AGV planning [m]
     extract_behind_dist: 5.0          # backward trajectory distance used for planning [m]
     delta_yaw_threshold: 1.0472       # Allowed delta yaw between ego pose and trajectory pose [radian]
 
     # resampling parameters for optimization
-    max_trajectory_length: 100.0        # max trajectory length for resampling [m]
-    min_trajectory_length: 80.0        # min trajectory length for resampling [m]
+    max_trajectory_length: 60.0         # max trajectory length for resampling [m]
+    min_trajectory_length: 50.0         # min trajectory length for resampling [m]
     resample_time: 2.0                  # resample total time for dense sampling [s]
     dense_resample_dt: 0.2              # resample time interval for dense sampling [s]
     dense_min_interval_distance: 0.1    # minimum points-interval length for dense sampling [m]
@@ -49,8 +49,8 @@
     sparse_min_interval_distance: 4.0   # minimum points-interval length for sparse sampling [m]
 
     # resampling parameters for post process
-    post_max_trajectory_length: 100.0        # max trajectory length for resampling [m]
-    post_min_trajectory_length: 80.0         # min trajectory length for resampling [m]
+    post_max_trajectory_length: 60.0         # max trajectory length for resampling [m]
+    post_min_trajectory_length: 50.0         # min trajectory length for resampling [m]
     post_resample_time: 10.0                 # resample total time for dense sampling [s]
     post_dense_resample_dt: 0.1              # resample time interval for dense sampling [s]
     post_dense_min_interval_distance: 0.1    # minimum points-interval length for dense sampling [m]

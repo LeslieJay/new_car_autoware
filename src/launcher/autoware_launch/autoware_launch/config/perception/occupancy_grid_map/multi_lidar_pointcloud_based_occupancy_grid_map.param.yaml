@@ -9,8 +9,8 @@
         gridmap_origin_frame: "base_link"
 
         map_resolution: 0.5 # [m]
-        map_length_x: 150.0 # [m]
-        map_length_y: 150.0 # [m]
+        map_length_x: 120.0 # [m], centered: +/-60 m longitudinally
+        map_length_y: 60.0 # [m]
 
         # debug parameters
         publish_processing_time_detail: false

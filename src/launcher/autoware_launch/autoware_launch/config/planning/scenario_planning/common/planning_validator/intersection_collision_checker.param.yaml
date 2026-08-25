@@ -2,7 +2,7 @@
   ros__parameters:
     icc_parameters:
       enable: true
-      detection_range: 100.0 # [m]
+      detection_range: 60.0 # [m], aligned with the low-speed AGV planning horizon
       ttc_threshold: 2.0 # [s]
       ego_deceleration: 1.0 # [m/s^2]
       min_time_horizon: 7.0 # [s]

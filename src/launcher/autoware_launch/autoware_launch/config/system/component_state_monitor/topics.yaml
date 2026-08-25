@@ -16,8 +16,8 @@
   type: launch
   args:
     node_name_suffix: pointcloud_map
-    topic: /map/pointcloud_map
-    topic_type: sensor_msgs/msg/PointCloud2
+    topic: /map/pointcloud_map_metadata
+    topic_type: autoware_map_msgs/msg/PointCloudMapMetaData
     best_effort: false
     transient_local: true
     warn_rate: 0.0

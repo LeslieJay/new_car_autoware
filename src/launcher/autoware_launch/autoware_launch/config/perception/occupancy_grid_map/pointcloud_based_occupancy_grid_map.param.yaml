@@ -1,6 +1,7 @@
 /**:
   ros__parameters:
-    map_length: 150.0     # [m]
+    # This map is centered on base_link, so 120 m provides 60 m in every direction.
+    map_length: 120.0     # [m]
     map_resolution: 0.5 # [m]
 
     height_filter:

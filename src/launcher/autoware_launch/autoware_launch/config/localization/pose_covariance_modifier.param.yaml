@@ -30,6 +30,6 @@
     gnss_ndt_yaw_difference_threshold_deg: 3.0
 
     # Outdoor experiment: keep GNSS position and use NDT orientation while GNSS remains usable.
-    use_ndt_orientation_with_gnss_position: true
+    use_ndt_orientation_with_gnss_position: false
 
     enable_debug_topics: true
