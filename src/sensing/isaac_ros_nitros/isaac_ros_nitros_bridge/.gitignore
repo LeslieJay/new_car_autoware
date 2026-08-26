@@ -1,6 +1,0 @@
-# Ignore all pycache files
-**/__pycache__/**
-
-# Ignore TensorRT plan files
-*.plan
-*.engine
