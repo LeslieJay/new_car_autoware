@@ -71,12 +71,14 @@ bool DiagnosticTransitionFilter::matches(const std::string &name) const {
 }
 
 bool DiagnosticTransitionFilter::should_trigger(const std::string &name,
-                                                uint8_t level) {
+                                                uint8_t level,
+                                                bool transition_only) {
   const auto previous = last_levels_.find(name);
   const bool was_abnormal =
       previous != last_levels_.end() && previous->second >= min_level_;
   last_levels_[name] = level;
-  return matches(name) && level >= min_level_ && !was_abnormal;
+  return matches(name) && level >= min_level_ &&
+         (!transition_only || !was_abnormal);
 }
 
 bool DiagnosticTransitionFilter::is_abnormal(const std::string &name,

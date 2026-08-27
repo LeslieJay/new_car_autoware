@@ -38,6 +38,13 @@ TEST(DiagnosticTransitionFilter, RearmsOnlyAfterRecovery) {
   EXPECT_TRUE(filter.should_trigger("lidar", 3));
 }
 
+TEST(DiagnosticTransitionFilter, RepeatsWhileAbnormalWhenTransitionsDisabled) {
+  DiagnosticTransitionFilter filter(2, {".*"}, {});
+  EXPECT_TRUE(filter.should_trigger("lidar", 2, false));
+  EXPECT_TRUE(filter.should_trigger("lidar", 2, false));
+  EXPECT_FALSE(filter.should_trigger("lidar", 1, false));
+}
+
 TEST(TopicSelection, RequiredEvidenceTopicsCannotBeExcluded) {
   const std::vector<std::regex> excluded{std::regex(".*")};
   EXPECT_TRUE(byd_event_rosbag_recorder::topic_selected("/diagnostics", {}, {},

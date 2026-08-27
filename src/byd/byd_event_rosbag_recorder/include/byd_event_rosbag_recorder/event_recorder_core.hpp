@@ -38,7 +38,8 @@ public:
                              const std::vector<std::string> &includes,
                              const std::vector<std::string> &excludes);
 
-  bool should_trigger(const std::string &name, uint8_t level);
+  bool should_trigger(const std::string &name, uint8_t level,
+                      bool transition_only = true);
   bool is_abnormal(const std::string &name, uint8_t level) const;
 
 private:

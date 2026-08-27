@@ -10,6 +10,7 @@
   <depend>byd_vehicle_msgs</depend>
   <depend>diagnostic_msgs</depend>
   <depend>rclcpp</depend>
+  <depend>rosbag2_compression</depend>
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_storage</depend>
   <depend>std_msgs</depend>

@@ -33,7 +33,16 @@ ros2 service call /event_rosbag_recorder/trigger \
 
 Completed event directories contain rosbag2 metadata, an MCAP file, and `event.json`. Directories
 ending in `.inprogress` are never treated as completed events; remnants found at startup are
-renamed with a `.corrupt` suffix for inspection.
+renamed with a `.corrupt` suffix for inspection. Active bags are written below
+`storage.temporary_directory` and promoted to the output directory only after the writer and
+manifest close successfully. Configure the temporary directory on the same filesystem as the
+output directory for an atomic promotion; cross-filesystem promotion uses an `.inprogress` copy.
+
+`recording.segment_seconds` controls rosbag file splitting (rounded up to whole seconds, as
+required by rosbag2 Humble). `storage.compression` enables rosbag2 file compression; use `zstd`
+or set it to `none`/an empty value to disable compression. When
+`diagnostics.trigger_on_transition` is true, an abnormal diagnostic triggers once until recovery;
+when false, every matching abnormal diagnostic is recorded as a trigger.
 
 ## Resource bound
 

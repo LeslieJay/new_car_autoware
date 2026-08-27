@@ -7,11 +7,14 @@
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rosbag2_compression/compression_options.hpp>
+#include <rosbag2_compression/sequential_compression_writer.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_storage/storage_options.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -61,13 +64,18 @@ public:
             declare_parameter("recording.max_event_duration_seconds", 600.0))),
         queue_capacity_(static_cast<std::size_t>(
             declare_parameter("recording.queue_capacity_messages", 10000))),
+        segment_seconds_(
+            declare_parameter("recording.segment_seconds", 5.0)),
         capture_(pre_ns_, post_ns_, max_duration_ns_),
         output_directory_(
             declare_parameter("storage.output_directory", "/data/event_bags")),
+        temporary_directory_(declare_parameter(
+            "storage.temporary_directory", output_directory_ + "/.buffer")),
         minimum_free_space_gb_(
             declare_parameter("storage.minimum_free_space_gb", 20.0)),
         maximum_event_storage_gb_(
             declare_parameter("storage.maximum_event_storage_gb", 200.0)),
+        compression_(declare_parameter("storage.compression", "zstd")),
         exact_topics_(
             declare_parameter<std::vector<std::string>>(
                 "topics.names", std::vector<std::string>{})),
@@ -76,18 +84,16 @@ public:
             declare_parameter<std::vector<std::string>>(
                 "diagnostics.include_names", {".*"}),
             declare_parameter<std::vector<std::string>>(
-                "diagnostics.exclude_names", {"^event_rosbag_recorder($|:)"})) {
-    declare_parameter("recording.segment_seconds", 5.0);
-    declare_parameter("storage.temporary_directory",
-                      output_directory_ + "/.buffer");
+                "diagnostics.exclude_names", {"^event_rosbag_recorder($|:)"})),
+        diagnostic_trigger_on_transition_(declare_parameter(
+            "diagnostics.trigger_on_transition", true)) {
     declare_parameter("storage.cleanup_policy", "oldest_first");
     const auto storage_id = declare_parameter("storage.storage_id", "mcap");
-    declare_parameter("storage.compression", "zstd");
-    declare_parameter("diagnostics.trigger_on_transition", true);
     if (pre_ns_ < 0 || post_ns_ < 0 || output_directory_.empty() ||
-        queue_capacity_ == 0) {
+        temporary_directory_.empty() || !std::isfinite(segment_seconds_) ||
+        segment_seconds_ < 0.0 || queue_capacity_ == 0) {
       throw std::invalid_argument(
-          "invalid recording duration or output directory");
+          "invalid recording duration, queue capacity, or storage directory");
     }
     if (storage_id != "mcap") {
       throw std::invalid_argument("storage.storage_id must be mcap");
@@ -95,6 +101,11 @@ public:
     compile_regex_parameter("topics.include_regex", include_topics_);
     compile_regex_parameter("topics.exclude_regex", exclude_topics_);
     fs::create_directories(output_directory_);
+    fs::create_directories(temporary_directory_);
+    if (fs::equivalent(output_directory_, temporary_directory_)) {
+      throw std::invalid_argument(
+          "storage.temporary_directory must differ from output_directory");
+    }
     quarantine_incomplete_events();
 
     event_sub_ = create_subscription<byd_vehicle_msgs::msg::EventTrigger>(
@@ -110,8 +121,9 @@ public:
             "/diagnostics", rclcpp::QoS(50),
             [this](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) {
               for (const auto &status : msg->status) {
-                if (diagnostic_filter_.should_trigger(status.name,
-                                                      status.level)) {
+                if (diagnostic_filter_.should_trigger(
+                        status.name, status.level,
+                        diagnostic_trigger_on_transition_)) {
                   EventRecord event{now().nanoseconds(), "",
                                     status.name,         status.level,
                                     status.message,      "diagnostics"};
@@ -259,22 +271,39 @@ private:
       ensure_capacity();
       const auto base_name =
           unique_output_name(make_output_name(events.front()));
-      const fs::path inprogress =
-          fs::path(output_directory_) / (base_name + ".inprogress");
+      const fs::path staging = fs::path(temporary_directory_) / base_name;
       const fs::path completed = fs::path(output_directory_) / base_name;
       rosbag2_storage::StorageOptions options;
-      options.uri = inprogress.string();
+      options.uri = staging.string();
       options.storage_id = "mcap";
-      rosbag2_cpp::Writer writer;
-      writer.open(options);
-      for (const auto &message : selected) {
-        writer.write(message.data, message.topic, message.type,
-                     rclcpp::Time(message.timestamp_ns));
+      options.max_bagfile_duration = segment_seconds_ == 0.0
+                                         ? 0
+                                         : static_cast<uint64_t>(
+                                               std::ceil(segment_seconds_));
+      std::unique_ptr<rosbag2_cpp::Writer> writer;
+      if (!compression_.empty() && compression_ != "none") {
+        rosbag2_compression::CompressionOptions compression_options;
+        compression_options.compression_format = compression_;
+        compression_options.compression_mode =
+            rosbag2_compression::CompressionMode::FILE;
+        compression_options.compression_queue_size = 1;
+        compression_options.compression_threads = 1;
+        writer = std::make_unique<rosbag2_cpp::Writer>(
+            std::make_unique<
+                rosbag2_compression::SequentialCompressionWriter>(
+                compression_options));
+      } else {
+        writer = std::make_unique<rosbag2_cpp::Writer>();
       }
-      writer.close();
-      write_manifest(inprogress / "event.json", start_ns, end_ns, events,
+      writer->open(options);
+      for (const auto &message : selected) {
+        writer->write(message.data, message.topic, message.type,
+                      rclcpp::Time(message.timestamp_ns));
+      }
+      writer->close();
+      write_manifest(staging / "event.json", start_ns, end_ns, events,
                      selected.size());
-      fs::rename(inprogress, completed);
+      promote_event(staging, completed, base_name);
 
       std::lock_guard<std::mutex> lock(mutex_);
       capture_.reset();
@@ -312,7 +341,9 @@ private:
     const auto name = entry.path().filename().string();
     return name.find(".inprogress") == std::string::npos &&
            name.find(".corrupt") == std::string::npos &&
-           entry.path().parent_path() == fs::path(output_directory_);
+           entry.path().parent_path() == fs::path(output_directory_) &&
+           fs::exists(entry.path() / "metadata.yaml") &&
+           fs::exists(entry.path() / "event.json");
   }
 
   void ensure_capacity() {
@@ -364,18 +395,52 @@ private:
       }
       fs::rename(entry.path(), target);
     }
+    for (const auto &entry : fs::directory_iterator(temporary_directory_)) {
+      if (!entry.is_directory() ||
+          entry.path().filename().string().find(".corrupt") !=
+              std::string::npos) {
+        continue;
+      }
+      fs::path target(entry.path().string() + ".corrupt");
+      for (unsigned suffix = 1; fs::exists(target); ++suffix) {
+        target = fs::path(entry.path().string() + ".corrupt." +
+                          std::to_string(suffix));
+      }
+      fs::rename(entry.path(), target);
+    }
+  }
+
+  void promote_event(const fs::path &staging, const fs::path &completed,
+                     const std::string &base_name) const {
+    try {
+      fs::rename(staging, completed);
+      return;
+    } catch (const fs::filesystem_error &error) {
+      if (error.code() != std::errc::cross_device_link) {
+        throw;
+      }
+    }
+
+    const fs::path output_staging =
+        fs::path(output_directory_) / (base_name + ".inprogress");
+    fs::copy(staging, output_staging, fs::copy_options::recursive);
+    fs::rename(output_staging, completed);
+    fs::remove_all(staging);
   }
 
   std::string unique_output_name(const std::string &candidate) const {
     if (!fs::exists(fs::path(output_directory_) / candidate) &&
         !fs::exists(fs::path(output_directory_) /
-                    (candidate + ".inprogress"))) {
+                    (candidate + ".inprogress")) &&
+        !fs::exists(fs::path(temporary_directory_) / candidate)) {
       return candidate;
     }
     for (unsigned suffix = 1;; ++suffix) {
       const auto value = candidate + "_" + std::to_string(suffix);
       if (!fs::exists(fs::path(output_directory_) / value) &&
-          !fs::exists(fs::path(output_directory_) / (value + ".inprogress"))) {
+          !fs::exists(fs::path(output_directory_) /
+                      (value + ".inprogress")) &&
+          !fs::exists(fs::path(temporary_directory_) / value)) {
         return value;
       }
     }
@@ -501,14 +566,18 @@ private:
   const int64_t post_ns_;
   const int64_t max_duration_ns_;
   const std::size_t queue_capacity_;
+  const double segment_seconds_;
   CaptureWindow capture_;
   std::string output_directory_;
+  std::string temporary_directory_;
   double minimum_free_space_gb_;
   double maximum_event_storage_gb_;
+  std::string compression_;
   std::vector<std::string> exact_topics_;
   std::vector<std::regex> include_topics_;
   std::vector<std::regex> exclude_topics_;
   DiagnosticTransitionFilter diagnostic_filter_;
+  const bool diagnostic_trigger_on_transition_;
 
   std::mutex mutex_;
   std::deque<BufferedMessage> messages_;
