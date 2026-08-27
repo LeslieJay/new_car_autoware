@@ -38,6 +38,11 @@ def _build_staged_launch(context: LaunchContext):
         "launch",
         "auto_engage.launch.py",
     )
+    event_recorder_launch = os.path.join(
+        get_package_share_directory("byd_event_rosbag_recorder"),
+        "launch",
+        "event_rosbag_recorder.launch.py",
+    )
     autoware_launch = os.path.join(
         get_package_share_directory("autoware_launch"),
         "launch",
@@ -122,6 +127,15 @@ def _build_staged_launch(context: LaunchContext):
         PythonLaunchDescriptionSource(applications_launch),
         launch_arguments=common_launch_args.items(),
     )
+    event_recorder = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(event_recorder_launch),
+        launch_arguments={
+            "event_rosbag_recorder_param_file": LaunchConfiguration(
+                "event_rosbag_recorder_param_file"
+            ),
+            "log_level": LaunchConfiguration("log_level"),
+        }.items(),
+    )
 
     # auto_engage consumes Autoware's routing and operation-mode APIs, so defer
     # it until the Autoware readiness gate has passed along with stage 3 apps.
@@ -152,6 +166,13 @@ def _build_staged_launch(context: LaunchContext):
         LogInfo(msg="[bringup] stage 3: applications"),
         applications,
     ]
+    if as_bool(context, "enable_event_rosbag_recorder", default=False):
+        application_actions.extend(
+            [
+                LogInfo(msg="[bringup] starting event rosbag recorder"),
+                event_recorder,
+            ]
+        )
     transitions = [autoware_transition]
     if safety_enabled:
         wait_safety = make_wait_process(

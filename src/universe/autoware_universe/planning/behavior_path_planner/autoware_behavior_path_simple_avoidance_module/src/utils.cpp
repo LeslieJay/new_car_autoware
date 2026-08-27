@@ -218,6 +218,13 @@ AvoidanceLifecycleDecision decideAvoidanceLifecycle(
   decision.next_state = observation.state;
 
   if (!observation.generation_succeeded) {
+    // A candidate has not changed the vehicle path yet. If its first path generation fails,
+    // cancel it and keep the upstream path instead of entering STOPPING without valid geometry.
+    if (observation.state == AvoidanceLifecycleState::CANDIDATE) {
+      decision.next_state = AvoidanceLifecycleState::IDLE;
+      decision.action = AvoidanceLifecycleAction::CANCEL_CANDIDATE;
+      return decision;
+    }
     if (
       observation.has_continuous_previous_path &&
       observation.failure_duration < path_generation_failure_timeout) {

@@ -83,6 +83,11 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
         "config",
         "pedestrian_safety_stop.param.yaml",
     )
+    event_recorder_default = os.path.join(
+        get_package_share_directory("byd_event_rosbag_recorder"),
+        "config",
+        "event_rosbag_recorder.param.yaml",
+    )
 
     return [
         DeclareLaunchArgument(
@@ -174,6 +179,16 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
             "pedestrian_safety_stop_config_file",
             default_value=pedestrian_safety_stop_default,
             description="pedestrian safety stop config",
+        ),
+        DeclareLaunchArgument(
+            "enable_event_rosbag_recorder",
+            default_value="false",
+            description="Launch event-triggered rolling rosbag recorder",
+        ),
+        DeclareLaunchArgument(
+            "event_rosbag_recorder_param_file",
+            default_value=event_recorder_default,
+            description="Event rosbag recorder parameter file",
         ),
     ]
 

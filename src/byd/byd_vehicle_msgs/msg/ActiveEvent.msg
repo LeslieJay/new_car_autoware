@@ -1,0 +1,6 @@
+std_msgs/Header header
+bool active
+string primary_event_id
+builtin_interfaces/Time window_start
+builtin_interfaces/Time expected_window_end
+uint32 merged_event_count

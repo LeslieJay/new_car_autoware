@@ -1,0 +1,7 @@
+string event_type
+uint8 severity
+string description
+---
+bool accepted
+string event_id
+string message

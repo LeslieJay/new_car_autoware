@@ -934,6 +934,13 @@ BehaviorModuleOutput SimpleAvoidanceModule::handlePathGenerationFailure(
     parameters_->completion_stable_count);
   lifecycle_state_ = decision.next_state;
 
+  if (decision.action == AvoidanceLifecycleAction::CANCEL_CANDIDATE) {
+    path_shifter_.setShiftLines({});
+    prev_output_ = ShiftedPath{};
+    active_target_.reset();
+    path_generation_failure_started_.reset();
+    return passThrough(InfeasibleReason::PATH_GENERATION_FAILED, debug_info);
+  }
   if (decision.action == AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH) {
     debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
     return adjustDrivableArea(prev_output_);

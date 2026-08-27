@@ -247,6 +247,20 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleReusesValidPathDuringTransientGenerati
   EXPECT_EQ(decision.action, AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH);
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsUncommittedCandidateOnGenerationFailure)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::CANDIDATE;
+  observation.target_available = true;
+  observation.generation_succeeded = false;
+  observation.has_continuous_previous_path = false;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::IDLE);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::CANCEL_CANDIDATE);
+}
+
 TEST_F(SimpleAvoidanceUtilsTest, LifecycleStopsAfterSustainedGenerationFailure)
 {
   AvoidanceLifecycleObservation observation;

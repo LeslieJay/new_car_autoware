@@ -5,8 +5,12 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/ActiveEvent.msg"
+  "msg/EventTrigger.msg"
+  "msg/RecorderStatus.msg"
   "msg/TrailerConfiguration.msg"
-  DEPENDENCIES std_msgs
+  "srv/TriggerEvent.srv"
+  DEPENDENCIES builtin_interfaces std_msgs
   ADD_LINTER_TESTS
 )
 

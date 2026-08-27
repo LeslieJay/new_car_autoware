@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>byd_event_rosbag_recorder</name>
+  <version>0.1.0</version>
+  <description>Event-triggered rolling rosbag recorder.</description>
+  <maintainer email="byd@example.com">BYD</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>byd_vehicle_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

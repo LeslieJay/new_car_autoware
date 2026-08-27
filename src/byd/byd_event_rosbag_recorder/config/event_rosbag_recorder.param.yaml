@@ -1,0 +1,29 @@
+event_rosbag_recorder_node:
+  ros__parameters:
+    recording:
+      pre_trigger_seconds: 30.0
+      post_trigger_seconds: 30.0
+      segment_seconds: 5.0
+      max_event_duration_seconds: 600.0
+      queue_capacity_messages: 10000
+    topics:
+      names:
+        - /vehicle/status/velocity_status
+      include_regex: []
+      exclude_regex:
+        - ^/debug/
+    diagnostics:
+      min_level: 2
+      include_names:
+        - .*
+      exclude_names:
+        - ^event_rosbag_recorder($|:)
+      trigger_on_transition: true
+    storage:
+      output_directory: /data/event_bags
+      temporary_directory: /data/event_bags/.buffer
+      minimum_free_space_gb: 20.0
+      maximum_event_storage_gb: 200.0
+      cleanup_policy: oldest_first
+      storage_id: mcap
+      compression: zstd
