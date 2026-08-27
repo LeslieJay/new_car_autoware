@@ -69,7 +69,8 @@ public:
         maximum_event_storage_gb_(
             declare_parameter("storage.maximum_event_storage_gb", 200.0)),
         exact_topics_(
-            declare_parameter<std::vector<std::string>>("topics.names", {})),
+            declare_parameter<std::vector<std::string>>(
+                "topics.names", std::vector<std::string>{})),
         diagnostic_filter_(
             static_cast<uint8_t>(declare_parameter("diagnostics.min_level", 2)),
             declare_parameter<std::vector<std::string>>(
@@ -162,7 +163,8 @@ private:
   void compile_regex_parameter(const std::string &name,
                                std::vector<std::regex> &output) {
     for (const auto &expression :
-         declare_parameter<std::vector<std::string>>(name, {})) {
+         declare_parameter<std::vector<std::string>>(
+             name, std::vector<std::string>{})) {
       output.emplace_back(expression);
     }
   }
@@ -475,8 +477,8 @@ private:
       }
       active.active = capture_.active();
       active.primary_event_id = status.active_event_id;
-      active.window_start = rclcpp::Time(capture_.start_ns()).to_msg();
-      active.expected_window_end = rclcpp::Time(capture_.end_ns()).to_msg();
+      active.window_start = rclcpp::Time(capture_.start_ns());
+      active.expected_window_end = rclcpp::Time(capture_.end_ns());
       active.merged_event_count = capture_.trigger_count();
       diagnostic.level = state_ == status.STATE_DEGRADED
                              ? diagnostic_msgs::msg::DiagnosticStatus::ERROR

@@ -21,6 +21,13 @@ TEST(CaptureWindow, MergesTriggersAndCapsDuration) {
   EXPECT_EQ(window.end_ns(), 670'000'000'000LL);
 }
 
+TEST(CaptureWindow, CapsInitialWindowFromPreTriggerStart) {
+  CaptureWindow window(30'000'000'000LL, 30'000'000'000LL, 40'000'000'000LL);
+  window.trigger(100'000'000'000LL);
+  EXPECT_EQ(window.start_ns(), 70'000'000'000LL);
+  EXPECT_EQ(window.end_ns(), 110'000'000'000LL);
+}
+
 TEST(DiagnosticTransitionFilter, RearmsOnlyAfterRecovery) {
   DiagnosticTransitionFilter filter(2, {".*"}, {"^event_rosbag_recorder"});
   EXPECT_TRUE(filter.should_trigger("lidar", 2));

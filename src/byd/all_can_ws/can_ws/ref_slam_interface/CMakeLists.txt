@@ -43,11 +43,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES nav_msgs
 )
 
-install(
-  DIRECTORY include/
-  DESTINATION include
-)
-
-ament_export_include_directories(include)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  install(
+    DIRECTORY include/
+    DESTINATION include
+  )
+  ament_export_include_directories(include)
+endif()
 
 ament_package()

@@ -19,12 +19,12 @@ void CaptureWindow::trigger(int64_t time_ns) {
     active_ = true;
     first_trigger_ns_ = time_ns;
     start_ns_ = time_ns - pre_ns_;
-    end_ns_ = time_ns + post_ns_;
+    end_ns_ = std::min(time_ns + post_ns_, start_ns_ + max_duration_ns_);
     trigger_count_ = 1;
     return;
   }
   ++trigger_count_;
-  end_ns_ = std::min(time_ns + post_ns_, first_trigger_ns_ + max_duration_ns_);
+  end_ns_ = std::min(time_ns + post_ns_, start_ns_ + max_duration_ns_);
 }
 
 bool CaptureWindow::active() const { return active_; }

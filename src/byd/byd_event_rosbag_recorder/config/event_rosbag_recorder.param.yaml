@@ -9,7 +9,7 @@ event_rosbag_recorder_node:
     topics:
       names:
         - /vehicle/status/velocity_status
-      include_regex: []
+      # Omit include_regex when unused; ROS 2 Humble cannot infer the type of [].
       exclude_regex:
         - ^/debug/
     diagnostics:
