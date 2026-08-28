@@ -88,6 +88,11 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
         "config",
         "event_rosbag_recorder.param.yaml",
     )
+    system_event_monitor_default = os.path.join(
+        get_package_share_directory("byd_system_event_monitor"),
+        "config",
+        "system_event_monitor.param.yaml",
+    )
 
     return [
         DeclareLaunchArgument(
@@ -189,6 +194,16 @@ def declare_bringup_arguments() -> list[DeclareLaunchArgument]:
             "event_rosbag_recorder_param_file",
             default_value=event_recorder_default,
             description="Event rosbag recorder parameter file",
+        ),
+        DeclareLaunchArgument(
+            "enable_system_event_monitor",
+            default_value="false",
+            description="Launch abnormal-stop and mode-transition event monitor",
+        ),
+        DeclareLaunchArgument(
+            "system_event_monitor_param_file",
+            default_value=system_event_monitor_default,
+            description="System event monitor parameter file",
         ),
     ]
 

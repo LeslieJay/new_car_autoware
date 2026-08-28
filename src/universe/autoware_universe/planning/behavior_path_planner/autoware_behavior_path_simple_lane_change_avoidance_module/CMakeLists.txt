@@ -13,6 +13,7 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 
 if(BUILD_TESTING)
   ament_add_ros_isolated_gtest(test_${PROJECT_NAME}_utils
+    test/test_scene.cpp
     test/test_utils.cpp
   )
 

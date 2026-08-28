@@ -27,6 +27,10 @@ using autoware_internal_planning_msgs::msg::PathWithLaneId;
 
 void setOrientation(PathWithLaneId * path);
 
+PathWithLaneId extendBackwardPath(
+  const PathWithLaneId & previous_path, const PathWithLaneId & current_path,
+  const geometry_msgs::msg::Point & ego_position, double backward_length);
+
 double getClosestShiftLength(
   const ShiftedPath & shifted_path, const geometry_msgs::msg::Point & ego_point);
 

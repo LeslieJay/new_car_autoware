@@ -18,6 +18,7 @@ event_rosbag_recorder_node:
         - .*
       exclude_names:
         - ^event_rosbag_recorder($|:)
+        - ^system_event_monitor($|:)
       trigger_on_transition: true
     storage:
       output_directory: /data/event_bags

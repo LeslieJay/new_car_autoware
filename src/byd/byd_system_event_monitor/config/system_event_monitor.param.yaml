@@ -1,0 +1,41 @@
+system_event_monitor_node:
+  ros__parameters:
+    abnormal_stop:
+      speed_threshold_mps: 0.1
+      rearm_speed_mps: 0.3
+      goal_distance_m: 2.0
+      hold_seconds: 5.0
+      rearm_seconds: 2.0
+      planned_stop_grace_seconds: 2.0
+    mode_transition:
+      manual_stable_seconds: 0.5
+      transition_window_seconds: 2.0
+    freshness:
+      velocity_seconds: 0.5
+      control_mode_seconds: 1.0
+      autoware_state_seconds: 2.0
+      localization_seconds: 0.5
+      trajectory_seconds: 1.0
+      planning_factor_seconds: 1.0
+      stop_reason_seconds: 1.0
+    diagnostics:
+      error_after_seconds: 5.0
+    topics:
+      velocity: /vehicle/status/velocity_status
+      control_mode: /vehicle/status/control_mode
+      autoware_state: /byd/autoware/state
+      localization: /localization/kinematic_state
+      trajectory: /planning/trajectory
+      stop_reasons: /planning/scenario_planning/status/stop_reasons
+      pedestrian_stop_status: /byd/pedestrian_safety_stop/status
+      planning_factors:
+        - /planning/planning_factors/traffic_light
+        - /planning/planning_factors/stop_line
+        - /planning/planning_factors/crosswalk
+        - /planning/planning_factors/intersection
+        - /planning/planning_factors/detection_area
+        - /planning/planning_factors/dynamic_obstacle_stop
+        - /planning/planning_factors/obstacle_stop
+        - /planning/planning_factors/obstacle_stop_planner
+        - /planning/planning_factors/surround_obstacle_checker
+        - /planning/planning_factors/virtual_traffic_light

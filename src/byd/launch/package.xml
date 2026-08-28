@@ -14,6 +14,7 @@
   <exec_depend>byd_auto_engage</exec_depend>
   <exec_depend>byd_vehicle_state</exec_depend>
   <exec_depend>byd_event_rosbag_recorder</exec_depend>
+  <exec_depend>byd_system_event_monitor</exec_depend>
   <exec_depend>rslidar_sdk</exec_depend>
   <exec_depend>agv_to_rcs</exec_depend>
   <exec_depend>autoware_launch</exec_depend>

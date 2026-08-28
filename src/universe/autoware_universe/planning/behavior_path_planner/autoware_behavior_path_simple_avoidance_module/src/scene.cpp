@@ -978,7 +978,13 @@ BehaviorModuleOutput SimpleAvoidanceModule::passThrough(
   debug_data_.last_reason = reason;
   const double ego_half_width = planner_data_->parameters.vehicle_width / 2.0;
   logPassThroughDetails(getLogger(), *clock_, reason, debug_info, *parameters_, ego_half_width);
-  return getPreviousModuleOutput();
+
+  auto output = getPreviousModuleOutput();
+  if (output.path.points.empty() && !reference_path_.points.empty()) {
+    output.path = reference_path_;
+    output.reference_path = reference_path_;
+  }
+  return output;
 }
 
 BehaviorModuleOutput SimpleAvoidanceModule::adjustDrivableArea(const ShiftedPath & path) const

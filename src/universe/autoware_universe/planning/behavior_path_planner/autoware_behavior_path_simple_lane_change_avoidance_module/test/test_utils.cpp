@@ -18,6 +18,20 @@
 
 namespace autoware::behavior_path_planner
 {
+namespace
+{
+PathWithLaneId makePath(const std::initializer_list<double> x_positions)
+{
+  PathWithLaneId path;
+  for (const auto x : x_positions) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+    point.point.pose.position.x = x;
+    point.point.pose.orientation.w = 1.0;
+    path.points.push_back(point);
+  }
+  return path;
+}
+}  // namespace
 
 class SimpleLCAvoidanceUtilsTest : public ::testing::Test
 {
@@ -126,6 +140,22 @@ TEST_F(SimpleLCAvoidanceUtilsTest, CheckFeasibilityInsufficientDistance)
 
   EXPECT_EQ(result.reason, InfeasibleReason::INSUFFICIENT_DISTANCE);
   EXPECT_GT(result.dist_to_shift_end, result.dist_to_obstacle);
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, ExtendBackwardPathUsesPreviousReferenceHistory)
+{
+  const auto previous_path = makePath({-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0});
+  const auto current_path = makePath({0.0, 1.0, 2.0, 3.0});
+  geometry_msgs::msg::Point ego_position;
+  ego_position.x = 0.0;
+
+  const auto extended = extendBackwardPath(previous_path, current_path, ego_position, 2.0);
+
+  ASSERT_EQ(extended.points.size(), 6U);
+  EXPECT_DOUBLE_EQ(extended.points.at(0).point.pose.position.x, -2.0);
+  EXPECT_DOUBLE_EQ(extended.points.at(1).point.pose.position.x, -1.0);
+  EXPECT_DOUBLE_EQ(extended.points.at(2).point.pose.position.x, 0.0);
+  EXPECT_DOUBLE_EQ(extended.points.back().point.pose.position.x, 3.0);
 }
 
 }  // namespace autoware::behavior_path_planner

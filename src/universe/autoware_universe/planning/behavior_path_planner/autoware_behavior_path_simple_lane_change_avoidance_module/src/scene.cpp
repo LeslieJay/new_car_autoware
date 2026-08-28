@@ -139,7 +139,28 @@ bool SimpleLaneChangeAvoidanceModule::isExecutionRequested() const
   if (getCurrentStatus() == ModuleStatus::RUNNING) {
     return true;
   }
-  return detectTarget().has_value();
+
+  const auto target = detectTarget();
+  if (!target.has_value()) {
+    return false;
+  }
+
+  const auto shift_result = calcLaneShift(*target);
+  if (shift_result.reason != InfeasibleReason::NONE) {
+    return false;
+  }
+
+  const auto ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+  if (
+    checkFeasibility(*target, shift_result.shift_length, *parameters_, ego_speed).reason !=
+    InfeasibleReason::NONE) {
+    return false;
+  }
+
+  auto candidate_shifter = path_shifter_;
+  candidate_shifter.setShiftLines(buildShiftLines(*target, shift_result));
+  ShiftedPath candidate;
+  return candidate_shifter.generate(&candidate) && !candidate.path.points.empty();
 }
 
 bool SimpleLaneChangeAvoidanceModule::canTransitSuccessState()
@@ -347,7 +368,13 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::passThrough(const Infeasib
   debug_data_.last_reason = reason;
   RCLCPP_WARN_THROTTLE(
     getLogger(), *clock_, 1000, "[SIMPLE_LC_AVOIDANCE] pass-through reason=%s", toString(reason));
-  return getPreviousModuleOutput();
+
+  auto output = getPreviousModuleOutput();
+  if (output.path.points.empty() && !reference_path_.points.empty()) {
+    output.path = reference_path_;
+    output.reference_path = reference_path_;
+  }
+  return output;
 }
 
 BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::adjustDrivableArea(
@@ -517,30 +544,7 @@ PathWithLaneId SimpleLaneChangeAvoidanceModule::extendBackwardLength(
   constexpr double extra_margin = 10.0;
   const auto backward_length = std::max(
     planner_data_->parameters.backward_path_length, longest_dist_to_shift_point + extra_margin);
-
-  const auto & prev_reference = getPreviousModuleOutput().path;
-  const size_t orig_ego_idx =
-    autoware::motion_utils::findNearestIndex(original_path.points, getEgoPose().position);
-  const size_t prev_ego_idx = autoware::motion_utils::findNearestSegmentIndex(
-    prev_reference.points, autoware_utils::get_point(original_path.points.at(orig_ego_idx)));
-
-  size_t clip_idx = 0;
-  for (size_t i = 0; i < prev_ego_idx; ++i) {
-    if (backward_length > autoware::motion_utils::calcSignedArcLength(
-                           prev_reference.points, clip_idx, prev_ego_idx)) {
-      break;
-    }
-    clip_idx = i;
-  }
-
-  PathWithLaneId extended_path{};
-  extended_path.points.insert(
-    extended_path.points.end(), prev_reference.points.begin() + clip_idx,
-    prev_reference.points.begin() + prev_ego_idx);
-  extended_path.points.insert(
-    extended_path.points.end(), original_path.points.begin() + orig_ego_idx,
-    original_path.points.end());
-  return extended_path;
+  return extendBackwardPath(reference_path_, original_path, getEgoPose().position, backward_length);
 }
 
 void SimpleLaneChangeAvoidanceModule::setDebugMarkersVisualization() const
