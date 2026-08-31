@@ -21,8 +21,8 @@ event_rosbag_recorder_node:
         - ^system_event_monitor($|:)
       trigger_on_transition: true
     storage:
-      output_directory: /data/event_bags
-      temporary_directory: /data/event_bags/.buffer
+      output_directory: /home/nvidia/autoware/log
+      temporary_directory: /home/nvidia/autoware/log/.buffer
       minimum_free_space_gb: 20.0
       maximum_event_storage_gb: 200.0
       cleanup_policy: oldest_first

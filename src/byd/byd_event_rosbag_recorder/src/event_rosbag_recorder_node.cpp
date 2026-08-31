@@ -68,7 +68,8 @@ public:
             declare_parameter("recording.segment_seconds", 5.0)),
         capture_(pre_ns_, post_ns_, max_duration_ns_),
         output_directory_(
-            declare_parameter("storage.output_directory", "/data/event_bags")),
+            declare_parameter("storage.output_directory",
+                              "/home/nvidia/autoware/log")),
         temporary_directory_(declare_parameter(
             "storage.temporary_directory", output_directory_ + "/.buffer")),
         minimum_free_space_gb_(
