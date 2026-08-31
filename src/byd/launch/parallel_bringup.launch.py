@@ -56,6 +56,12 @@ def _launch_everything(context: LaunchContext):
     safety_launch = _share_path(
         "byd_launch", "launch", "pedestrian_safety_stop.launch.py"
     )
+    event_recorder_launch = _share_path(
+        "byd_event_rosbag_recorder", "launch", "event_rosbag_recorder.launch.py"
+    )
+    system_event_monitor_launch = _share_path(
+        "byd_system_event_monitor", "launch", "system_event_monitor.launch.py"
+    )
 
     actions = [
         IncludeLaunchDescription(
@@ -91,6 +97,31 @@ def _launch_everything(context: LaunchContext):
             }.items(),
         ),
     ]
+
+    if as_bool(context, "enable_event_rosbag_recorder", default=True):
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(event_recorder_launch),
+                launch_arguments={
+                    "event_rosbag_recorder_param_file": LaunchConfiguration(
+                        "event_rosbag_recorder_param_file"
+                    ),
+                    "log_level": LaunchConfiguration("log_level"),
+                }.items(),
+            )
+        )
+    if as_bool(context, "enable_system_event_monitor", default=True):
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(system_event_monitor_launch),
+                launch_arguments={
+                    "system_event_monitor_param_file": LaunchConfiguration(
+                        "system_event_monitor_param_file"
+                    ),
+                    "log_level": LaunchConfiguration("log_level"),
+                }.items(),
+            )
+        )
 
     auto_engage = Node(
         package="byd_auto_engage",
@@ -165,6 +196,34 @@ def generate_launch_description():
                 "enable_pedestrian_safety_stop",
                 default_value="true",
                 description="Stop for nearby pedestrian or unknown objects",
+            ),
+            DeclareLaunchArgument(
+                "enable_event_rosbag_recorder",
+                default_value="true",
+                description="Launch event-triggered rolling rosbag recorder",
+            ),
+            DeclareLaunchArgument(
+                "event_rosbag_recorder_param_file",
+                default_value=_share_path(
+                    "byd_event_rosbag_recorder",
+                    "config",
+                    "event_rosbag_recorder.param.yaml",
+                ),
+                description="Event rosbag recorder parameter file",
+            ),
+            DeclareLaunchArgument(
+                "enable_system_event_monitor",
+                default_value="true",
+                description="Launch abnormal-stop and mode-transition event monitor",
+            ),
+            DeclareLaunchArgument(
+                "system_event_monitor_param_file",
+                default_value=_share_path(
+                    "byd_system_event_monitor",
+                    "config",
+                    "system_event_monitor.param.yaml",
+                ),
+                description="System event monitor parameter file",
             ),
             DeclareLaunchArgument(
                 "pedestrian_safety_stop_config_file",
