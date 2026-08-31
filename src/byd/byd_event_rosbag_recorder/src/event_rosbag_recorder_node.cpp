@@ -63,7 +63,7 @@ public:
         max_duration_ns_(seconds_to_ns(
             declare_parameter("recording.max_event_duration_seconds", 600.0))),
         queue_capacity_(static_cast<std::size_t>(
-            declare_parameter("recording.queue_capacity_messages", 10000))),
+            declare_parameter("recording.queue_capacity_messages", 80000))),
         segment_seconds_(
             declare_parameter("recording.segment_seconds", 5.0)),
         capture_(pre_ns_, post_ns_, max_duration_ns_),
@@ -203,6 +203,11 @@ private:
              type](std::shared_ptr<rclcpp::SerializedMessage> message) {
               std::lock_guard<std::mutex> lock(mutex_);
               if (messages_.size() >= queue_capacity_) {
+                if (capture_.active() &&
+                    messages_.front().timestamp_ns >= capture_.start_ns()) {
+                  capture_queue_truncated_ = true;
+                  ++capture_dropped_message_count_;
+                }
                 messages_.pop_front();
                 ++dropped_message_count_;
               }
@@ -223,7 +228,14 @@ private:
     if (event.id.empty()) {
       event.id = make_event_id();
     }
+    const bool starting_capture = !capture_.active();
     capture_.trigger(event.timestamp_ns);
+    if (starting_capture) {
+      capture_dropped_message_count_ = 0;
+      capture_queue_truncated_ =
+          messages_.size() >= queue_capacity_ && !messages_.empty() &&
+          messages_.front().timestamp_ns > capture_.start_ns();
+    }
     events_.push_back(std::move(event));
   }
 
@@ -251,6 +263,9 @@ private:
     std::vector<EventRecord> events;
     int64_t start_ns;
     int64_t end_ns;
+    uint64_t capture_dropped_message_count;
+    uint64_t total_dropped_message_count;
+    bool capture_queue_truncated;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!capture_.active()) {
@@ -260,6 +275,9 @@ private:
       start_ns = capture_.start_ns();
       end_ns = capture_.end_ns();
       events = events_;
+      capture_dropped_message_count = capture_dropped_message_count_;
+      total_dropped_message_count = dropped_message_count_;
+      capture_queue_truncated = capture_queue_truncated_;
       for (const auto &message : messages_) {
         if (message.timestamp_ns >= start_ns &&
             message.timestamp_ns <= end_ns) {
@@ -303,12 +321,31 @@ private:
       }
       writer->close();
       write_manifest(staging / "event.json", start_ns, end_ns, events,
-                     selected.size());
+                     selected, capture_dropped_message_count,
+                     total_dropped_message_count, capture_queue_truncated);
       promote_event(staging, completed, base_name);
+      const bool recorded_autonomous_to_manual =
+          std::any_of(events.begin(), events.end(), [](const auto &event) {
+            return event.type == "autonomous_to_manual";
+          });
+      if (recorded_autonomous_to_manual) {
+        RCLCPP_INFO_STREAM(
+            get_logger(),
+            "Recorded autonomous-to-manual rosbag: path=" << completed
+                                                            << ", messages="
+                                                            << selected.size()
+                                                            << ", window_ns=["
+                                                            << start_ns << ", "
+                                                            << end_ns
+                                                            << "], dropped="
+                                                            << capture_dropped_message_count);
+      }
 
       std::lock_guard<std::mutex> lock(mutex_);
       capture_.reset();
       events_.clear();
+      capture_dropped_message_count_ = 0;
+      capture_queue_truncated_ = false;
       last_error_.clear();
       state_ = byd_vehicle_msgs::msg::RecorderStatus::STATE_BUFFERING;
     } catch (const std::exception &error) {
@@ -317,6 +354,8 @@ private:
       state_ = byd_vehicle_msgs::msg::RecorderStatus::STATE_DEGRADED;
       capture_.reset();
       events_.clear();
+      capture_dropped_message_count_ = 0;
+      capture_queue_truncated_ = false;
     }
   }
 
@@ -461,14 +500,45 @@ private:
   static void write_manifest(const fs::path &path, int64_t start_ns,
                              int64_t end_ns,
                              const std::vector<EventRecord> &events,
-                             std::size_t message_count) {
+                             const std::vector<BufferedMessage> &messages,
+                             uint64_t capture_dropped_message_count,
+                             uint64_t total_dropped_message_count,
+                             bool capture_queue_truncated) {
     std::ofstream stream(path);
     if (!stream) {
       throw std::runtime_error("failed to create event manifest");
     }
-    stream << "{\n  \"schema_version\": 1,\n  \"window_start_ns\": " << start_ns
+    const bool has_messages = !messages.empty();
+    const bool pre_window_truncated =
+        capture_queue_truncated &&
+        (!has_messages || messages.front().timestamp_ns > start_ns);
+    const auto truncation_reason =
+        pre_window_truncated ? "queue_capacity_exceeded" : "";
+    stream << "{\n  \"schema_version\": 2,\n  \"window_start_ns\": " << start_ns
            << ",\n  \"window_end_ns\": " << end_ns
-           << ",\n  \"message_count\": " << message_count
+           << ",\n  \"requested_window_start_ns\": " << start_ns
+           << ",\n  \"requested_window_end_ns\": " << end_ns
+           << ",\n  \"actual_window_start_ns\": ";
+    if (has_messages) {
+      stream << messages.front().timestamp_ns;
+    } else {
+      stream << "null";
+    }
+    stream << ",\n  \"actual_window_end_ns\": ";
+    if (has_messages) {
+      stream << messages.back().timestamp_ns;
+    } else {
+      stream << "null";
+    }
+    stream << ",\n  \"pre_window_truncated\": "
+           << (pre_window_truncated ? "true" : "false")
+           << ",\n  \"post_window_truncated\": false"
+           << ",\n  \"truncation_reason\": \"" << truncation_reason << "\""
+           << ",\n  \"capture_dropped_message_count\": "
+           << capture_dropped_message_count
+           << ",\n  \"total_dropped_message_count\": "
+           << total_dropped_message_count
+           << ",\n  \"message_count\": " << messages.size()
            << ",\n  \"events\": [\n";
     for (std::size_t index = 0; index < events.size(); ++index) {
       const auto &event = events[index];
@@ -590,6 +660,8 @@ private:
   uint8_t state_{byd_vehicle_msgs::msg::RecorderStatus::STATE_BUFFERING};
   std::string last_error_;
   uint64_t dropped_message_count_{0};
+  uint64_t capture_dropped_message_count_{0};
+  bool capture_queue_truncated_{false};
 
   rclcpp::Subscription<byd_vehicle_msgs::msg::EventTrigger>::SharedPtr
       event_sub_;

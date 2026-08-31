@@ -50,3 +50,9 @@ Serialized messages are bounded by both the configured pre-trigger duration and
 `recording.queue_capacity_messages`. If the message-count bound is reached, the oldest message is
 dropped and the drop counter is published in `/event_rosbag_recorder/status`. Size the bound from
 measured aggregate topic rate before enabling high-bandwidth image or point-cloud topics.
+
+`event.json` schema version 2 retains `window_start_ns` and `window_end_ns` as the requested
+capture bounds and adds explicit requested/actual bounds, pre/post truncation flags, a truncation
+reason, and capture/total queue-drop counters. An actual bound is `null` when no message was
+written. The default configuration records both control-command topics and the recorder status so
+that a missing-command diagnostic and any queue loss can be verified from the completed bag.

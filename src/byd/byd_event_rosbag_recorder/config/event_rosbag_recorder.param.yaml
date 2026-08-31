@@ -5,10 +5,15 @@ event_rosbag_recorder_node:
       post_trigger_seconds: 30.0
       segment_seconds: 5.0
       max_event_duration_seconds: 600.0
-      queue_capacity_messages: 10000
+      # Sized for roughly two minutes at the observed aggregate rate of 600 msg/s,
+      # with additional headroom for short diagnostic bursts.
+      queue_capacity_messages: 80000
     topics:
       names:
         - /vehicle/status/velocity_status
+        - /control/trajectory_follower/control_cmd
+        - /control/command/control_cmd
+        - /event_rosbag_recorder/status
       # Omit include_regex when unused; ROS 2 Humble cannot infer the type of [].
       exclude_regex:
         - ^/debug/
