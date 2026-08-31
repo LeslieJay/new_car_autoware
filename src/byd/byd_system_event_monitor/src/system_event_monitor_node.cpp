@@ -94,28 +94,45 @@ public:
     velocity_sub_ =
         create_subscription<autoware_vehicle_msgs::msg::VelocityReport>(
             velocity_topic, rclcpp::SensorDataQoS(),
-            [this](const auto msg) { store(velocity_, msg); });
+            [this](
+                const autoware_vehicle_msgs::msg::VelocityReport::ConstSharedPtr msg) {
+              store(velocity_, msg);
+            });
     mode_sub_ =
         create_subscription<autoware_vehicle_msgs::msg::ControlModeReport>(
-            mode_topic, 10, [this](const auto msg) { store(mode_, msg); });
+            mode_topic, 10,
+            [this](
+                const autoware_vehicle_msgs::msg::ControlModeReport::ConstSharedPtr msg) {
+              store(mode_, msg);
+            });
     state_sub_ = create_subscription<autoware_system_msgs::msg::AutowareState>(
         state_topic, 10,
-        [this](const auto msg) { store(autoware_state_, msg); });
+        [this](const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg) {
+          store(autoware_state_, msg);
+        });
     localization_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         localization_topic, rclcpp::SensorDataQoS(),
-        [this](const auto msg) { store(localization_, msg); });
+        [this](const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+          store(localization_, msg);
+        });
     trajectory_sub_ =
         create_subscription<autoware_planning_msgs::msg::Trajectory>(
             trajectory_topic, 10,
-            [this](const auto msg) { store(trajectory_, msg); });
+            [this](const autoware_planning_msgs::msg::Trajectory::ConstSharedPtr msg) {
+              store(trajectory_, msg);
+            });
     stop_reason_sub_ =
         create_subscription<tier4_planning_msgs::msg::StopReasonArray>(
             stop_reason_topic, 10,
-            [this](const auto msg) { store(stop_reasons_, msg); });
+            [this](const tier4_planning_msgs::msg::StopReasonArray::ConstSharedPtr msg) {
+              store(stop_reasons_, msg);
+            });
     pedestrian_sub_ =
         create_subscription<diagnostic_msgs::msg::DiagnosticStatus>(
             pedestrian_topic, rclcpp::QoS(1).transient_local(),
-            [this](const auto msg) { store(pedestrian_status_, msg); });
+            [this](const diagnostic_msgs::msg::DiagnosticStatus::ConstSharedPtr msg) {
+              store(pedestrian_status_, msg);
+            });
 
     const auto factor_topics = declare_parameter<std::vector<std::string>>(
         "topics.planning_factors", default_factor_topics());
@@ -128,7 +145,10 @@ public:
       factor.subscription = create_subscription<
           autoware_internal_planning_msgs::msg::PlanningFactorArray>(
           factor.topic, 10,
-          [this, state](const auto msg) { store(state->message, msg); });
+          [this, state](const autoware_internal_planning_msgs::msg::
+                          PlanningFactorArray::ConstSharedPtr msg) {
+            store(state->message, msg);
+          });
     }
 
     evaluation_timer_ = create_wall_timer(100ms, [this]() { evaluate(); });
@@ -293,7 +313,7 @@ private:
   void publish_event(int64_t now_ns, const std::string &type, uint8_t severity,
                      const std::string &description) {
     byd_vehicle_msgs::msg::EventTrigger event;
-    event.header.stamp = rclcpp::Time(now_ns).to_msg();
+    event.header.stamp = rclcpp::Time(now_ns);
     event.event_id = next_event_id(now_ns);
     event.event_type = type;
     event.severity = severity;
@@ -349,7 +369,7 @@ private:
   void publish_diagnostics(int64_t now_ns,
                            const std::vector<std::string> &missing) {
     diagnostic_msgs::msg::DiagnosticArray array;
-    array.header.stamp = rclcpp::Time(now_ns).to_msg();
+    array.header.stamp = rclcpp::Time(now_ns);
     diagnostic_msgs::msg::DiagnosticStatus status;
     status.name = "system_event_monitor";
     status.hardware_id = "byd_system_events";
