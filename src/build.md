@@ -9,14 +9,7 @@ colcon build --symlink-install --packages-select \
     mission_loop
 ## 测试
 
-source /opt/ros/humble/setup.bash
-
-colcon build \
-  --packages-select autoware_behavior_path_simple_avoidance_module \
-  --symlink-install \
   --cmake-clean-cache
-
-source /home/nvidia/autoware/install/setup.bash
 
 stat -L /home/nvidia/autoware/install/autoware_behavior_path_simple_avoidance_module/lib/libautoware_behavior_path_simple_avoidance_module.so
 
@@ -24,13 +17,16 @@ stat "$(readlink -f /home/nvidia/autoware/install/autoware_behavior_path_simple_
 
 
 cd /home/nvidia/autoware
-
-rm -rf \
-  /home/nvidia/autoware/build/autoware_behavior_path_simple_avoidance_module \
-  /home/nvidia/autoware/install/autoware_behavior_path_simple_avoidance_module
-
 source /opt/ros/humble/setup.bash
-
 colcon build \
-  --packages-select autoware_behavior_path_simple_avoidance_module \
-  --symlink-install
+  --packages-select \
+  byd_event_rosbag_recorder \
+  byd_system_event_monitor \
+  byd_launch \
+  autoware_launch \
+  autoware_multi_object_tracker \
+  autoware_behavior_path_goal_planner_module \
+  autoware_behavior_path_planner_common \
+  autoware_behavior_path_simple_avoidance_module \
+  --symlink-install \
+  --event-handlers console_direct+
