@@ -7,6 +7,13 @@ SCRIPT_PATH="${WORKSPACE}/src/byd/scripts/start_bringup_record_mission.sh"
 ROSBAG_SCRIPT="${WORKSPACE}/src/byd/scripts/rosbag_record_command.sh"
 LOG_ROOT="/mnt/driving_recorder"
 MIN_FREE_BYTES=$((200 * 1024 * 1024 * 1024))
+STARTUP_TIMEOUT_SECONDS="${STARTUP_TIMEOUT_SECONDS:-60}"
+ROSBAG_NODE="${ROSBAG_NODE:-/rosbag2_recorder}"
+
+if [[ ! "${STARTUP_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "错误：STARTUP_TIMEOUT_SECONDS 必须为正整数。"
+  exit 2
+fi
 
 setup_ros_environment() {
   source /opt/ros/humble/setup.bash
@@ -26,6 +33,52 @@ wait_before_close() {
   exit "${status}"
 }
 
+wait_for_stage_start() {
+  local marker_file="$1"
+  local stage_name="$2"
+  local deadline_epoch
+  deadline_epoch=$(($(date +%s) + STARTUP_TIMEOUT_SECONDS))
+
+  until [[ -f "${marker_file}" ]]; do
+    if (( $(date +%s) >= deadline_epoch )); then
+      echo "错误：等待 ${stage_name} 启动超时（${STARTUP_TIMEOUT_SECONDS} 秒）。"
+      return 1
+    fi
+    sleep 0.2
+  done
+}
+
+wait_for_ros_node() {
+  local node_name="$1"
+  local deadline_epoch
+  deadline_epoch=$(($(date +%s) + STARTUP_TIMEOUT_SECONDS))
+
+  until ros2 node list 2>/dev/null | grep -Fxq "${node_name}"; do
+    if (( $(date +%s) >= deadline_epoch )); then
+      echo "错误：等待 ROS 节点 ${node_name} 就绪超时（${STARTUP_TIMEOUT_SECONDS} 秒）。"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+wait_for_localization_initialized() {
+  local initialization_state
+
+  while true; do
+    initialization_state="$(
+      timeout 5 ros2 topic echo --once \
+        --qos-durability transient_local \
+        /api/localization/initialization_state \
+        autoware_adapi_v1_msgs/msg/LocalizationInitializationState 2>/dev/null || true
+    )"
+    if grep -Eq '^[[:space:]]*state:[[:space:]]*3[[:space:]]*$' <<<"${initialization_state}"; then
+      return 0
+    fi
+    sleep 1
+  done
+}
+
 run_worker() {
   local worker="$1"
   local session_dir="$2"
@@ -43,11 +96,13 @@ run_worker() {
       export ROS_LOG_DIR="${session_dir}/ros"
       mkdir -p "${ROS_LOG_DIR}" "${session_dir}/stages"
       echo "[$(date --iso-8601=seconds)] 启动 BYD bringup" | tee -a "${session_dir}/bringup.log"
+      touch "${session_dir}/bringup.started"
       ros2 launch byd_launch parallel_bringup.launch.py \
         log_root:="${session_dir}/stages" 2>&1 | tee -a "${session_dir}/bringup.log" || status=${PIPESTATUS[0]}
       ;;
     rosbag)
       echo "[$(date --iso-8601=seconds)] 启动 rosbag 记录" | tee -a "${session_dir}/rosbag.log"
+      touch "${session_dir}/rosbag.started"
       bash "${ROSBAG_SCRIPT}" "${session_dir}" 2>&1 | tee -a "${session_dir}/rosbag.log" || status=${PIPESTATUS[0]}
       ;;
     mission)
@@ -55,10 +110,9 @@ run_worker() {
         echo "错误：找不到 mission_loop。请先编译并 source 工作空间。" | tee -a "${session_dir}/mission_loop.log"
         wait_before_close 2
       fi
-      echo "[$(date --iso-8601=seconds)] 等待初始位姿就绪（/localization/kinematic_state）" | tee -a "${session_dir}/mission_loop.log"
-      until ros2 topic echo --once /localization/kinematic_state >/dev/null 2>&1; do
-        sleep 1
-      done
+      echo "[$(date --iso-8601=seconds)] 等待初始位姿完成（/api/localization/initialization_state = INITIALIZED）" | tee -a "${session_dir}/mission_loop.log"
+      wait_for_localization_initialized
+      echo "[$(date --iso-8601=seconds)] 初始位姿已完成" | tee -a "${session_dir}/mission_loop.log"
       echo "[$(date --iso-8601=seconds)] 等待 Autoware 路由服务就绪（/api/routing/set_route_points）" | tee -a "${session_dir}/mission_loop.log"
       until ros2 service list 2>/dev/null | grep -Fxq "/api/routing/set_route_points"; do
         sleep 1
@@ -128,9 +182,14 @@ mkdir -p "${session_dir}"
 echo "本次日志目录：${session_dir}"
 
 gnome-terminal --title="BYD Bringup" -- "${SCRIPT_PATH}" --worker bringup "${session_dir}"
-sleep 2
+wait_for_stage_start "${session_dir}/bringup.started" "parallel bringup"
+
 gnome-terminal --title="ROS Bag Record" -- "${SCRIPT_PATH}" --worker rosbag "${session_dir}"
-sleep 2
+wait_for_stage_start "${session_dir}/rosbag.started" "rosbag"
+setup_ros_environment
+echo "等待 rosbag recorder 就绪（${ROSBAG_NODE}）..."
+wait_for_ros_node "${ROSBAG_NODE}"
+
 gnome-terminal --title="Mission Loop" -- "${SCRIPT_PATH}" --worker mission "${session_dir}"
 
-echo "已打开三个终端：bringup、rosbag、mission_loop。"
+echo "已按顺序启动：parallel bringup → rosbag → mission_loop 等待器。"
