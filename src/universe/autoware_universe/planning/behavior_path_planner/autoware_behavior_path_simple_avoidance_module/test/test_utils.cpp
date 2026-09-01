@@ -275,6 +275,97 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleStopsAfterSustainedGenerationFailure)
   EXPECT_EQ(decision.action, AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP);
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, LifecyclePublishesSafeStopWithoutReusablePreviousPath)
+{
+  AvoidanceLifecycleObservation observation;
+  observation.state = AvoidanceLifecycleState::RETURNING;
+  observation.generation_succeeded = false;
+  observation.has_continuous_previous_path = false;
+
+  const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
+
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::STOPPING);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::PublishSafeStop);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, SafeStopPrefersShiftedGeometryAndZerosVelocity)
+{
+  PathWithLaneId shifted_path;
+  PathWithLaneId upstream_path;
+  for (size_t i = 0; i < 3; ++i) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId shifted_point;
+    shifted_point.point.pose.position.x = static_cast<double>(i);
+    shifted_point.point.pose.position.y = 2.0;
+    shifted_point.point.longitudinal_velocity_mps = 1.0;
+    shifted_path.points.push_back(shifted_point);
+
+    auto upstream_point = shifted_point;
+    upstream_point.point.pose.position.y = 0.0;
+    upstream_path.points.push_back(upstream_point);
+  }
+  nav_msgs::msg::Odometry odometry;
+
+  const auto stopped_path = make_safe_stop_path(shifted_path, upstream_path, odometry);
+
+  ASSERT_EQ(stopped_path.points.size(), shifted_path.points.size());
+  for (const auto & point : stopped_path.points) {
+    EXPECT_DOUBLE_EQ(point.point.pose.position.y, 2.0);
+    EXPECT_DOUBLE_EQ(point.point.longitudinal_velocity_mps, 0.0);
+  }
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, SafeStopCreatesEgoSegmentWhenAllPathsAreEmpty)
+{
+  nav_msgs::msg::Odometry odometry;
+  odometry.header.frame_id = "map";
+  odometry.pose.pose.position.x = 12.0;
+  odometry.pose.pose.position.y = -3.0;
+  odometry.pose.pose.orientation.w = 1.0;
+
+  const PathWithLaneId empty_path;
+  const auto stopped_path = make_safe_stop_path(empty_path, empty_path, odometry);
+
+  ASSERT_EQ(stopped_path.points.size(), 2U);
+  EXPECT_EQ(stopped_path.header.frame_id, "map");
+  EXPECT_DOUBLE_EQ(stopped_path.points.front().point.pose.position.x, 12.0);
+  EXPECT_DOUBLE_EQ(stopped_path.points.front().point.pose.position.y, -3.0);
+  EXPECT_DOUBLE_EQ(stopped_path.points.front().point.longitudinal_velocity_mps, 0.0);
+  EXPECT_NEAR(stopped_path.points.back().point.pose.position.x, 12.1, 1.0e-9);
+  EXPECT_DOUBLE_EQ(stopped_path.points.back().point.pose.position.y, -3.0);
+  EXPECT_DOUBLE_EQ(stopped_path.points.back().point.longitudinal_velocity_mps, 0.0);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, SafeStopRejectsExhaustedPreferredPath)
+{
+  const auto make_path = [](const double start_x, const double end_x) {
+    PathWithLaneId path;
+    for (double x = start_x; x <= end_x; x += 1.0) {
+      autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+      point.point.pose.position.x = x;
+      point.point.pose.orientation.w = 1.0;
+      point.point.longitudinal_velocity_mps = 1.0;
+      path.points.push_back(point);
+    }
+    return path;
+  };
+
+  const auto exhausted_shifted_path = make_path(0.0, 5.0);
+  const auto forward_upstream_path = make_path(8.0, 20.0);
+  nav_msgs::msg::Odometry odometry;
+  odometry.pose.pose.position.x = 10.0;
+  odometry.pose.pose.orientation.w = 1.0;
+
+  const auto stopped_path =
+    make_safe_stop_path(exhausted_shifted_path, forward_upstream_path, odometry);
+
+  ASSERT_EQ(stopped_path.points.size(), forward_upstream_path.points.size());
+  EXPECT_DOUBLE_EQ(stopped_path.points.front().point.pose.position.x, 8.0);
+  EXPECT_DOUBLE_EQ(stopped_path.points.back().point.pose.position.x, 20.0);
+  for (const auto & point : stopped_path.points) {
+    EXPECT_DOUBLE_EQ(point.point.longitudinal_velocity_mps, 0.0);
+  }
+}
+
 TEST_F(SimpleAvoidanceUtilsTest, LifecycleCompletesOnlyAfterStableReturnToCenter)
 {
   AvoidanceLifecycleObservation observation;

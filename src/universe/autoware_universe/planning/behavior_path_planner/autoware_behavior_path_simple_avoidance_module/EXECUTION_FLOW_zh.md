@@ -232,16 +232,18 @@ plan()
 ├─ [Step 1] reference_path_.points < 2
 │    └─ passThrough(NO_TARGET) ──────────────────────────► 退出①
 │
-├─ [Step 2] target = detectTarget()
+├─ [Step 2] target = getActiveTargetOrHeldTarget()
 │    │
 │    ├─ 无 target：
-│    │    ├─ active_target_.reset()
-│    │    ├─ 若 path_shifter_ 仍有 shift lines（绕障进行中）：
+│    │    ├─ CANDIDATE：清除候选状态并透传 NO_TARGET ───────────────► 退出②
+│    │    └─ COMMITTED / RETURNING：
 │    │    │    ├─ path_shifter_.generate(&shifted_path)
-│    │    │    │    └─ 失败 → passThrough(PATH_GENERATION_FAILED) ──► 退出②
+│    │    │    │    ├─ 有 shift lines：继续执行避让/回正几何
+│    │    │    │    └─ 无 shift lines：使用最新参考路径 + base offset；回正后 offset 为 0
+│    │    │    │    └─ 失败/不连续 → 失败状态机，必要时发布非空安全停车路径
 │    │    │    ├─ setOrientation + prev_output_ 更新
-│    │    │    └─ return adjustDrivableArea(shifted_path) ────────────► 退出③（延续绕障）
-│    │    └─ 无 shift lines → passThrough(NO_TARGET) ─────────────────► 退出④
+│    │    │    ├─ lifecycle_state_ = RETURNING
+│    │    │    └─ return adjustDrivableArea(shifted_path) ────────────► 退出③（延续并回正）
 │    │
 │    └─ 有 target：继续 Step 3
 │
@@ -415,6 +417,10 @@ canTransitSuccessState()
 
 `plan()` 中目标一旦锁定，会优先按 UUID 刷新。若 perception 或 shifted path 导致短暂 no-overlap，
 模块会在 `target_lost_time_threshold` 内继续使用 held target，避免 ego 尚未执行侧移时被框架删除。
+保持超时后，未开始执行的 `CANDIDATE` 会取消；已经执行的 `COMMITTED` 则进入 `RETURNING`，继续
+由 `PathShifter` 输出已承诺轨迹。清理多个已完成 shift line 时，以纵向最靠后的 line 终点更新
+`base_offset`，因此避让线和回正线在同一周期被清理后仍会得到 `base_offset = 0`，路径滚动不会
+重新带回避让偏移，也不会因为“无可用前向旧路径”触发 MRM。
 
 触发后框架调用 `processOnExit()` → `initVariables()`。
 

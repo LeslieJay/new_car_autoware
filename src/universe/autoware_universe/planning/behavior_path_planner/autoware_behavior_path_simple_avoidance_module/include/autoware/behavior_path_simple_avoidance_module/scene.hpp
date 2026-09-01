@@ -83,6 +83,7 @@ private:
   bool isGeneratedPathContinuous(const ShiftedPath & path) const;
   bool isCommitmentDetected() const;
   bool hasReusablePreviousPath() const;
+  BehaviorModuleOutput make_safe_stop_output() const;
   BehaviorModuleOutput adjustDrivableArea(const ShiftedPath & path) const;
   BehaviorModuleOutput passThrough(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info = {}) const;

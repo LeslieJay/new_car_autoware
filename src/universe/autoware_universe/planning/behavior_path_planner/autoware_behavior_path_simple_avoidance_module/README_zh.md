@@ -163,6 +163,8 @@ shift_length = -required_clearance  // 障碍物在右侧
 - 目标一旦锁定，优先按 UUID 刷新
 - shifted path 导致 overlap 短暂变成 no-overlap 时，目标最多保持 `target_lost_time_threshold`
 - 已锁定目标使用 `target_hold_lateral_hysteresis`，避免阈值附近反复进入/退出
+- `COMMITTED/RETURNING` 阶段即使目标保持超时，也继续用已承诺的 `PathShifter` 状态生成路径；
+  shift line 清空后仍以正确的 `base_offset` 跟随滚动后的上游参考路径，直到完成回正
 - 只有 active target 已通过、shift line 清空、base offset 和 ego shift 都小于 `lateral_execution_threshold` 后，模块才允许 SUCCESS
 
 这样可避免“刚生成避障路径，但 ego 还没开始横移，模块就 SUCCESS/DELETE”的问题。
@@ -240,8 +242,10 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 - `insertReturnDeadLine()` — 回正截止点前减速
 
 **本模块** 正常运行时只输出偏移后的几何路径，速度来自上游 lane following / motion
-planning。唯一例外是已承诺轨迹持续生成失败：模块会在最后一条连续轨迹上插入可行停车点；若连
-续旧轨迹也不存在，则不发布替代几何，由下游 command-timeout / MRM 安全边界停车。
+planning。目标消失不属于路径生成失败：已承诺轨迹会继续执行并回正。只有参考路径无效、路径
+生成持续失败等真正异常才进入 `STOPPING`；此时优先沿最后一条连续轨迹发布全零速度安全停车
+路径，即使历史与上游路径均为空也会在 ego 前方合成非空停车段，避免空路径触发 command-timeout
+或 MRM。
 
 **为什么这样改：**
 
@@ -354,7 +358,8 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 1. **单目标**：前方有两个障碍物时只绕最近的一个
 2. **无安全兜底**：不检查侧方来车，依赖封闭场景假设
 3. **不可行时只透传**：不会主动停车，需下游 obstacle_stop 等模块兜底
-4. **无感知丢失补偿**：对象短暂消失可能导致 shift line 中断
+4. **不重新预测消失目标**：候选阶段目标消失会取消候选；已承诺阶段只保证沿已生成轨迹完成回正，
+   不会对消失目标重新估计位置或生成新的绕障方案
 5. **无对象类型过滤**：动态行人/车辆若速度低于阈值可能被误当作绕障目标
 
 ---

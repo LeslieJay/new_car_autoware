@@ -109,6 +109,29 @@ TEST_F(PathShifterTest, initial_state)
   EXPECT_FALSE(path_shifter_.generate(&shifted_path));
 }
 
+TEST_F(PathShifterTest, RemovingMultipleCompletedShiftLinesKeepsLatestEndOffset)
+{
+  const auto reference = generate_shifted_path(21, 1.0, 0.0).path;
+  path_shifter_.setPath(reference);
+
+  ShiftLine avoid;
+  avoid.start = reference.points.at(2).point.pose;
+  avoid.end = reference.points.at(5).point.pose;
+  avoid.end_shift_length = 1.0;
+
+  ShiftLine return_to_center;
+  return_to_center.start = reference.points.at(8).point.pose;
+  return_to_center.end = reference.points.at(10).point.pose;
+  return_to_center.start_shift_length = 1.0;
+  return_to_center.end_shift_length = 0.0;
+  path_shifter_.setShiftLines({avoid, return_to_center});
+
+  path_shifter_.removeBehindShiftLineAndSetBaseOffset(12);
+
+  EXPECT_TRUE(path_shifter_.getShiftLines().empty());
+  EXPECT_DOUBLE_EQ(path_shifter_.getBaseOffset(), 0.0);
+}
+
 TEST_F(PathShifterTest, get_base_lengths_without_accel_limit)
 {
   double arc_length = 100.0;

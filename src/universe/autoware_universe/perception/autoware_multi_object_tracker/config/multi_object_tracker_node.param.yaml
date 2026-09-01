@@ -19,7 +19,7 @@
     enable_unknown_object_motion_output: false
 
     # tracker parameters
-    tracker_lifetime: 1.0  # [s]
+    tracker_lifetime: 2.0  # [s]
     min_known_object_removal_iou: 0.1  # [ratio]
     min_unknown_object_removal_iou: 0.001  # [ratio]
 

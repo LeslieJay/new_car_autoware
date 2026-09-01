@@ -98,6 +98,46 @@ PathWithLaneId extendBackwardPath(
   return extended_path;
 }
 
+PathWithLaneId make_safe_stop_path(
+  const PathWithLaneId & preferred_path, const PathWithLaneId & fallback_path,
+  const nav_msgs::msg::Odometry & odometry)
+{
+  constexpr double minimum_forward_coverage = 0.1;
+  const auto has_forward_coverage = [&](const auto & path) {
+    return path.points.size() >= 2 &&
+           autoware::motion_utils::calcSignedArcLength(
+             path.points, odometry.pose.pose.position, path.points.back().point.pose.position) >=
+             minimum_forward_coverage;
+  };
+
+  PathWithLaneId stopped_path;
+  if (has_forward_coverage(preferred_path)) {
+    stopped_path = preferred_path;
+  } else if (has_forward_coverage(fallback_path)) {
+    stopped_path = fallback_path;
+  }
+  if (stopped_path.points.empty()) {
+    stopped_path.header = odometry.header;
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId stop_point;
+    stop_point.point.pose = odometry.pose.pose;
+    stop_point.point.longitudinal_velocity_mps = 0.0;
+    stopped_path.points.push_back(stop_point);
+
+    // Keep a valid segment for downstream consumers that require at least two path points.
+    auto forward_stop_point = stop_point;
+    constexpr double minimum_segment_length = 0.1;
+    const double yaw = tf2::getYaw(odometry.pose.pose.orientation);
+    forward_stop_point.point.pose.position.x += minimum_segment_length * std::cos(yaw);
+    forward_stop_point.point.pose.position.y += minimum_segment_length * std::sin(yaw);
+    stopped_path.points.push_back(forward_stop_point);
+  }
+
+  for (auto & point : stopped_path.points) {
+    point.point.longitudinal_velocity_mps = 0.0;
+  }
+  return stopped_path;
+}
+
 double getClosestShiftLength(
   const ShiftedPath & shifted_path, const geometry_msgs::msg::Point & ego_point)
 {
@@ -234,6 +274,10 @@ AvoidanceLifecycleDecision decideAvoidanceLifecycle(
     decision.next_state = AvoidanceLifecycleState::STOPPING;
     if (observation.has_continuous_previous_path) {
       decision.action = AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP;
+    } else {
+      // SceneModuleInterface rejects empty paths. Keep the last available geometry and stop on it
+      // instead of relying on a downstream timeout that can never be reached with an empty output.
+      decision.action = AvoidanceLifecycleAction::PublishSafeStop;
     }
     return decision;
   }

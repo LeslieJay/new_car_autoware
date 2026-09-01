@@ -127,6 +127,7 @@ enum class AvoidanceLifecycleAction {
   KEEP_COMMITTED_PATH,
   KEEP_LAST_VALID_PATH,
   INSERT_FEASIBLE_STOP,
+  PublishSafeStop,
   COMPLETE_MANEUVER,
 };
 

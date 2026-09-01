@@ -483,7 +483,7 @@ void PathShifter::removeBehindShiftLineAndSetBaseOffset(const size_t nearest_idx
   if (!removed_shift_lines.empty()) {
     const auto last_removed_sl = std::max_element(
       removed_shift_lines.begin(), removed_shift_lines.end(),
-      [](const auto & a, const auto & b) { return a.end_idx > b.end_idx; });
+      [](const auto & a, const auto & b) { return a.end_idx < b.end_idx; });
     new_base_offset = last_removed_sl->end_shift_length;
   }
 

@@ -20,6 +20,7 @@
 
 #include <autoware_internal_planning_msgs/msg/path_with_lane_id.hpp>
 #include <geometry_msgs/msg/point.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 
 namespace autoware::behavior_path_planner
 {
@@ -30,6 +31,10 @@ void setOrientation(PathWithLaneId * path);
 PathWithLaneId extendBackwardPath(
   const PathWithLaneId & previous_path, const PathWithLaneId & current_path,
   const geometry_msgs::msg::Point & ego_position, double backward_length);
+
+PathWithLaneId make_safe_stop_path(
+  const PathWithLaneId & preferred_path, const PathWithLaneId & fallback_path,
+  const nav_msgs::msg::Odometry & odometry);
 
 double getClosestShiftLength(
   const ShiftedPath & shifted_path, const geometry_msgs::msg::Point & ego_point);
