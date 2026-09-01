@@ -1,8 +1,10 @@
 # BYD event rosbag recorder
 
 `event_rosbag_recorder_node` keeps a rolling window of configured ROS 2 topics and writes an
-MCAP bag when an explicit event or matching diagnostic error occurs. The default event window is
-30 seconds before the first trigger through 30 seconds after the last merged trigger.
+MCAP bag when an enabled event occurs. By default, only the `abnormal_stop` and
+`autonomous_to_manual` events published by `byd_system_event_monitor` are accepted. The default
+event window is 30 seconds before the first trigger through 30 seconds after the last merged
+trigger.
 
 ## Start
 
@@ -20,10 +22,25 @@ event_rosbag_recorder_param_file:=/path/to/event_rosbag_recorder.param.yaml
 
 The recorder is disabled by default in top-level bringup.
 
-## Trigger
+## Trigger policy
 
-Publish `byd_vehicle_msgs/msg/EventTrigger` on `/system/event_trigger`, publish a matching
-`ERROR` or `STALE` status on `/diagnostics`, or call:
+The default policy is:
+
+```yaml
+triggers:
+  event_topic_enabled: true
+  allowed_event_types: [abnormal_stop, autonomous_to_manual]
+  diagnostics_enabled: false
+  service_enabled: false
+```
+
+`allowed_event_types` filters events received from `/system/event_trigger` and the trigger
+service. An empty list permits every event type on an enabled source. Diagnostic matching remains
+configured under `diagnostics`, but it cannot trigger or extend a capture unless
+`triggers.diagnostics_enabled` is true.
+
+To temporarily enable the manual service, set `triggers.service_enabled` to true and add the
+requested event type to `triggers.allowed_event_types`, then call:
 
 ```bash
 ros2 service call /event_rosbag_recorder/trigger \

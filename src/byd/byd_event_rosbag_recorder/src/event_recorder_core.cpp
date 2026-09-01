@@ -2,8 +2,28 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace byd_event_rosbag_recorder {
+
+TriggerPolicy::TriggerPolicy(TriggerPolicyParameters parameters)
+    : parameters_(std::move(parameters)) {}
+
+bool TriggerPolicy::accepts(TriggerSource source,
+                            const std::string &event_type) const {
+  if (source == TriggerSource::DIAGNOSTICS) {
+    return parameters_.diagnostics_enabled;
+  }
+  const bool source_enabled = source == TriggerSource::EVENT_TOPIC
+                                  ? parameters_.event_topic_enabled
+                                  : parameters_.service_enabled;
+  const bool type_allowed =
+      parameters_.allowed_event_types.empty() ||
+      std::find(parameters_.allowed_event_types.begin(),
+                parameters_.allowed_event_types.end(),
+                event_type) != parameters_.allowed_event_types.end();
+  return source_enabled && type_allowed;
+}
 
 CaptureWindow::CaptureWindow(int64_t pre_ns, int64_t post_ns,
                              int64_t max_duration_ns)

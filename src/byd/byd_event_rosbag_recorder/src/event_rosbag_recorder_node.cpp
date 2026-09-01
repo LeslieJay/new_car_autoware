@@ -80,6 +80,13 @@ public:
         exact_topics_(
             declare_parameter<std::vector<std::string>>(
                 "topics.names", std::vector<std::string>{})),
+        trigger_policy_(TriggerPolicyParameters{
+            declare_parameter("triggers.event_topic_enabled", true),
+            declare_parameter("triggers.diagnostics_enabled", false),
+            declare_parameter("triggers.service_enabled", false),
+            declare_parameter<std::vector<std::string>>(
+                "triggers.allowed_event_types",
+                {"abnormal_stop", "autonomous_to_manual"})}),
         diagnostic_filter_(
             static_cast<uint8_t>(declare_parameter("diagnostics.min_level", 2)),
             declare_parameter<std::vector<std::string>>(
@@ -112,6 +119,10 @@ public:
     event_sub_ = create_subscription<byd_vehicle_msgs::msg::EventTrigger>(
         "/system/event_trigger", rclcpp::QoS(10).reliable(),
         [this](const byd_vehicle_msgs::msg::EventTrigger::SharedPtr msg) {
+          if (!trigger_policy_.accepts(TriggerSource::EVENT_TOPIC,
+                                       msg->event_type)) {
+            return;
+          }
           EventRecord event{now().nanoseconds(), msg->event_id,
                             msg->event_type,     msg->severity,
                             msg->description,    "topic"};
@@ -122,6 +133,10 @@ public:
             "/diagnostics", rclcpp::QoS(50),
             [this](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) {
               for (const auto &status : msg->status) {
+                if (!trigger_policy_.accepts(TriggerSource::DIAGNOSTICS,
+                                             status.name)) {
+                  continue;
+                }
                 if (diagnostic_filter_.should_trigger(
                         status.name, status.level,
                         diagnostic_trigger_on_transition_)) {
@@ -154,6 +169,12 @@ public:
                 request,
             std::shared_ptr<byd_vehicle_msgs::srv::TriggerEvent::Response>
                 response) {
+          if (!trigger_policy_.accepts(TriggerSource::SERVICE,
+                                       request->event_type)) {
+            response->accepted = false;
+            response->message = "event rejected by trigger policy";
+            return;
+          }
           const auto id = make_event_id();
           trigger(EventRecord{now().nanoseconds(), id, request->event_type,
                               request->severity, request->description,
@@ -647,6 +668,7 @@ private:
   std::vector<std::string> exact_topics_;
   std::vector<std::regex> include_topics_;
   std::vector<std::regex> exclude_topics_;
+  TriggerPolicy trigger_policy_;
   DiagnosticTransitionFilter diagnostic_filter_;
   const bool diagnostic_trigger_on_transition_;
 

@@ -9,6 +9,27 @@
 
 namespace byd_event_rosbag_recorder {
 
+enum class TriggerSource { EVENT_TOPIC, DIAGNOSTICS, SERVICE };
+
+struct TriggerPolicyParameters {
+  bool event_topic_enabled{true};
+  bool diagnostics_enabled{false};
+  bool service_enabled{false};
+  std::vector<std::string> allowed_event_types{"abnormal_stop",
+                                                "autonomous_to_manual"};
+};
+
+class TriggerPolicy {
+public:
+  explicit TriggerPolicy(
+      TriggerPolicyParameters parameters = TriggerPolicyParameters{});
+
+  bool accepts(TriggerSource source, const std::string &event_type) const;
+
+private:
+  TriggerPolicyParameters parameters_;
+};
+
 class CaptureWindow {
 public:
   CaptureWindow(int64_t pre_ns, int64_t post_ns, int64_t max_duration_ns);

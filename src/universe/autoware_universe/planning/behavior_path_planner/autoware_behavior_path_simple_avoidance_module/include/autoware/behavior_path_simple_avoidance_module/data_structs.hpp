@@ -116,6 +116,7 @@ struct AvoidanceCompletionStatus
   bool is_ego_on_shift_line{false};
   double base_offset{0.0};
   double ego_shift{0.0};
+  double actual_ego_lateral_offset{0.0};
   double lateral_execution_threshold{0.05};
 };
 

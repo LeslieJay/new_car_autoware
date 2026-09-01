@@ -80,6 +80,10 @@ private:
   BehaviorModuleOutput stopForInfeasibleTrailerPath(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const;
   BehaviorModuleOutput handlePathGenerationFailure(const PassThroughDebugInfo & debug_info);
+  BehaviorModuleOutput continueCommittedPath(const PassThroughDebugInfo & debug_info);
+  std::optional<ShiftedPath> generateEgoAlignedReturnPath();
+  double getEgoLateralOffsetToReference() const;
+  bool isCommittedOrReturning() const;
   bool isGeneratedPathContinuous(const ShiftedPath & path) const;
   bool isCommitmentDetected() const;
   bool hasReusablePreviousPath() const;
@@ -100,6 +104,7 @@ private:
   std::optional<AvoidanceTarget> active_target_;
   AvoidanceLifecycleState lifecycle_state_{AvoidanceLifecycleState::IDLE};
   size_t completion_stable_count_{0};
+  bool ego_aligned_return_active_{false};
   std::optional<rclcpp::Time> path_generation_failure_started_;
   std::optional<unique_identifier_msgs::msg::UUID> route_id_;
   mutable SimpleAvoidanceDebugData debug_data_;

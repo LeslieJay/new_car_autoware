@@ -50,8 +50,8 @@ BehaviorModuleOutput DefaultFixedGoalPlanner::plan(
     }
   }
 
-  output.path =
-    goal_planner_utils::applyPreciseFixedGoalStop(smoothed_path, refined_goal, parameters_.fixed_goal);
+  output.path = goal_planner_utils::applyPreciseFixedGoalStop(
+    smoothed_path, refined_goal, parameters_.fixed_goal);
   output.reference_path = getPreviousModuleOutput().reference_path;
   return output;
 }
@@ -64,7 +64,13 @@ lanelet::ConstLanelets DefaultFixedGoalPlanner::extractLaneletsFromPath(
   lanelet::ConstLanelets refined_path_lanelets;
   for (size_t i = 0; i < refined_path.points.size(); ++i) {
     const auto & path_point = refined_path.points.at(i);
-    int64_t lane_id = path_point.lane_ids.at(0);
+    // A safety fallback from an upstream scene module can contain valid stop geometry before its
+    // lane association is available. Treat it as an invalid refinement candidate instead of
+    // terminating the whole behavior-path-planner component container with std::out_of_range.
+    if (path_point.lane_ids.empty()) {
+      continue;
+    }
+    const int64_t lane_id = path_point.lane_ids.front();
     lanelet::ConstLanelet lanelet = rh->getLaneletsFromId(lane_id);
     bool is_unique =
       std::find(refined_path_lanelets.begin(), refined_path_lanelets.end(), lanelet) ==

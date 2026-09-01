@@ -196,9 +196,16 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedAvoidanceContinuesAfterTargetLossAndPa
   module.setPreviousModuleOutput(initial_upstream);
   ASSERT_FALSE(module.run().path.points.empty());
 
+  // The same target is now too close to create a fresh avoidance maneuver. Once execution is
+  // committed, that infeasibility must not discard the already active shifted path.
+  odometry->pose.pose.position.x = 16.0;
+  module.setPreviousModuleOutput(initial_upstream);
+  const auto close_target_output = module.run();
+  ASSERT_TRUE(is_driving_path(close_target_output));
+  EXPECT_LT(lateral_offset_near(close_target_output, 16.0), -0.1);
+
   planner_data->dynamic_object =
     std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
-  odometry->pose.pose.position.x = 16.0;
   module.setPreviousModuleOutput(initial_upstream);
   const auto lost_target_output = module.run();
   ASSERT_TRUE(is_driving_path(lost_target_output));
@@ -213,6 +220,18 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedAvoidanceContinuesAfterTargetLossAndPa
     -0.8);
 
   odometry->pose.pose.position.x = 42.0;
+  // Reproduce the 2026-09-01 corner case: the generated return shift has reached zero, but the
+  // physical vehicle is still laterally displaced. Publishing the upstream centerline here makes
+  // planning_validator observe a > 0.5 m sudden trajectory shift and latch its soft stop.
+  odometry->pose.pose.position.y = 1.2;
+  module.setPreviousModuleOutput(initial_upstream);
+  const auto lagging_return_output = module.run();
+  ASSERT_TRUE(is_driving_path(lagging_return_output));
+  EXPECT_LT(
+    std::abs(lateral_offset_near(lagging_return_output, 42.0) - odometry->pose.pose.position.y),
+    0.5);
+
+  odometry->pose.pose.position.y = 0.0;
   module.setPreviousModuleOutput(initial_upstream);
   const auto completed_return_output = module.run();
   ASSERT_TRUE(is_driving_path(completed_return_output));

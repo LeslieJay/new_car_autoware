@@ -247,6 +247,9 @@ bool canCompleteAvoidance(const AvoidanceCompletionStatus & status)
   if (std::abs(status.ego_shift) > status.lateral_execution_threshold) {
     return false;
   }
+  if (std::abs(status.actual_ego_lateral_offset) > status.lateral_execution_threshold) {
+    return false;
+  }
   return true;
 }
 

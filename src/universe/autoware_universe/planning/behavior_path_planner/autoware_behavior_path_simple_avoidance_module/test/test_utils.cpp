@@ -412,6 +412,10 @@ TEST_F(SimpleAvoidanceUtilsTest, CompletionBlockedByTargetOrShiftState)
   EXPECT_FALSE(canCompleteAvoidance(status));
 
   status.ego_shift = 0.0;
+  status.actual_ego_lateral_offset = 0.06;
+  EXPECT_FALSE(canCompleteAvoidance(status));
+
+  status.actual_ego_lateral_offset = 0.0;
   EXPECT_TRUE(canCompleteAvoidance(status));
 }
 

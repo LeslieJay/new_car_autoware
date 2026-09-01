@@ -4,7 +4,7 @@
     arrival_check_angle_deg: 20.0 # 5.0度
     arrival_check_duration: 1.0
     arrival_check_lateral_distance: 0.20
-    arrival_check_longitudinal_undershoot_distance: 0.20 # Max allowed distance before the goal (vehicle has not yet reached the goal) for arrival check [m].
+    arrival_check_longitudinal_undershoot_distance: 1.00 # Max allowed distance before the goal (vehicle has not yet reached the goal) for arrival check [m].
     arrival_check_longitudinal_overshoot_distance: 0.20 # Max allowed distance past the goal (vehicle has overshot the goal) for arrival check [m].
     goal_angle_threshold_deg: 5.0
     enable_correct_goal_pose: false

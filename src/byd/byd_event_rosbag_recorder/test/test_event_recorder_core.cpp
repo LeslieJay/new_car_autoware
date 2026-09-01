@@ -4,6 +4,9 @@
 
 using byd_event_rosbag_recorder::CaptureWindow;
 using byd_event_rosbag_recorder::DiagnosticTransitionFilter;
+using byd_event_rosbag_recorder::TriggerPolicy;
+using byd_event_rosbag_recorder::TriggerPolicyParameters;
+using byd_event_rosbag_recorder::TriggerSource;
 
 TEST(CaptureWindow, MergesTriggersAndCapsDuration) {
   CaptureWindow window(30'000'000'000LL, 30'000'000'000LL, 600'000'000'000LL);
@@ -53,4 +56,29 @@ TEST(TopicSelection, RequiredEvidenceTopicsCannotBeExcluded) {
                                                         {}, {}, excluded));
   EXPECT_FALSE(byd_event_rosbag_recorder::topic_selected(
       "/debug/noise", {"/debug/noise"}, {}, excluded));
+}
+
+TEST(TriggerPolicy, DefaultsToSystemEventMonitorEventsOnly) {
+  const TriggerPolicy policy;
+
+  EXPECT_TRUE(policy.accepts(TriggerSource::EVENT_TOPIC, "abnormal_stop"));
+  EXPECT_TRUE(
+      policy.accepts(TriggerSource::EVENT_TOPIC, "autonomous_to_manual"));
+  EXPECT_FALSE(policy.accepts(TriggerSource::EVENT_TOPIC, "manual_test"));
+  EXPECT_FALSE(policy.accepts(TriggerSource::DIAGNOSTICS, "lidar_failure"));
+  EXPECT_FALSE(policy.accepts(TriggerSource::SERVICE, "abnormal_stop"));
+}
+
+TEST(TriggerPolicy, ParametersCanEnableOtherTriggerSources) {
+  TriggerPolicyParameters parameters;
+  parameters.event_topic_enabled = false;
+  parameters.diagnostics_enabled = true;
+  parameters.service_enabled = true;
+  parameters.allowed_event_types = {"abnormal_stop", "manual_test"};
+  const TriggerPolicy policy(parameters);
+
+  EXPECT_TRUE(policy.accepts(TriggerSource::DIAGNOSTICS, "lidar_failure"));
+  EXPECT_TRUE(policy.accepts(TriggerSource::SERVICE, "manual_test"));
+  EXPECT_FALSE(policy.accepts(TriggerSource::SERVICE, "unlisted_event"));
+  EXPECT_FALSE(policy.accepts(TriggerSource::EVENT_TOPIC, "abnormal_stop"));
 }

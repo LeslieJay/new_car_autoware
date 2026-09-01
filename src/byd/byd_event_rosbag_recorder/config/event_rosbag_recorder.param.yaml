@@ -17,6 +17,13 @@ event_rosbag_recorder_node:
       # Omit include_regex when unused; ROS 2 Humble cannot infer the type of [].
       exclude_regex:
         - ^/debug/
+    triggers:
+      event_topic_enabled: true
+      allowed_event_types:
+        - abnormal_stop
+        - autonomous_to_manual
+      diagnostics_enabled: false
+      service_enabled: false
     diagnostics:
       min_level: 2
       include_names:
@@ -26,8 +33,8 @@ event_rosbag_recorder_node:
         - ^system_event_monitor($|:)
       trigger_on_transition: true
     storage:
-      output_directory: /home/nvidia/autoware/log
-      temporary_directory: /home/nvidia/autoware/log/.buffer
+      output_directory: /home/nvidia/autoware/log/event_rosbag
+      temporary_directory: /home/nvidia/autoware/log/event_rosbag/.buffer
       minimum_free_space_gb: 20.0
       maximum_event_storage_gb: 200.0
       cleanup_policy: oldest_first

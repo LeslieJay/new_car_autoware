@@ -10,6 +10,10 @@ This node publishes `byd_vehicle_msgs/msg/EventTrigger` on `/system/event_trigge
 Both detectors are edge-triggered. A continuous stop or manual state emits one event, not a
 periodic stream.
 
+The default `byd_event_rosbag_recorder` trigger policy accepts exactly these two event types and
+keeps diagnostic and manual-service triggers disabled. That policy is configurable in the
+recorder's `triggers` parameters.
+
 ```bash
 ros2 launch byd_system_event_monitor system_event_monitor.launch.py
 ```
