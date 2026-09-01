@@ -26,3 +26,10 @@ ros2 topic pub /uagv/v1/BYD/qqa0001/instantActions vda5050_interfaces/msg/AGVIns
 如果充电服务端没有启动，发布这条命令就会报错
 
 
+唐
+// 挂钩bug
+// [INFO] [1788229679.124633095] [can_action_server]: 收到挂钩目标: signal=1, target_height=102
+// [INFO] [1788229679.124912100] [can_action_server]: 接受挂钩目标，开始在新线程中执行
+// [INFO] [1788229679.125095266] [can_action_server]: 开始执行挂钩: 目标高度=102.00, 信号=1
+// [ERROR] [1788229679.125184993] [can_action_server]: RCS挂钩指令异常: 不支持的目标高度 102
+

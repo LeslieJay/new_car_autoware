@@ -1,0 +1,91 @@
+<launch>
+  <arg name="input/twist" default="/sensing/vehicle_velocity_converter/twist_with_covariance"/>
+
+  <!-- ================================================================ -->
+  <!-- Step 1: 激光雷达坐标变换 + 外点滤波（保留原有节点，在同一容器中零拷贝通信） -->
+  <!-- ================================================================ -->
+  <node_container pkg="rclcpp_components" exec="component_container_mt" name="lidar_processing_container" namespace="">
+
+    <!-- 顶部雷达变换 (RS-Helios) -->
+    <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::LidarTransformNode" name="top_lidar_transform">
+      <param name="RadiusOutlierFilter" value="1.8"/>
+      <param name="transform_x" value="0.99"/>
+      <param name="transform_y" value="0.0"/>
+      <param name="transform_z" value="2.08"/>
+      <param name="transform_roll" value="0.0"/>
+      <param name="transform_pitch" value="0.0"/>
+      <param name="transform_yaw" value="0.0"/>
+    </composable_node>
+
+    <!-- 左侧雷达裁剪 (RS-Airy Left) -->
+    <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::SideLidarCropBoxNode" name="left_lidar_cropbox">
+      <param name="input_topic" value="/rslidar_left/points"/>
+      <param name="output_topic" value="/sensing/lidar/left/outlier_filtered/pointcloud"/>
+      <param name="transform_x" value="1.3654"/>
+      <param name="transform_y" value="0.5625"/>
+      <param name="transform_z" value="0.324"/>
+      <param name="transform_roll" value="3.14159265"/>
+      <param name="transform_pitch" value="0.0"/>
+      <param name="transform_yaw" value="0.0"/>
+      <param name="crop_min_x" value="-3.5"/>
+      <param name="crop_max_x" value="0.8"/>
+      <param name="crop_min_y" value="-1.5"/>
+      <param name="crop_max_y" value="1.5"/>
+      <param name="crop_min_z" value="-0.5"/>
+      <param name="crop_max_z" value="1.5"/>
+      <param name="crop_radius" value="0.8"/>
+    </composable_node>
+
+    <!-- 右侧雷达裁剪 (RS-Airy Right) -->
+    <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::SideLidarCropBoxNode" name="right_lidar_cropbox">
+      <param name="input_topic" value="/rslidar_right/points"/>
+      <param name="output_topic" value="/sensing/lidar/right/outlier_filtered/pointcloud"/>
+      <param name="transform_x" value="1.3654"/>
+      <param name="transform_y" value="-0.5625"/>
+      <param name="transform_z" value="0.324"/>
+      <param name="transform_roll" value="3.14159265"/>
+      <param name="transform_pitch" value="0.0"/>
+      <param name="transform_yaw" value="0.0"/>
+      <param name="crop_min_x" value="-3.0"/>
+      <param name="crop_max_x" value="1.0"/>
+      <param name="crop_min_y" value="-2.0"/>
+      <param name="crop_max_y" value="1.5"/>
+      <param name="crop_min_z" value="-0.2"/>
+      <param name="crop_max_z" value="1.5"/>
+      <param name="crop_radius" value="0.8"/>
+    </composable_node>
+
+  </node_container>
+
+  <!-- ================================================================ -->
+  <!-- Step 2: 三路独立地面分割 (didrive_patchwork2)                     -->
+  <!--   输入: /sensing/lidar/{top,left,right}/outlier_filtered/pointcloud -->
+  <!--   输出: /sensing/lidar/{top,left,right}/nonground                  -->
+  <!-- ================================================================ -->
+  <include file="$(find-pkg-share didrive_patchwork2)/launch/multi_patchworkpp.launch.py"/>
+
+  <!-- ================================================================ -->
+  <!-- Step 3: 非地面点云拼接                                             -->
+  <!--   输入: /sensing/lidar/{top,left,right}/nonground                  -->
+  <!--   输出: /perception/obstacle_segmentation/pointcloud              -->
+  <!-- ================================================================ -->
+  <include file="$(find-pkg-share autoware_pointcloud_preprocessor)/launch/concatenate_and_time_sync_node2.launch.xml">
+    <arg name="input/twist" value="$(var input/twist)"/>
+    <arg name="output" value="/perception/obstacle_segmentation/pointcloud"/>
+    <arg name="output_info" value="/perception/obstacle_segmentation/pointcloud_info"/>
+    <arg name="param_file" value="/home/nvidia/autoware/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/config/concatenate_and_time_sync_node2.param.yaml"/>
+  </include>
+
+  <!-- ================================================================ -->
+  <!-- Step 4: 原始/去噪点云拼接 (全点云)                                -->
+  <!--   输入: /sensing/lidar/{top,left,right}/outlier_filtered/pointcloud -->
+  <!--   输出: /sensing/lidar/concatenated/pointcloud                      -->
+  <!-- ================================================================ -->
+  <include file="$(find-pkg-share autoware_pointcloud_preprocessor)/launch/concatenate_and_time_sync_node.launch.xml">
+    <arg name="input/twist" value="$(var input/twist)"/>
+    <arg name="output" value="/sensing/lidar/concatenated/pointcloud"/>
+    <arg name="output_info" value="/sensing/lidar/concatenated/pointcloud_info"/>
+    <arg name="param_file" value="/home/nvidia/autoware/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/config/concatenate_and_time_sync_node.param.yaml"/>
+  </include>
+
+</launch>

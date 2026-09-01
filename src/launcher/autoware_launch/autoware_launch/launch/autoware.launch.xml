@@ -93,7 +93,7 @@
 
   <!-- Sensing -->
   <group if="$(var launch_sensing)">
-    <include file="$(find-pkg-share autoware_launch)/launch/components/tier4_sensing_component.launch.xml">
+    <include file="$(find-pkg-share autoware_launch)/launch/components/tier4_sensing_component2.launch.xml">
       <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
     </include>
   </group>
@@ -112,7 +112,7 @@
   </group>
 
   <group if="$(var launch_didrive_perception)">
-    <include file="$(find-pkg-share autoware_launch)/launch/components/didrive_perception.launch.xml">
+    <include file="$(find-pkg-share autoware_launch)/launch/components/didrive_perception2.launch.xml">
       <arg name="use_sim_time" value="$(var use_sim_time)"/>
       <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
     </include>

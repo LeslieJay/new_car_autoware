@@ -22,12 +22,6 @@ else
     echo -e "${YELLOW}尝试使用当前ROS2环境...${NC}"
 fi
 
-# 检查是否在ROS2环境中
-if [ -z "$ROS_DOMAIN_ID" ] && [ -z "$ROS_MASTER_URI" ]; then
-    echo -e "${RED}错误: 未检测到ROS2环境，请先source ROS2 setup文件${NC}"
-    exit 1
-fi
-echo ""
 
 # 2. 创建日期文件夹
 DATE_FOLDER=$(date +"%m%d")  # 格式如: 0901
