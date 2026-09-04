@@ -5,16 +5,14 @@ event_rosbag_recorder_node:
       post_trigger_seconds: 30.0
       segment_seconds: 5.0
       max_event_duration_seconds: 600.0
-      # Sized for roughly two minutes at the observed aggregate rate of 600 msg/s,
-      # with additional headroom for short diagnostic bursts.
-      queue_capacity_messages: 80000
+      # Re-evaluate this bound against the aggregate rate of the configured topics,
+      # especially when point-cloud topics are enabled.
+      queue_capacity_messages: 400000
     topics:
-      names:
-        - /vehicle/status/velocity_status
-        - /control/trajectory_follower/control_cmd
-        - /control/command/control_cmd
-        - /event_rosbag_recorder/status
-      # Omit include_regex when unused; ROS 2 Humble cannot infer the type of [].
+      # Keep this selection aligned with scripts/rosbag_record_command.sh.
+      include_regex:
+        - ^/planning($|/)|^/control($|/)|^/vehicle($|/)|^/simulation($|/)|^/localization($|/)|^/system($|/)|^/diagnostics($|/)|^/perception/object_recognition/objects$|^/perception/object_recognition/tracking/objects$|^/perception/object_recognition/detection/lidar_rule/objects$|^/perception/object_recognition/detection/lidar_dnn/objects$|^/perception/object_recognition/detection/merged/objects$|^/perception/object_recognition/detection/objects$|^/perception/occupancy_grid_map/map$|^/perception/obstacle_segmentation/pointcloud$|^/tf$|^/tf_static$|^/clock$|^/sensing/lidar/concatenated/pointcloud$|^/sensing/imu/imu_data$
+      # Omit names when unused; ROS 2 Humble cannot infer the type of [].
       exclude_regex:
         - ^/debug/
     triggers:

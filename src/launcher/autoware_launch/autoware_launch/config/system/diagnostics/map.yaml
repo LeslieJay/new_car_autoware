@@ -3,7 +3,10 @@ units:
     type: and
     list:
       - { type: link, link: /autoware/map/topic_rate_check/vector_map }
-      - { type: link, link: /autoware/map/topic_rate_check/pointcloud_map }
+      # Debug setup: pointcloud_map_metadata is not published by the current map setup.
+      # Keep its diagnostic visible below, but do not make autonomous mode unavailable.
+      # Restore this link before production operation.
+      # - { type: link, link: /autoware/map/topic_rate_check/pointcloud_map }
 
   - path: /autoware/map/topic_rate_check/vector_map
     type: diag

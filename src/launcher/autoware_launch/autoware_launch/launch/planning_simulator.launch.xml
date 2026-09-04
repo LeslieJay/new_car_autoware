@@ -12,7 +12,7 @@
 
   <!-- Optional parameters -->
   <!-- Map -->
-  <arg name="lanelet2_map_file" default="0727_lanelet2_map.osm" description="lanelet2 map file name"/>
+  <arg name="lanelet2_map_file" default="two_lanelet2_map.osm" description="lanelet2 map file name"/>
   <arg name="pointcloud_map_file" default="pointcloud_map.pcd" description="pointcloud map file name"/>
   <let name="rviz_initial_pose_auto_fix_target" value="vector_map"/>
   <let name="gnss_initial_pose_auto_fix_target" value="vector_map"/>

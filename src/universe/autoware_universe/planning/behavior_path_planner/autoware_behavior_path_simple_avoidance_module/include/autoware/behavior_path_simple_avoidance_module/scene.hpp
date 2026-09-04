@@ -73,15 +73,18 @@ private:
   NoTargetDiagnosis diagnoseNoTarget() const;
   ShiftLineArray buildShiftLines(
     const AvoidanceTarget & target, double shift_length, double extra_return_distance = 0.0) const;
+  InfeasibleReason validateVehicleRoadBoundary(const PathWithLaneId & path) const;
   InfeasibleReason validateArticulatedPath(const PathWithLaneId & path) const;
   std::optional<ShiftedPath> generateTrailerAwarePath(
     const AvoidanceTarget & target, double initial_shift_length, ShiftLineArray & selected_lines,
     InfeasibleReason & failure_reason) const;
-  BehaviorModuleOutput stopForInfeasibleTrailerPath(
+  BehaviorModuleOutput stopForInfeasiblePath(
     InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const;
   BehaviorModuleOutput handlePathGenerationFailure(const PassThroughDebugInfo & debug_info);
   BehaviorModuleOutput continueCommittedPath(const PassThroughDebugInfo & debug_info);
   std::optional<ShiftedPath> generateEgoAlignedReturnPath();
+  std::optional<ShiftedPath> generateEgoAlignedAvoidancePath(
+    const AvoidanceTarget & target, double shift_length, ShiftLineArray & selected_lines);
   double getEgoLateralOffsetToReference() const;
   bool isCommittedOrReturning() const;
   bool isGeneratedPathContinuous(const ShiftedPath & path) const;

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -40,6 +41,20 @@ BehaviorModuleOutput makeStraightOutput(const size_t point_count = 4, const doub
   return output;
 }
 
+void addStraightLaneBounds(BehaviorModuleOutput & output, const double half_width)
+{
+  for (const auto & path_point : output.path.points) {
+    auto left = path_point.point.pose.position;
+    left.y = half_width;
+    output.path.left_bound.push_back(left);
+
+    auto right = path_point.point.pose.position;
+    right.y = -half_width;
+    output.path.right_bound.push_back(right);
+  }
+  output.reference_path = output.path;
+}
+
 std::shared_ptr<SimpleAvoidanceParameters> makeParameters()
 {
   auto parameters = std::make_shared<SimpleAvoidanceParameters>();
@@ -53,11 +68,13 @@ std::shared_ptr<SimpleAvoidanceParameters> makeParameters()
   return parameters;
 }
 
-autoware_perception_msgs::msg::PredictedObjects::SharedPtr makeStaticObstacle()
+autoware_perception_msgs::msg::PredictedObjects::SharedPtr makeStaticObstacle(
+  const double x = 25.0, const uint8_t id = 0)
 {
   auto objects = std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
   autoware_perception_msgs::msg::PredictedObject object;
-  object.kinematics.initial_pose_with_covariance.pose.position.x = 25.0;
+  object.object_id.uuid.front() = id;
+  object.kinematics.initial_pose_with_covariance.pose.position.x = x;
   object.kinematics.initial_pose_with_covariance.pose.position.y = 0.5;
   object.kinematics.initial_pose_with_covariance.pose.orientation.w = 1.0;
   object.shape.type = autoware_perception_msgs::msg::Shape::BOUNDING_BOX;
@@ -252,6 +269,182 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedAvoidanceContinuesAfterTargetLossAndPa
   EXPECT_EQ(module.getCurrentStatus(), ModuleStatus::RUNNING);
   module.updateCurrentState();
   EXPECT_EQ(module.getCurrentStatus(), ModuleStatus::SUCCESS);
+}
+
+TEST_F(SimpleAvoidanceSceneTest, NewTargetReplanDoesNotReuseStaleBaseOffsetAtEgo)
+{
+  rclcpp::Node node{"simple_avoidance_stale_base_offset_test"};
+  auto parameters = makeParameters();
+  parameters->target_lost_time_threshold = 0.0;
+  parameters->lateral_execution_threshold = 0.1;
+  auto trailer_store = std::make_shared<TrailerConfigurationStore>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleAvoidanceModule module{
+    "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
+    marker_interfaces,  nullptr};
+
+  auto planner_data = std::make_shared<PlannerData>();
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  odometry->twist.twist.linear.x = 1.0;
+  planner_data->self_odometry = odometry;
+  planner_data->dynamic_object = makeStaticObstacle(40.0, 1);
+  planner_data->parameters.vehicle_width = 1.0;
+  planner_data->parameters.backward_path_length = 10.0;
+  planner_data->parameters.forward_path_length = 100.0;
+  planner_data->parameters.input_path_interval = 1.0;
+  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
+  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  module.setData(planner_data);
+
+  const auto upstream_output = makeStraightOutput(81);
+  module.setPreviousModuleOutput(upstream_output);
+  module.onEntry();
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  // Move beyond the first avoidance shift. PathShifter folds its planned end shift into
+  // base_offset, although odometry and the freshly supplied upstream path are still centered.
+  odometry->pose.pose.position.x = 16.0;
+  module.setPreviousModuleOutput(upstream_output);
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  // A different, feasible target triggers a replan while the old planned base offset is stale.
+  planner_data->dynamic_object = makeStaticObstacle(41.0, 2);
+  module.setPreviousModuleOutput(upstream_output);
+  const auto replanned_output = module.run();
+  ASSERT_FALSE(replanned_output.path.points.empty());
+
+  const auto closest = std::min_element(
+    replanned_output.path.points.begin(), replanned_output.path.points.end(),
+    [&odometry](const auto & left, const auto & right) {
+      const double ego_x = odometry->pose.pose.position.x;
+      return std::abs(left.point.pose.position.x - ego_x) <
+             std::abs(right.point.pose.position.x - ego_x);
+    });
+  ASSERT_NE(closest, replanned_output.path.points.end());
+  EXPECT_LT(std::abs(closest->point.pose.position.y - odometry->pose.pose.position.y), 0.5)
+    << "new-target replan must be anchored to measured ego pose, not the old planned base offset";
+
+  const auto upstream_closest = std::min_element(
+    upstream_output.path.points.begin(), upstream_output.path.points.end(),
+    [&odometry](const auto & left, const auto & right) {
+      const double ego_x = odometry->pose.pose.position.x;
+      return std::abs(left.point.pose.position.x - ego_x) <
+             std::abs(right.point.pose.position.x - ego_x);
+    });
+  ASSERT_NE(upstream_closest, upstream_output.path.points.end());
+  EXPECT_LT(std::abs(closest->point.pose.position.y - upstream_closest->point.pose.position.y), 0.5)
+    << "new-target replan must remain continuous with the last valid upstream path at ego";
+}
+
+TEST_F(SimpleAvoidanceSceneTest, CandidateCrossingLaneBoundaryProducesSafeStop)
+{
+  rclcpp::Node node{"simple_avoidance_lane_boundary_test"};
+  auto parameters = makeParameters();
+  auto trailer_store = std::make_shared<TrailerConfigurationStore>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleAvoidanceModule module{
+    "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
+    marker_interfaces,  nullptr};
+
+  auto planner_data = std::make_shared<PlannerData>();
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  odometry->twist.twist.linear.x = 1.0;
+  planner_data->self_odometry = odometry;
+  planner_data->dynamic_object = makeStaticObstacle();
+  planner_data->parameters.vehicle_width = 1.0;
+  planner_data->parameters.vehicle_info.wheel_tread_m = 0.6;
+  planner_data->parameters.vehicle_info.left_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.right_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.wheel_base_m = 1.0;
+  planner_data->parameters.vehicle_info.front_overhang_m = 0.5;
+  planner_data->parameters.vehicle_info.rear_overhang_m = 0.5;
+  planner_data->parameters.backward_path_length = 10.0;
+  planner_data->parameters.forward_path_length = 100.0;
+  planner_data->parameters.input_path_interval = 1.0;
+  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
+  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  module.setData(planner_data);
+
+  auto upstream_output = makeStraightOutput(61);
+  addStraightLaneBounds(upstream_output, 0.75);
+  module.setPreviousModuleOutput(upstream_output);
+  module.onEntry();
+
+  const auto output = module.run();
+
+  ASSERT_FALSE(output.path.points.empty());
+  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
+    return p.point.longitudinal_velocity_mps == 0.0;
+  })) << "a candidate that puts the vehicle footprint outside the lane must be rejected";
+}
+
+TEST_F(SimpleAvoidanceSceneTest, CommittedPathCrossingUpdatedLaneBoundaryProducesSafeStop)
+{
+  rclcpp::Node node{"simple_avoidance_committed_lane_boundary_test"};
+  auto parameters = makeParameters();
+  parameters->target_lost_time_threshold = 0.0;
+  auto trailer_store = std::make_shared<TrailerConfigurationStore>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleAvoidanceModule module{
+    "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
+    marker_interfaces,  nullptr};
+
+  auto planner_data = std::make_shared<PlannerData>();
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  odometry->twist.twist.linear.x = 1.0;
+  planner_data->self_odometry = odometry;
+  planner_data->dynamic_object = makeStaticObstacle();
+  planner_data->parameters.vehicle_width = 1.0;
+  planner_data->parameters.vehicle_info.wheel_tread_m = 0.6;
+  planner_data->parameters.vehicle_info.left_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.right_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.wheel_base_m = 1.0;
+  planner_data->parameters.vehicle_info.front_overhang_m = 0.5;
+  planner_data->parameters.vehicle_info.rear_overhang_m = 0.5;
+  planner_data->parameters.backward_path_length = 10.0;
+  planner_data->parameters.forward_path_length = 100.0;
+  planner_data->parameters.input_path_interval = 1.0;
+  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
+  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  module.setData(planner_data);
+
+  auto wide_lane_output = makeStraightOutput(61);
+  addStraightLaneBounds(wide_lane_output, 2.0);
+  module.setPreviousModuleOutput(wide_lane_output);
+  module.onEntry();
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  odometry->pose.pose.position.x = 6.0;
+  module.setPreviousModuleOutput(wide_lane_output);
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  odometry->pose.pose.position.x = 16.0;
+  module.setPreviousModuleOutput(wide_lane_output);
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  planner_data->dynamic_object =
+    std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
+  auto narrow_lane_output = makeStraightOutput(61);
+  addStraightLaneBounds(narrow_lane_output, 0.75);
+  module.setPreviousModuleOutput(narrow_lane_output);
+  const auto output = module.run();
+
+  ASSERT_FALSE(output.path.points.empty());
+  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
+    return p.point.longitudinal_velocity_mps == 0.0;
+  })) << "an already committed path must be revalidated against updated lane boundaries";
+  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
+    return std::abs(p.point.pose.position.y) < 1.0e-6;
+  })) << "the safe-stop path must use in-lane geometry, not the rejected shifted path";
 }
 
 }  // namespace autoware::behavior_path_planner

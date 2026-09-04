@@ -3,5 +3,7 @@ auto_engage_node:
     enabled: true
     # false: match manual CLI behavior (server-side availability gate already removed locally)
     # true: only call services when /api/operation_mode/state says autonomous is available
-    require_autonomous_available: false
+    # Avoid entering AUTONOMOUS while the diagnostic graph is temporarily unavailable.
+    # This prevents route-switch transients from immediately triggering MRM.
+    require_autonomous_available: true
     retry_period_sec: 1.0

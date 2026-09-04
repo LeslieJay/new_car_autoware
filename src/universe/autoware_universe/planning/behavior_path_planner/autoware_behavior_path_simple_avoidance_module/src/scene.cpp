@@ -721,6 +721,41 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   return {avoid_shift, return_shift};
 }
 
+InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
+  const PathWithLaneId & path) const
+{
+  if (path.points.empty()) {
+    return InfeasibleReason::PATH_GENERATION_FAILED;
+  }
+  if (reference_path_.left_bound.empty() || reference_path_.right_bound.empty()) {
+    return InfeasibleReason::NONE;
+  }
+
+  autoware_utils::LineString2d left_bound;
+  autoware_utils::LineString2d right_bound;
+  for (const auto & point : reference_path_.left_bound) {
+    left_bound.emplace_back(point.x, point.y);
+  }
+  for (const auto & point : reference_path_.right_bound) {
+    right_bound.emplace_back(point.x, point.y);
+  }
+
+  const auto vehicle_footprint = planner_data_->parameters.vehicle_info.createFootprint();
+  const size_t ego_index = planner_data_->findEgoIndex(path.points);
+  for (size_t i = ego_index; i < path.points.size(); ++i) {
+    autoware_utils::Polygon2d footprint;
+    footprint.outer() = autoware_utils::transform_vector(
+      vehicle_footprint, autoware_utils::pose2transform(path.points.at(i).point.pose));
+    boost::geometry::correct(footprint);
+    if (
+      boost::geometry::intersects(footprint, left_bound) ||
+      boost::geometry::intersects(footprint, right_bound)) {
+      return InfeasibleReason::ROAD_BOUNDARY;
+    }
+  }
+  return InfeasibleReason::NONE;
+}
+
 InfeasibleReason SimpleAvoidanceModule::validateArticulatedPath(const PathWithLaneId & path) const
 {
   if (active_trailer_configuration_.geometries.empty()) {
@@ -861,10 +896,17 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
   return std::nullopt;
 }
 
-BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasibleTrailerPath(
+BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasiblePath(
   const InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const
 {
   auto output = make_safe_stop_output();
+  if (reason == InfeasibleReason::ROAD_BOUNDARY) {
+    output = getPreviousModuleOutput();
+    const auto fallback_path = output.path.points.empty() ? reference_path_ : output.path;
+    output.path = make_safe_stop_path(
+      PathWithLaneId{}, fallback_path, *planner_data_->self_odometry);
+    output.reference_path = reference_path_.points.empty() ? output.path : reference_path_;
+  }
   debug_data_.last_reason = reason;
   logPassThroughDetails(
     getLogger(), *clock_, reason, debug_info, *parameters_,
@@ -946,6 +988,47 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateEgoAlignedReturnPath()
   return recovery_path;
 }
 
+std::optional<ShiftedPath> SimpleAvoidanceModule::generateEgoAlignedAvoidancePath(
+  const AvoidanceTarget & target, const double shift_length, ShiftLineArray & selected_lines)
+{
+  if (reference_path_.points.size() < 2) {
+    return std::nullopt;
+  }
+
+  const double actual_offset = getEgoLateralOffsetToReference();
+  selected_lines = buildShiftLines(target, shift_length);
+  selected_lines.front().start_shift_length = actual_offset;
+
+  PathShifter ego_aligned_shifter;
+  ego_aligned_shifter.setPath(reference_path_);
+  if (std::abs(actual_offset) > parameters_->lateral_execution_threshold) {
+    const size_t ego_idx = planner_data_->findEgoIndex(reference_path_.points);
+    if (ego_idx <= 1) {
+      return std::nullopt;
+    }
+
+    // Reconstruct the already-travelled lateral offset so the new shift begins at the measured
+    // vehicle pose instead of PathShifter's stale planned base offset.
+    ShiftLine measured_offset;
+    measured_offset.start_shift_length = 0.0;
+    measured_offset.end_shift_length = actual_offset;
+    measured_offset.start_idx = 0;
+    measured_offset.end_idx = ego_idx;
+    measured_offset.start = reference_path_.points.front().point.pose;
+    measured_offset.end = reference_path_.points.at(ego_idx).point.pose;
+    selected_lines.insert(selected_lines.begin(), measured_offset);
+  }
+  ego_aligned_shifter.setShiftLines(selected_lines);
+
+  ShiftedPath shifted_path;
+  if (!ego_aligned_shifter.generate(&shifted_path) || shifted_path.path.points.empty()) {
+    return std::nullopt;
+  }
+  setOrientation(&shifted_path.path);
+  path_shifter_ = ego_aligned_shifter;
+  return shifted_path;
+}
+
 BehaviorModuleOutput SimpleAvoidanceModule::continueCommittedPath(
   const PassThroughDebugInfo & debug_info)
 {
@@ -955,6 +1038,7 @@ BehaviorModuleOutput SimpleAvoidanceModule::continueCommittedPath(
     std::abs(path_shifter_.getBaseOffset()) <= parameters_->lateral_execution_threshold;
 
   ShiftedPath shifted_path;
+  const auto previous_path_shifter = path_shifter_;
   if (
     ego_aligned_return_active_ ||
     (planned_return_is_exhausted &&
@@ -975,6 +1059,12 @@ BehaviorModuleOutput SimpleAvoidanceModule::continueCommittedPath(
     return handlePathGenerationFailure(debug_info);
   } else {
     setOrientation(&shifted_path.path);
+  }
+
+  const auto boundary_reason = validateVehicleRoadBoundary(shifted_path.path);
+  if (boundary_reason != InfeasibleReason::NONE) {
+    path_shifter_ = previous_path_shifter;
+    return stopForInfeasiblePath(boundary_reason, debug_info);
   }
 
   prev_output_ = shifted_path;
@@ -1241,24 +1331,47 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
 
   ShiftedPath shifted_path;
   ShiftLineArray shift_lines;
+  const auto previous_path_shifter = path_shifter_;
   if (active_trailer_configuration_.geometries.empty()) {
-    shift_lines = buildShiftLines(*target, shift_result.shift_length);
-    path_shifter_.setShiftLines(shift_lines);
-    if (
-      !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty() ||
-      !isGeneratedPathContinuous(shifted_path)) {
-      return handlePathGenerationFailure(debug_info);
+    const double planned_base_offset = path_shifter_.getBaseOffset();
+    const double actual_ego_offset = getEgoLateralOffsetToReference();
+    const double base_offset_error = std::abs(planned_base_offset - actual_ego_offset);
+    if (base_offset_error > parameters_->lateral_execution_threshold) {
+      const auto ego_aligned_path =
+        generateEgoAlignedAvoidancePath(*target, shift_result.shift_length, shift_lines);
+      if (!ego_aligned_path.has_value()) {
+        return handlePathGenerationFailure(debug_info);
+      }
+      shifted_path = *ego_aligned_path;
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_AVOIDANCE] realigned stale planned base offset to measured ego pose: "
+        "base_offset=%.2fm actual_ego_offset=%.2fm",
+        planned_base_offset, actual_ego_offset);
+    } else {
+      shift_lines = buildShiftLines(*target, shift_result.shift_length);
+      path_shifter_.setShiftLines(shift_lines);
+      if (
+        !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty() ||
+        !isGeneratedPathContinuous(shifted_path)) {
+        return handlePathGenerationFailure(debug_info);
+      }
+      setOrientation(&shifted_path.path);
     }
-    setOrientation(&shifted_path.path);
   } else {
     InfeasibleReason trailer_failure_reason{InfeasibleReason::TRAILER_COLLISION};
     const auto trailer_path = generateTrailerAwarePath(
       *target, shift_result.shift_length, shift_lines, trailer_failure_reason);
     if (!trailer_path.has_value()) {
-      return stopForInfeasibleTrailerPath(trailer_failure_reason, debug_info);
+      return stopForInfeasiblePath(trailer_failure_reason, debug_info);
     }
     shifted_path = *trailer_path;
     path_shifter_.setShiftLines(shift_lines);
+  }
+  const auto boundary_reason = validateVehicleRoadBoundary(shifted_path.path);
+  if (boundary_reason != InfeasibleReason::NONE) {
+    path_shifter_ = previous_path_shifter;
+    return stopForInfeasiblePath(boundary_reason, debug_info);
   }
   debug_info.shift_lines_count = shift_lines.size();
 

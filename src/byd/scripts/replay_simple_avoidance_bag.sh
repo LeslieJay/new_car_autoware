@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+WORKSPACE_DIR="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 
 BAG_PATH="/home/nvidia/autoware/log/0803/1136_bag"
 MAP_PATH="/home/nvidia/autoware_map/3_test/"
@@ -194,7 +194,7 @@ LAUNCH_PID=$!
 
 # Show only decision-relevant messages while retaining the complete launch log on disk.
 setsid bash -c \
-  'tail -n 0 -F "$1" | stdbuf -oL grep --line-buffered -E "SIMPLE_AVOIDANCE|infeasible_distance|avoidance path generated|surrounding hazard|ERROR|process has died"' \
+  'tail -n 0 -F "$1" | stdbuf -oL grep --line-buffered -E "SIMPLE_AVOIDANCE|infeasible_distance|avoidance path generated|sudden shift|Invalid Trajectory|surrounding hazard|ERROR|process has died"' \
   _ "${LAUNCH_LOG}" &
 MONITOR_PID=$!
 
@@ -247,6 +247,7 @@ setsid ros2 bag record \
   /clock \
   "${INPUT_TOPICS[@]}" \
   /planning/trajectory \
+  /planning/planning_validator/validation_status \
   /planning/path_candidate/simple_avoidance \
   /planning/path_reference/simple_avoidance \
   /planning/planning_factors/simple_avoidance \
@@ -277,11 +278,17 @@ RECORD_PID=""
 
 generated_count="$(grep -c 'avoidance path generated' "${LAUNCH_LOG}" || true)"
 infeasible_count="$(grep -c 'pass-through reason=infeasible_distance' "${LAUNCH_LOG}" || true)"
+realigned_count="$(grep -c 'realigned stale planned base offset' "${LAUNCH_LOG}" || true)"
+sudden_shift_count="$(grep -c 'planning trajectory had sudden shift' "${LAUNCH_LOG}" || true)"
+invalid_trajectory_count="$(grep -c 'Invalid Trajectory detected' "${LAUNCH_LOG}" || true)"
 
 echo
 echo "Replay summary"
 echo "  avoidance path generated : ${generated_count}"
 echo "  infeasible_distance      : ${infeasible_count}"
+echo "  stale base realigned     : ${realigned_count}"
+echo "  sudden trajectory shift  : ${sudden_shift_count}"
+echo "  invalid trajectory       : ${invalid_trajectory_count}"
 echo "  launch log               : ${LAUNCH_LOG}"
 echo "  result bag               : ${NEW_BAG_PATH}"
 
@@ -290,4 +297,9 @@ if ((generated_count == 0)); then
   exit 2
 fi
 
-echo "RESULT: at least one avoidance path was generated. Inspect the recorded path in RViz."
+if ((sudden_shift_count > 0 || invalid_trajectory_count > 0)); then
+  echo "RESULT: planning_validator rejected at least one trajectory."
+  exit 3
+fi
+
+echo "RESULT: avoidance paths were generated without planning_validator trajectory rejection."
