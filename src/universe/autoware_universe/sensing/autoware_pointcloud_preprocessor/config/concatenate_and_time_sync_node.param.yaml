@@ -5,7 +5,7 @@
     maximum_queue_size: 10
     timeout_sec: 0.4
     is_motion_compensated: false
-    publish_synchronized_pointcloud: true
+    publish_synchronized_pointcloud: false
     keep_input_frame_in_synchronized_pointcloud: true
     publish_previous_but_late_pointcloud: true
     synchronized_pointcloud_postfix: pointcloud

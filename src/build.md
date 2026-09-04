@@ -25,8 +25,5 @@ colcon build \
   byd_launch \
   autoware_launch \
   autoware_multi_object_tracker \
-  autoware_behavior_path_goal_planner_module \
-  autoware_behavior_path_planner_common \
-  autoware_behavior_path_simple_avoidance_module \
   --symlink-install \
   --event-handlers console_direct+

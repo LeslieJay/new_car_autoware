@@ -8,7 +8,7 @@
     <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
   </include>
 
-  <include file="$(find-pkg-share lidar_transform)/launch/concatenated_pointclouds.xml">
+  <include file="$(find-pkg-share lidar_transform)/launch/concatenated_pointclouds2.xml">
     <arg name="RadiusOutlierFilter"  value="1.5"/>
     <arg name="transform_x" value="1.15341"/>
     <arg name="transform_y"  value="0.0"/>

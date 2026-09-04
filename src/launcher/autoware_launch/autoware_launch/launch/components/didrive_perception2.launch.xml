@@ -1,6 +1,6 @@
 <launch>
   <arg name="base_frame" default="base_link" description="base frame"/>
-  <arg name="use_sim_time" default="true" description="use simulator time"/>
+  <arg name="use_sim_time" default="false" description="use simulator time"/>
   <arg name="pointcloud_container_name" default="perception_container" description="name of pointcloud container"/>
   <arg name="use_pointcloud_container" default="true"/>
   <arg name="enable_lane_detection" default="false" description="Enable lane detection module"/>
@@ -96,13 +96,14 @@
             <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
             <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
             <arg name="input_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
-            <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/raw_objects"/>
-            <!-- <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/objects"/> -->
+            <!-- <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/raw_objects"/> -->
+            <arg name="output_clusters" value="/perception/object_recognition/detection/lidar_rule/objects"/>
           </include>
         </group>
-
+        
+        <!-- 
         <group>
-          <!-- obstacle pointcloud based validator for euclidean cluster -->
+          obstacle pointcloud based validator for euclidean cluster
           <include file="$(find-pkg-share autoware_detected_object_validation)/launch/obstacle_pointcloud_based_validator.launch.xml">
             <arg name="input/detected_objects" value="/perception/object_recognition/detection/lidar_rule/raw_objects"/>
             <arg name="input/obstacle_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
@@ -110,7 +111,7 @@
             <arg name="obstacle_pointcloud_based_validator_param_path" value="$(find-pkg-share autoware_detected_object_validation)/config/obstacle_pointcloud_based_validator.param.yaml"/>
           </include>
         </group>
-      
+        -->
         
         <!-- bevfusion (commented out)
         <group>
