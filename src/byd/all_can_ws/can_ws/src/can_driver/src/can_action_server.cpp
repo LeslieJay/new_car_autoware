@@ -71,11 +71,13 @@ void CanActionServer::execute_fork(
     auto feedback = std::make_shared<CtrlFork::Feedback>();
     auto result = std::make_shared<CtrlFork::Result>();
 
-    double target = goal->fork_goal_height;
+    auto fork_goal_height = goal->fork_goal_height;
+    if(fork_goal_height > 100) fork_goal_height = fork_goal_height - 100;
+
     int signal = goal->to_fork_signal;
     
     RCLCPP_INFO(this->get_logger(), 
-                "开始执行挂钩: 目标高度=%.2f, 信号=%d", target, signal);
+                "开始执行挂钩: 目标高度=%.2f, 信号=%d", fork_goal_height, signal);
 
     if (goal_handle->is_canceling()) {
         result->finish = false;
@@ -93,7 +95,7 @@ void CanActionServer::execute_fork(
             v_frame.data[i] = 0;
         }
 
-        auto fork_goal_height = goal->fork_goal_height;
+
         if(fork_goal_height == 1) {
             v_frame.data[4] = 1;
             RCLCPP_INFO(this->get_logger(), 

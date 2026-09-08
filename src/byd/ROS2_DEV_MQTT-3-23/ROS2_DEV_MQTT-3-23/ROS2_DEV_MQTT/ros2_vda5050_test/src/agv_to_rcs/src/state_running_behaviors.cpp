@@ -471,7 +471,6 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
 
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"order_messages_.msg_state.order_update_id: %d",order_messages_.msg_state.order_update_id);
             // std::cout << "222222222222222222222222222222222222222222222222222222222" << std::endl;
-
             agv_data_publish_->state_timer_callback();
             RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "运行状态更新state!  即将目标坐标(%.2f,%.2f,%.2f),当前坐标(%.2f,%.2f,%.2f)",order_messages_.goal_x[point_index],order_messages_.goal_y[point_index],order_messages_.goal_theta[point_index],current_pose_.current_x,current_pose_.current_y,current_pose_.current_theta);
             // 上报完状态之后，需要等待200ms，给rcs足够时间发来反馈或者新任务

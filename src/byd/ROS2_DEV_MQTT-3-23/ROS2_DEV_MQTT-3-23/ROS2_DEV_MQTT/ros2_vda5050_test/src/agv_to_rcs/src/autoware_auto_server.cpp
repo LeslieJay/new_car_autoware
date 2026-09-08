@@ -34,10 +34,12 @@ public:
             this,
             "autoware_auto",
             std::bind(&AutowareAutoServer::handle_goal, this, _1, _2),
-            std::bind(&AutowareAutoServer::handle_cancel, this, _1),
+            std::bind(&Aut.
+                owareAutoServer::handle_cancel, this, _1),
             std::bind(&AutowareAutoServer::handle_accepted, this, _1)
         );
 
+        
         pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "map_to_base_pose",
             10,
