@@ -24,7 +24,12 @@
     <push-ros-namespace namespace="perception"/>
     <group>
       <!-- ground segmentation -->
-      <push-ros-namespace namespace="obstacle_segmentation"/>
+      <include file="$(find-pkg-share autoware_ground_segmentation)/launch/ray_ground_filter.launch.xml">
+        <arg name="input_pointcloud" value="$(var pointcloud)"/>
+        <arg name="output_ground" value="/perception/ground_segmentation/ground"/>
+      </include>
+
+      <!-- <push-ros-namespace namespace="obstacle_segmentation"/>
       <include file="$(find-pkg-share didrive_patchwork)/launch/patchworkpp.launch.py">
         <arg name="base_frame" value="$(var base_frame)"/>
         <arg name="input_pointcloud" value="$(var pointcloud)"/>
@@ -34,7 +39,7 @@
         <arg name="output_ground" value="/perception/obstacle_segmentation/ground"/>
         <arg name="output_nonground" value="/perception/obstacle_segmentation/pointcloud"/>
         <arg name="visualize" value="false"/>
-      </include>
+      </include> -->
     </group>
 
     <!-- 

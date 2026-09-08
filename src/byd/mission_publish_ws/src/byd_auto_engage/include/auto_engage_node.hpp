@@ -1,6 +1,8 @@
 #ifndef BYD_AUTO_ENGAGE__AUTO_ENGAGE_NODE_HPP_
 #define BYD_AUTO_ENGAGE__AUTO_ENGAGE_NODE_HPP_
 
+#include "route_set_gate.hpp"
+
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <autoware_adapi_v1_msgs/srv/change_operation_mode.hpp>
@@ -13,7 +15,6 @@ public:
   AutoEngageNode();
 
 private:
-  static constexpr uint8_t ROUTE_STATE_SET = 2;
   static constexpr uint8_t MODE_AUTONOMOUS = 2;
   static constexpr uint8_t MODE_LOCAL = 3;
 
@@ -47,6 +48,7 @@ private:
   bool auto_engage_in_progress_;
   bool local_mode_in_progress_;
   uint8_t route_state_;
+  RouteSetGate route_set_gate_;
   uint8_t operation_mode_;
   bool is_autoware_control_enabled_;
   bool is_autonomous_mode_available_;

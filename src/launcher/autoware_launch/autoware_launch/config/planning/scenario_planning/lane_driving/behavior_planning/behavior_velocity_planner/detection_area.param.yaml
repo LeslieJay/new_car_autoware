@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
     detection_area:
-      stop_margin: 0.0
+      stop_margin: 0.5 # [m] additional campus safety margin before the mapped stop line
       target_filtering:
         pointcloud: true
         unknown: false
@@ -19,10 +19,10 @@
       use_dead_line: false
       dead_line_margin: 5.0
       unstoppable_policy: "stop_after_stopline" # "go" or "force_stop" or "stop_after_stopline"
-      max_deceleration: 2.5
+      max_deceleration: 1.0 # [m/s^2] conservative service deceleration for a 2.0 m/s AGV
       delay_response_time: 0.5
       state_clear_time: 2.0
-      hold_stop_margin_distance: 0.0
+      hold_stop_margin_distance: 0.5 # [m] suppress short stop/restart cycles near the target
       distance_to_judge_over_stop_line: 0.5
       enable_rtc: false # if true, the scene modules should be approved by (request to cooperate)rtc function. if false, the module can be run without approval from rtc.
       suppress_pass_judge_when_stopping: false

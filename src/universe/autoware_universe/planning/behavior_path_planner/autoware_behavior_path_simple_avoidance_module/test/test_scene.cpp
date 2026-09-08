@@ -84,6 +84,27 @@ autoware_perception_msgs::msg::PredictedObjects::SharedPtr makeStaticObstacle(
   objects->objects.push_back(object);
   return objects;
 }
+
+std::shared_ptr<PlannerData> makeBoundaryTestPlannerData(
+  const std::shared_ptr<nav_msgs::msg::Odometry> & odometry)
+{
+  auto planner_data = std::make_shared<PlannerData>();
+  planner_data->self_odometry = odometry;
+  planner_data->dynamic_object = makeStaticObstacle();
+  planner_data->parameters.vehicle_width = 1.0;
+  planner_data->parameters.vehicle_info.wheel_tread_m = 0.6;
+  planner_data->parameters.vehicle_info.left_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.right_overhang_m = 0.2;
+  planner_data->parameters.vehicle_info.wheel_base_m = 1.0;
+  planner_data->parameters.vehicle_info.front_overhang_m = 0.5;
+  planner_data->parameters.vehicle_info.rear_overhang_m = 0.5;
+  planner_data->parameters.backward_path_length = 10.0;
+  planner_data->parameters.forward_path_length = 100.0;
+  planner_data->parameters.input_path_interval = 1.0;
+  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
+  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  return planner_data;
+}
 }  // namespace
 
 class SimpleAvoidanceSceneTest : public ::testing::Test
@@ -351,24 +372,10 @@ TEST_F(SimpleAvoidanceSceneTest, CandidateCrossingLaneBoundaryProducesSafeStop)
     "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
     marker_interfaces,  nullptr};
 
-  auto planner_data = std::make_shared<PlannerData>();
   auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
   odometry->pose.pose.orientation.w = 1.0;
   odometry->twist.twist.linear.x = 1.0;
-  planner_data->self_odometry = odometry;
-  planner_data->dynamic_object = makeStaticObstacle();
-  planner_data->parameters.vehicle_width = 1.0;
-  planner_data->parameters.vehicle_info.wheel_tread_m = 0.6;
-  planner_data->parameters.vehicle_info.left_overhang_m = 0.2;
-  planner_data->parameters.vehicle_info.right_overhang_m = 0.2;
-  planner_data->parameters.vehicle_info.wheel_base_m = 1.0;
-  planner_data->parameters.vehicle_info.front_overhang_m = 0.5;
-  planner_data->parameters.vehicle_info.rear_overhang_m = 0.5;
-  planner_data->parameters.backward_path_length = 10.0;
-  planner_data->parameters.forward_path_length = 100.0;
-  planner_data->parameters.input_path_interval = 1.0;
-  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
-  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  auto planner_data = makeBoundaryTestPlannerData(odometry);
   module.setData(planner_data);
 
   auto upstream_output = makeStraightOutput(61);
@@ -379,9 +386,46 @@ TEST_F(SimpleAvoidanceSceneTest, CandidateCrossingLaneBoundaryProducesSafeStop)
   const auto output = module.run();
 
   ASSERT_FALSE(output.path.points.empty());
-  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
-    return p.point.longitudinal_velocity_mps == 0.0;
-  })) << "a candidate that puts the vehicle footprint outside the lane must be rejected";
+  EXPECT_TRUE(
+    std::all_of(
+      output.path.points.begin(), output.path.points.end(),
+      [](const auto & p) { return p.point.longitudinal_velocity_mps == 0.0; }))
+    << "a candidate that puts the vehicle footprint outside the lane must be rejected";
+}
+
+TEST_F(SimpleAvoidanceSceneTest, CandidateCrossingOnlyAvailableBoundaryProducesSafeStop)
+{
+  rclcpp::Node node{"simple_avoidance_single_lane_boundary_test"};
+  auto parameters = makeParameters();
+  auto trailer_store = std::make_shared<TrailerConfigurationStore>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleAvoidanceModule module{
+    "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
+    marker_interfaces,  nullptr};
+
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  odometry->twist.twist.linear.x = 1.0;
+  auto planner_data = makeBoundaryTestPlannerData(odometry);
+  module.setData(planner_data);
+
+  auto upstream_output = makeStraightOutput(61);
+  addStraightLaneBounds(upstream_output, 0.75);
+  upstream_output.path.left_bound.clear();
+  upstream_output.reference_path = upstream_output.path;
+  module.setPreviousModuleOutput(upstream_output);
+  module.onEntry();
+
+  const auto output = module.run();
+
+  ASSERT_FALSE(output.path.points.empty());
+  EXPECT_TRUE(
+    std::all_of(
+      output.path.points.begin(), output.path.points.end(),
+      [](const auto & p) { return p.point.longitudinal_velocity_mps == 0.0; }))
+    << "an available boundary must remain enforced when the opposite boundary is missing";
 }
 
 TEST_F(SimpleAvoidanceSceneTest, CommittedPathCrossingUpdatedLaneBoundaryProducesSafeStop)
@@ -397,24 +441,10 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedPathCrossingUpdatedLaneBoundaryProduce
     "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
     marker_interfaces,  nullptr};
 
-  auto planner_data = std::make_shared<PlannerData>();
   auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
   odometry->pose.pose.orientation.w = 1.0;
   odometry->twist.twist.linear.x = 1.0;
-  planner_data->self_odometry = odometry;
-  planner_data->dynamic_object = makeStaticObstacle();
-  planner_data->parameters.vehicle_width = 1.0;
-  planner_data->parameters.vehicle_info.wheel_tread_m = 0.6;
-  planner_data->parameters.vehicle_info.left_overhang_m = 0.2;
-  planner_data->parameters.vehicle_info.right_overhang_m = 0.2;
-  planner_data->parameters.vehicle_info.wheel_base_m = 1.0;
-  planner_data->parameters.vehicle_info.front_overhang_m = 0.5;
-  planner_data->parameters.vehicle_info.rear_overhang_m = 0.5;
-  planner_data->parameters.backward_path_length = 10.0;
-  planner_data->parameters.forward_path_length = 100.0;
-  planner_data->parameters.input_path_interval = 1.0;
-  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
-  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  auto planner_data = makeBoundaryTestPlannerData(odometry);
   module.setData(planner_data);
 
   auto wide_lane_output = makeStraightOutput(61);
@@ -439,12 +469,16 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedPathCrossingUpdatedLaneBoundaryProduce
   const auto output = module.run();
 
   ASSERT_FALSE(output.path.points.empty());
-  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
-    return p.point.longitudinal_velocity_mps == 0.0;
-  })) << "an already committed path must be revalidated against updated lane boundaries";
-  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
-    return std::abs(p.point.pose.position.y) < 1.0e-6;
-  })) << "the safe-stop path must use in-lane geometry, not the rejected shifted path";
+  EXPECT_TRUE(
+    std::all_of(
+      output.path.points.begin(), output.path.points.end(),
+      [](const auto & p) { return p.point.longitudinal_velocity_mps == 0.0; }))
+    << "an already committed path must be revalidated against updated lane boundaries";
+  EXPECT_TRUE(
+    std::all_of(
+      output.path.points.begin(), output.path.points.end(),
+      [](const auto & p) { return std::abs(p.point.pose.position.y) < 1.0e-6; }))
+    << "the safe-stop path must use in-lane geometry, not the rejected shifted path";
 }
 
 }  // namespace autoware::behavior_path_planner

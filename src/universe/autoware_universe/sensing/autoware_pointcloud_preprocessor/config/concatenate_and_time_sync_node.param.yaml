@@ -3,7 +3,7 @@
     debug_mode: false
     rosbag_length: 10.0
     maximum_queue_size: 10
-    timeout_sec: 0.4
+    timeout_sec: 0.15
     is_motion_compensated: false
     publish_synchronized_pointcloud: false
     keep_input_frame_in_synchronized_pointcloud: true

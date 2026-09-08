@@ -4,15 +4,19 @@
   <arg name="map_path" default="/home/nvidia/autoware_map/3_test/" description="point cloud and lanelet2 map directory path"/>
   <arg name="vehicle_model" default="byd_vehicle" description="vehicle model name"/>
   <arg name="sensor_model" default="byd_sensor_kit" description="sensor model name"/>
+  <arg name="pointcloud_container_name" default="pointcloud_container" description="shared point cloud container name"/>
   <arg name="data_path" default="$(env HOME)/autoware_data" description="packages data and artifacts directory path"/>
 
   <!-- launch module preset -->
   <arg name="planning_module_preset" default="default" description="planning module preset"/>
   <arg name="control_module_preset" default="default" description="control module preset"/>
+  <arg name="lateral_controller_mode" default="pure_pursuit" description="lateral controller: mpc or pure_pursuit"/>
 
   <!-- Optional parameters -->
   <!-- Map -->
-  <arg name="lanelet2_map_file" default="two_lanelet2_map.osm" description="lanelet2 map file name"/>
+  <!-- Keep this default aligned with autoware.launch.xml. The old two_lanelet2_map.osm
+       has empty lat/lon fields and cannot be projected by the LocalCartesian map loader. -->
+  <arg name="lanelet2_map_file" default="new_two_lanelet2_map_with_latlon.osm" description="lanelet2 map file name"/>
   <arg name="pointcloud_map_file" default="pointcloud_map.pcd" description="pointcloud map file name"/>
   <let name="rviz_initial_pose_auto_fix_target" value="vector_map"/>
   <let name="gnss_initial_pose_auto_fix_target" value="vector_map"/>
@@ -59,10 +63,12 @@
       <arg name="map_path" value="$(var map_path)"/>
       <arg name="vehicle_model" value="$(var vehicle_model)"/>
       <arg name="sensor_model" value="$(var sensor_model)"/>
+      <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
       <arg name="data_path" value="$(var data_path)"/>
       <!-- launch module preset -->
       <arg name="planning_module_preset" value="$(var planning_module_preset)"/>
       <arg name="control_module_preset" value="$(var control_module_preset)"/>
+      <arg name="lateral_controller_mode" value="$(var lateral_controller_mode)"/>
       <!-- Modules to be launched -->
       <arg name="launch_sensing" value="false"/>
       <arg name="launch_localization" value="false"/>
@@ -70,6 +76,7 @@
       <arg name="launch_didrive_perception" value="$(var launch_didrive_perception)"/>
       <!-- Vehicle -->
       <arg name="launch_vehicle_interface" value="$(var launch_vehicle_interface)"/>
+      <arg name="use_sim_time" value="$(var use_sim_time)"/>
       <!-- System -->
       <arg name="system_run_mode" value="planning_simulation"/>
       <arg name="launch_system_monitor" value="$(var launch_system_monitor)"/>

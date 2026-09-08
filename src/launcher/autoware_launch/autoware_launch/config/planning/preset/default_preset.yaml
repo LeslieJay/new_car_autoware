@@ -17,7 +17,7 @@ launch:
       default: "false"
   - arg:
       name: launch_simple_lc_avoidance
-      default: "false"
+      default: "true"
   - arg:
       name: launch_dynamic_obstacle_avoidance
       default: "true"
@@ -52,10 +52,10 @@ launch:
   # behavior velocity modules
   - arg:
       name: launch_crosswalk_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_walkway_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_traffic_light_module
       default: "false"
@@ -73,7 +73,7 @@ launch:
       default: "false"
   - arg:
       name: launch_detection_area_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_virtual_traffic_light_module
       default: "false"
@@ -82,16 +82,16 @@ launch:
       default: "false"
   - arg:
       name: launch_stop_line_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_occlusion_spot_module
       default: "false"
   - arg:
       name: launch_speed_bump_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_no_drivable_lane_module
-      default: "false"
+      default: "true"
 
   # motion planning modules
   - arg:

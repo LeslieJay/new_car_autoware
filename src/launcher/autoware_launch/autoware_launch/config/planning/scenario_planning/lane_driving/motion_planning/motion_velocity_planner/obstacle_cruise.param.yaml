@@ -127,5 +127,5 @@
           stopped_obstacle_velocity_threshold: 0.5
 
         # hysteresis for cruise and stop
-        obstacle_velocity_threshold_from_cruise : 3.0 # stop planning is executed to the obstacle whose velocity is less than this value [m/s]
-        obstacle_velocity_threshold_to_cruise : 3.5 # stop planning is executed to the obstacle whose velocity is less than this value [m/s]
+        obstacle_velocity_threshold_from_cruise : 0.3 # remain in cruise above this speed [m/s]
+        obstacle_velocity_threshold_to_cruise : 0.5 # enter cruise above this speed [m/s]

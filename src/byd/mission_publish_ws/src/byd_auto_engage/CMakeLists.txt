@@ -25,4 +25,15 @@ install(TARGETS auto_engage_node
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_route_set_gate
+    test/test_route_set_gate.cpp
+  )
+  ament_target_dependencies(test_route_set_gate
+    autoware_adapi_v1_msgs
+  )
+endif()
+
 ament_package()

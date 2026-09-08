@@ -1,0 +1,53 @@
+/**:
+  ros__parameters:
+    control_rate: 50.0
+    trajectory_publish_rate: 10.0
+
+    mode_handoff:
+      retry_interval: 0.5
+      max_retries: 40
+
+    vehicle:
+      # 必须用实车标定的前后轴中心距离替换。
+      wheel_base: 1.01
+
+    planning:
+      turning_radius: 2.0
+      path_resolution: 0.02
+      min_path_length: 0.10
+      max_path_length: 15.0
+
+    lateral:
+      max_steering_angle: 0.60
+      max_steering_rate: 0.50
+      # 实车直线倒车偏航时，用标定值补偿机械/零位偏差。
+      steering_offset: 0.0
+      lateral_gain: 1.20
+      heading_gain: 1.80
+      softening_speed: 0.15
+
+    longitudinal:
+      # 高精度模式默认限速 0.35 m/s；标定前不要提高。
+      max_reverse_speed: 0.35
+      min_creep_speed: 0.035
+      comfortable_deceleration: 0.25
+      # 当前阶段先验收自动模式切换流程；后续精度标定时再收紧。
+      stop_margin: 0.060
+      final_approach_distance: 0.60
+      max_acceleration: 0.30
+      max_deceleration: 0.50
+      speed_kp: 1.50
+      speed_ki: 0.20
+      integral_limit: 0.50
+
+    goal:
+      distance_tolerance: 0.120
+      yaw_tolerance: 0.050
+      stop_speed_tolerance: 0.025
+      required_settled_cycles: 10
+
+    safety:
+      odometry_timeout: 0.20
+      max_lateral_error: 0.40
+      max_heading_error: 0.60
+      overshoot_tolerance: 0.200

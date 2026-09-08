@@ -1032,7 +1032,7 @@ std::vector<DrivableLanes> expandLanelets(
 void extractObstaclesFromDrivableArea(
   PathWithLaneId & path, const std::vector<DrivableAreaInfo::Obstacle> & obstacles)
 {
-  if (obstacles.empty()) {
+  if (path.points.empty() || obstacles.empty()) {
     return;
   }
 

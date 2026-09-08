@@ -39,8 +39,7 @@ LCAvoidanceDirection getAvoidanceDirection(const double lateral_offset);
 double applyLaneShiftMargin(const double raw_shift_length, const double lateral_margin);
 
 double calcLaneShiftLength(
-  const double current_lane_distance, const double adjacent_lane_distance,
-  const double lateral_margin);
+  const double adjacent_lane_distance_from_reference, const double lateral_margin);
 
 bool shouldInitializeManeuver(const ShiftLineArray & shift_lines);
 

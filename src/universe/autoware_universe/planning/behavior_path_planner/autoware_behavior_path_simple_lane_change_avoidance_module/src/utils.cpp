@@ -99,12 +99,12 @@ PathWithLaneId extendBackwardPath(
 double getClosestShiftLength(
   const ShiftedPath & shifted_path, const geometry_msgs::msg::Point & ego_point)
 {
-  if (shifted_path.shift_length.empty()) {
+  if (shifted_path.shift_length.empty() || shifted_path.path.points.empty()) {
     return 0.0;
   }
   const auto closest =
     autoware::motion_utils::findNearestIndex(shifted_path.path.points, ego_point);
-  return shifted_path.shift_length.at(closest);
+  return shifted_path.shift_length.at(std::min(closest, shifted_path.shift_length.size() - 1));
 }
 
 LCAvoidanceDirection getAvoidanceDirection(const double lateral_offset)
@@ -125,10 +125,9 @@ double applyLaneShiftMargin(const double raw_shift_length, const double lateral_
 }
 
 double calcLaneShiftLength(
-  const double current_lane_distance, const double adjacent_lane_distance,
-  const double lateral_margin)
+  const double adjacent_lane_distance_from_reference, const double lateral_margin)
 {
-  return applyLaneShiftMargin(current_lane_distance - adjacent_lane_distance, lateral_margin);
+  return applyLaneShiftMargin(-adjacent_lane_distance_from_reference, lateral_margin);
 }
 
 bool shouldInitializeManeuver(const ShiftLineArray & shift_lines)

@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <unordered_map>
 
@@ -128,6 +129,31 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, ObstacleWithoutAdjacentLaneDoesNotReq
 
   ASSERT_NO_THROW(module.run());
   EXPECT_FALSE(module.isExecutionRequested());
+}
+
+TEST_F(SimpleLaneChangeAvoidanceSceneTest, EmptyInputsProduceNonEmptySafeStop)
+{
+  rclcpp::Node node{"simple_lane_change_avoidance_empty_input_test"};
+  auto parameters = std::make_shared<SimpleLCAvoidanceParameters>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleLaneChangeAvoidanceModule module{
+    "simple_lane_change_avoidance", node, parameters, rtc_interfaces, marker_interfaces, nullptr};
+
+  auto planner_data = std::make_shared<PlannerData>();
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  planner_data->self_odometry = odometry;
+  module.setData(planner_data);
+  module.setPreviousModuleOutput(BehaviorModuleOutput{});
+
+  const auto output = module.run();
+
+  ASSERT_FALSE(output.path.points.empty());
+  EXPECT_TRUE(std::all_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
+    return p.point.longitudinal_velocity_mps == 0.0;
+  }));
 }
 
 }  // namespace autoware::behavior_path_planner

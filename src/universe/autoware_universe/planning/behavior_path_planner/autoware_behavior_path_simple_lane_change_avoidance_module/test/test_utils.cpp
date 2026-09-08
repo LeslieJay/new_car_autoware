@@ -83,17 +83,27 @@ TEST_F(SimpleLCAvoidanceUtilsTest, ApplyLaneShiftMarginNegative)
 
 TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthFollowsPathShifterSignConvention)
 {
-  constexpr double current_lane_distance = 0.0;
   constexpr double left_lane_distance_from_ego = -3.5;
   constexpr double right_lane_distance_from_ego = 3.5;
   constexpr double lateral_margin = 0.3;
 
   EXPECT_NEAR(
-    calcLaneShiftLength(current_lane_distance, left_lane_distance_from_ego, lateral_margin), 3.8,
-    1e-6);
+    calcLaneShiftLength(left_lane_distance_from_ego, lateral_margin), 3.8, 1e-6);
   EXPECT_NEAR(
-    calcLaneShiftLength(current_lane_distance, right_lane_distance_from_ego, lateral_margin), -3.8,
-    1e-6);
+    calcLaneShiftLength(right_lane_distance_from_ego, lateral_margin), -3.8, 1e-6);
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthDoesNotApplyExistingUpstreamShiftTwice)
+{
+  // The upstream simple_avoidance path is already shifted 1.67 m toward the left lane.  The
+  // adjacent lane center is therefore only 1.83 m left of the path that this module will shift.
+  // Adding the full lane-center separation again would produce 4.30 m and leave the drivable area.
+  constexpr double adjacent_lane_distance_from_upstream_path = -1.83;
+  constexpr double lateral_margin = 0.3;
+
+  EXPECT_NEAR(
+    calcLaneShiftLength(adjacent_lane_distance_from_upstream_path, lateral_margin),
+    2.13, 1e-6);
 }
 
 TEST_F(SimpleLCAvoidanceUtilsTest, InitializeManeuverOnlyWhenNoShiftLinesExist)

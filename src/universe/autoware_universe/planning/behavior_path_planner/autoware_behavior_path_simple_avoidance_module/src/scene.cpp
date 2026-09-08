@@ -26,9 +26,12 @@
 #include <autoware_utils/geometry/geometry.hpp>
 #include <autoware_utils_uuid/uuid_helper.hpp>
 
+#include <boost/geometry/algorithms/convex_hull.hpp>
 #include <boost/geometry/algorithms/correct.hpp>
+#include <boost/geometry/algorithms/covered_by.hpp>
 #include <boost/geometry/algorithms/distance.hpp>
 #include <boost/geometry/algorithms/intersects.hpp>
+#include <boost/geometry/algorithms/is_valid.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -40,6 +43,111 @@ namespace autoware::behavior_path_planner
 {
 namespace
 {
+template <class Points>
+autoware_utils::LineString2d makeLineString(const Points & points)
+{
+  autoware_utils::LineString2d line;
+  for (const auto & point : points) {
+    line.emplace_back(point.x, point.y);
+  }
+  return line;
+}
+
+void extendLineStringEnds(autoware_utils::LineString2d & line, const double distance)
+{
+  if (line.size() < 2) {
+    return;
+  }
+  const auto extend_from = [distance](
+                             const autoware_utils::Point2d & end,
+                             const autoware_utils::Point2d & neighbor) {
+    const double dx = end.x() - neighbor.x();
+    const double dy = end.y() - neighbor.y();
+    const double norm = std::hypot(dx, dy);
+    if (norm < 1.0e-6) {
+      return end;
+    }
+    return autoware_utils::Point2d{end.x() + distance * dx / norm, end.y() + distance * dy / norm};
+  };
+  line.front() = extend_from(line.front(), line.at(1));
+  line.back() = extend_from(line.back(), line.at(line.size() - 2));
+}
+
+std::optional<autoware_utils::Polygon2d> makeLaneCorridor(
+  autoware_utils::LineString2d left_bound, autoware_utils::LineString2d right_bound,
+  const double longitudinal_extension)
+{
+  if (left_bound.size() < 2 || right_bound.size() < 2) {
+    return std::nullopt;
+  }
+  extendLineStringEnds(left_bound, longitudinal_extension);
+  extendLineStringEnds(right_bound, longitudinal_extension);
+
+  autoware_utils::Polygon2d corridor;
+  for (const auto & point : left_bound) {
+    corridor.outer().push_back(point);
+  }
+  for (auto itr = right_bound.rbegin(); itr != right_bound.rend(); ++itr) {
+    corridor.outer().push_back(*itr);
+  }
+  corridor.outer().push_back(corridor.outer().front());
+  boost::geometry::correct(corridor);
+  if (!boost::geometry::is_valid(corridor)) {
+    return std::nullopt;
+  }
+  return corridor;
+}
+
+template <class PathPoints>
+bool isOnDrivableSide(
+  const autoware_utils::Polygon2d & area, const autoware_utils::LineString2d & bound,
+  const PathPoints & reference_points)
+{
+  if (bound.size() < 2 || reference_points.empty()) {
+    return false;
+  }
+
+  for (const auto & point : area.outer()) {
+    size_t nearest_segment_index = 0;
+    double nearest_segment_distance = std::numeric_limits<double>::max();
+    for (size_t i = 1; i < bound.size(); ++i) {
+      const autoware_utils::Segment2d segment{bound.at(i - 1), bound.at(i)};
+      const double distance = boost::geometry::distance(point, segment);
+      if (distance < nearest_segment_distance) {
+        nearest_segment_distance = distance;
+        nearest_segment_index = i - 1;
+      }
+    }
+
+    const auto & segment_start = bound.at(nearest_segment_index);
+    const auto & segment_end = bound.at(nearest_segment_index + 1);
+    const autoware_utils::Segment2d segment{segment_start, segment_end};
+    const auto cross_product = [&](const autoware_utils::Point2d & candidate) {
+      return (segment_end.x() - segment_start.x()) * (candidate.y() - segment_start.y()) -
+             (segment_end.y() - segment_start.y()) * (candidate.x() - segment_start.x());
+    };
+
+    double reference_side = 0.0;
+    double nearest_reference_distance = std::numeric_limits<double>::max();
+    for (const auto & reference_point : reference_points) {
+      const autoware_utils::Point2d candidate{
+        reference_point.point.pose.position.x, reference_point.point.pose.position.y};
+      const double distance = boost::geometry::distance(candidate, segment);
+      if (distance < nearest_reference_distance) {
+        nearest_reference_distance = distance;
+        reference_side = cross_product(candidate);
+      }
+    }
+    constexpr double side_tolerance = 1.0e-6;
+    if (
+      std::abs(reference_side) <= side_tolerance ||
+      cross_product(point) * reference_side <= side_tolerance) {
+      return false;
+    }
+  }
+  return true;
+}
+
 double getObjectHalfWidth(const autoware_perception_msgs::msg::Shape & shape)
 {
   if (shape.type == autoware_perception_msgs::msg::Shape::BOUNDING_BOX) {
@@ -727,29 +835,84 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
   if (path.points.empty()) {
     return InfeasibleReason::PATH_GENERATION_FAILED;
   }
-  if (reference_path_.left_bound.empty() || reference_path_.right_bound.empty()) {
+  if (reference_path_.left_bound.empty() && reference_path_.right_bound.empty()) {
     return InfeasibleReason::NONE;
   }
 
-  autoware_utils::LineString2d left_bound;
-  autoware_utils::LineString2d right_bound;
-  for (const auto & point : reference_path_.left_bound) {
-    left_bound.emplace_back(point.x, point.y);
-  }
-  for (const auto & point : reference_path_.right_bound) {
-    right_bound.emplace_back(point.x, point.y);
-  }
+  const auto left_bound = makeLineString(reference_path_.left_bound);
+  const auto right_bound = makeLineString(reference_path_.right_bound);
 
   const auto vehicle_footprint = planner_data_->parameters.vehicle_info.createFootprint();
   const size_t ego_index = planner_data_->findEgoIndex(path.points);
-  for (size_t i = ego_index; i < path.points.size(); ++i) {
+  std::vector<autoware_utils::Polygon2d> footprints;
+  const auto append_footprint = [&](const geometry_msgs::msg::Pose & pose) {
     autoware_utils::Polygon2d footprint;
-    footprint.outer() = autoware_utils::transform_vector(
-      vehicle_footprint, autoware_utils::pose2transform(path.points.at(i).point.pose));
+    footprint.outer() =
+      autoware_utils::transform_vector(vehicle_footprint, autoware_utils::pose2transform(pose));
     boost::geometry::correct(footprint);
+    footprints.push_back(std::move(footprint));
+  };
+  append_footprint(path.points.at(ego_index).point.pose);
+  constexpr double interpolation_distance = 0.1;
+  constexpr double interpolation_angle = M_PI / 180.0;
+  for (size_t i = ego_index + 1; i < path.points.size(); ++i) {
+    const auto & previous_pose = path.points.at(i - 1).point.pose;
+    const auto & current_pose = path.points.at(i).point.pose;
+    const double distance = autoware_utils::calc_distance2d(previous_pose, current_pose);
+    const auto & previous_orientation = previous_pose.orientation;
+    const auto & current_orientation = current_pose.orientation;
+    const double orientation_dot = std::abs(
+      previous_orientation.x * current_orientation.x +
+      previous_orientation.y * current_orientation.y +
+      previous_orientation.z * current_orientation.z +
+      previous_orientation.w * current_orientation.w);
+    const double angle = 2.0 * std::acos(std::clamp(orientation_dot, 0.0, 1.0));
+    const size_t interpolation_count = static_cast<size_t>(std::max(
+      1.0, std::ceil(std::max(distance / interpolation_distance, angle / interpolation_angle))));
+    for (size_t step = 1; step <= interpolation_count; ++step) {
+      const double ratio = static_cast<double>(step) / static_cast<double>(interpolation_count);
+      append_footprint(
+        autoware_utils::calc_interpolated_pose(previous_pose, current_pose, ratio, false));
+    }
+  }
+
+  std::vector<autoware_utils::Polygon2d> swept_areas;
+  if (footprints.size() == 1) {
+    swept_areas = footprints;
+  } else {
+    swept_areas.reserve(footprints.size() - 1);
+    for (size_t i = 1; i < footprints.size(); ++i) {
+      autoware_utils::MultiPoint2d combined;
+      for (const auto & point : footprints.at(i - 1).outer()) {
+        combined.push_back(point);
+      }
+      for (const auto & point : footprints.at(i).outer()) {
+        combined.push_back(point);
+      }
+      autoware_utils::Polygon2d swept_area;
+      boost::geometry::convex_hull(combined, swept_area);
+      boost::geometry::correct(swept_area);
+      swept_areas.push_back(std::move(swept_area));
+    }
+  }
+
+  double longitudinal_extension = 1.0;
+  for (const auto & point : vehicle_footprint) {
+    longitudinal_extension = std::max(longitudinal_extension, std::hypot(point.x(), point.y()));
+  }
+  const auto corridor = makeLaneCorridor(left_bound, right_bound, longitudinal_extension);
+  if (!left_bound.empty() && !right_bound.empty() && !corridor.has_value()) {
+    return InfeasibleReason::ROAD_BOUNDARY;
+  }
+
+  for (const auto & swept_area : swept_areas) {
     if (
-      boost::geometry::intersects(footprint, left_bound) ||
-      boost::geometry::intersects(footprint, right_bound)) {
+      (!left_bound.empty() && boost::geometry::intersects(swept_area, left_bound)) ||
+      (!right_bound.empty() && boost::geometry::intersects(swept_area, right_bound)) ||
+      (!left_bound.empty() && !isOnDrivableSide(swept_area, left_bound, reference_path_.points)) ||
+      (!right_bound.empty() &&
+       !isOnDrivableSide(swept_area, right_bound, reference_path_.points)) ||
+      (corridor.has_value() && !boost::geometry::covered_by(swept_area, *corridor))) {
       return InfeasibleReason::ROAD_BOUNDARY;
     }
   }
@@ -801,14 +964,8 @@ InfeasibleReason SimpleAvoidanceModule::validateArticulatedPath(const PathWithLa
     }
   }
 
-  autoware_utils::LineString2d left_bound;
-  autoware_utils::LineString2d right_bound;
-  for (const auto & point : reference_path_.left_bound) {
-    left_bound.emplace_back(point.x, point.y);
-  }
-  for (const auto & point : reference_path_.right_bound) {
-    right_bound.emplace_back(point.x, point.y);
-  }
+  const auto left_bound = makeLineString(reference_path_.left_bound);
+  const auto right_bound = makeLineString(reference_path_.right_bound);
 
   std::vector<autoware_utils::Polygon2d> static_obstacles;
   if (planner_data_->dynamic_object) {
@@ -903,8 +1060,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasiblePath(
   if (reason == InfeasibleReason::ROAD_BOUNDARY) {
     output = getPreviousModuleOutput();
     const auto fallback_path = output.path.points.empty() ? reference_path_ : output.path;
-    output.path = make_safe_stop_path(
-      PathWithLaneId{}, fallback_path, *planner_data_->self_odometry);
+    output.path =
+      make_safe_stop_path(PathWithLaneId{}, fallback_path, *planner_data_->self_odometry);
     output.reference_path = reference_path_.points.empty() ? output.path : reference_path_;
   }
   debug_data_.last_reason = reason;
@@ -1252,6 +1409,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::adjustDrivableArea(const ShiftedPath
 
   const auto drivable_lanes = utils::generateDrivableLanes(current_lanelets_);
   const auto shorten_lanes = utils::cutOverlappedLanes(output_path, drivable_lanes);
+  if (output_path.points.empty()) {
+    return make_safe_stop_output();
+  }
   const auto expanded_lanes =
     utils::expandLanelets(shorten_lanes, left_offset, right_offset, dp.drivable_area_types_to_skip);
 

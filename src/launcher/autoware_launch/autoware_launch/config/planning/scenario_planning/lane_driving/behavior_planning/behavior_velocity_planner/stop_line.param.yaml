@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
     stop_line:
-      stop_margin: 0.0
+      stop_margin: 0.5 # [m] additional campus safety margin before the mapped stop line
       required_stop_duration_sec: 1.0
       vehicle_stopped_duration_threshold: 0.0
-      hold_stop_margin_distance: 2.0
+      hold_stop_margin_distance: 0.5 # [m] match expected low-speed AGV stopping accuracy

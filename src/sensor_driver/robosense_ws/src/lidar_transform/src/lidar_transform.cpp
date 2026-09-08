@@ -98,11 +98,12 @@ private:
     // 设置点云元数据
     filtered->width = filtered->points.size();
     filtered->height = 1;
-    filtered->is_dense = false;
+    filtered->is_dense = true;
 
     // 转换为ROS消息
     sensor_msgs::msg::PointCloud2 output;
     pcl::toROSMsg(*filtered, output);
+    output.is_dense = true;
     
     // 修改frame_id为sensor_kit_base_link
     output.header.frame_id = "base_link";

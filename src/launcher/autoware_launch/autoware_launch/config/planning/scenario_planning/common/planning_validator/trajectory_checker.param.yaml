@@ -3,31 +3,31 @@
     trajectory_checker:
       interval:
         enable: true
-        threshold: 100.0
+        threshold: 2.0
       curvature:
         enable: true
-        threshold: 1.0
+        threshold: 0.8
       relative_angle:
         enable: true
         threshold: 2.0 # (= 115 degree)
       lateral_accel:
         enable: true
-        threshold: 9.8
+        threshold: 1.5
       min_lon_accel:
         enable: true
-        threshold: -9.8
+        threshold: -3.0
       max_lon_accel:
         enable: true
-        threshold: 9.8
+        threshold: 1.5
       lateral_jerk:
         enable: true
-        threshold: 7.0
+        threshold: 2.0
       steering:
         enable: true
-        threshold: 1.414
+        threshold: 0.70
       steering_rate:
         enable: true
-        threshold: 10.0
+        threshold: 1.0
       distance_deviation:
         enable: true
         threshold: 100.0

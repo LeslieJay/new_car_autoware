@@ -75,6 +75,7 @@ void AutoEngageNode::goal_callback(const geometry_msgs::msg::PoseStamped::Shared
   }
 
   goal_pending_ = true;
+  route_set_gate_.on_goal(route_state_);
   RCLCPP_INFO(
     get_logger(),
     "Goal received: (%.2f, %.2f), waiting for route SET...",
@@ -104,6 +105,7 @@ void AutoEngageNode::route_state_callback(
 {
   const uint8_t prev_state = route_state_;
   route_state_ = msg->state;
+  route_set_gate_.observe(route_state_);
 
   if (prev_state != route_state_) {
     RCLCPP_INFO(get_logger(), "Route state changed: %u -> %u", prev_state, route_state_);
@@ -112,7 +114,7 @@ void AutoEngageNode::route_state_callback(
   // Do NOT clear goal_pending_ when route leaves SET.
   // Mission planner briefly goes SET -> UNSET -> SET while applying a new goal;
   // clearing here would drop the pending engage and only leave misleading "retrying" logs.
-  if (route_state_ == ROUTE_STATE_SET) {
+  if (route_set_gate_.ready()) {
     try_auto_engage();
   }
 }
@@ -150,7 +152,7 @@ void AutoEngageNode::on_retry_timer()
 void AutoEngageNode::try_auto_engage()
 {
   if (
-    !enabled_ || !goal_pending_ || local_mode_pending_ || route_state_ != ROUTE_STATE_SET ||
+    !enabled_ || !goal_pending_ || local_mode_pending_ || !route_set_gate_.ready() ||
     auto_engage_in_progress_ || local_mode_in_progress_)
   {
     return;

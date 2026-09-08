@@ -69,6 +69,22 @@ bool equal(const DrivableLanes & l1, const DrivableLanes & l2)
   return are_equal;
 }
 
+TEST(StaticDrivableArea, ExtractObstaclesFromEmptyPathDoesNotThrow)
+{
+  using autoware::behavior_path_planner::DrivableAreaInfo;
+  using autoware::behavior_path_planner::utils::extractObstaclesFromDrivableArea;
+
+  autoware_internal_planning_msgs::msg::PathWithLaneId path;
+  DrivableAreaInfo::Obstacle obstacle;
+  obstacle.poly.outer().emplace_back(0.0, 0.0);
+  obstacle.poly.outer().emplace_back(1.0, 0.0);
+  obstacle.poly.outer().emplace_back(1.0, 1.0);
+  obstacle.poly.outer().emplace_back(0.0, 0.0);
+
+  EXPECT_NO_THROW(extractObstaclesFromDrivableArea(path, {obstacle}));
+  EXPECT_TRUE(path.points.empty());
+}
+
 TEST(StaticDrivableArea, getOverlappedLaneletId)
 {
   using autoware::behavior_path_planner::utils::getOverlappedLaneletId;

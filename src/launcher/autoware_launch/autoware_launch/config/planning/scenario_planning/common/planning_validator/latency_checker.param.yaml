@@ -2,5 +2,5 @@
   ros__parameters:
     latency_checker:
       enable: true
-      threshold: 1.0
+      threshold: 0.5
       is_critical: false

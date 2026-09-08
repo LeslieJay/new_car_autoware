@@ -19,12 +19,14 @@
 #include "autoware/behavior_path_planner_common/utils/path_utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/path_safety_checker/objects_filtering.hpp"
 #include "autoware/behavior_path_planner_common/utils/utils.hpp"
+#include "autoware/behavior_path_lane_change_module/utils/utils.hpp"
 #include "autoware/behavior_path_simple_lane_change_avoidance_module/utils.hpp"
 
 #include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <autoware/motion_utils/trajectory/path_shift.hpp>
 #include <autoware_utils/geometry/geometry.hpp>
 #include <autoware_utils_uuid/uuid_helper.hpp>
+#include <tf2/utils.h>
 
 #include <algorithm>
 #include <cmath>
@@ -67,40 +69,6 @@ bool isObjectOverlappingLanelets(
   });
 }
 
-std::vector<DrivableLanes> generateDrivableLanesWithAdjacent(
-  const lanelet::ConstLanelets & current_lanelets,
-  const lanelet::ConstLanelets & adjacent_lanelets, const LCAvoidanceDirection direction)
-{
-  std::vector<DrivableLanes> drivable_lanes;
-  drivable_lanes.reserve(current_lanelets.size());
-
-  for (size_t i = 0; i < current_lanelets.size(); ++i) {
-    DrivableLanes lane;
-    lane.left_lane = current_lanelets.at(i);
-    lane.right_lane = current_lanelets.at(i);
-
-    if (i < adjacent_lanelets.size()) {
-      if (direction == LCAvoidanceDirection::LEFT) {
-        lane.left_lane = adjacent_lanelets.at(i);
-      } else {
-        lane.right_lane = adjacent_lanelets.at(i);
-      }
-    }
-
-    drivable_lanes.push_back(lane);
-  }
-
-  if (adjacent_lanelets.size() > current_lanelets.size()) {
-    for (size_t i = current_lanelets.size(); i < adjacent_lanelets.size(); ++i) {
-      DrivableLanes lane;
-      lane.left_lane = adjacent_lanelets.at(i);
-      lane.right_lane = adjacent_lanelets.at(i);
-      drivable_lanes.push_back(lane);
-    }
-  }
-
-  return drivable_lanes;
-}
 }  // namespace
 
 SimpleLaneChangeAvoidanceModule::SimpleLaneChangeAvoidanceModule(
@@ -309,13 +277,12 @@ LaneShiftResult SimpleLaneChangeAvoidanceModule::calcLaneShift(
     return result;
   }
 
-  const auto ego_pose = getEgoPose();
-  const auto current_arc = lanelet::utils::getArcCoordinates(current_lanelets_, ego_pose);
+  const size_t reference_idx = planner_data_->findEgoIndex(reference_path_.points);
+  const auto & reference_pose = reference_path_.points.at(reference_idx).point.pose;
   const auto adjacent_arc =
-    lanelet::utils::getArcCoordinates(result.adjacent_lane.lanelet_sequence, ego_pose);
+    lanelet::utils::getArcCoordinates(result.adjacent_lane.lanelet_sequence, reference_pose);
 
-  result.shift_length =
-    calcLaneShiftLength(current_arc.distance, adjacent_arc.distance, parameters_->lateral_margin);
+  result.shift_length = calcLaneShiftLength(adjacent_arc.distance, parameters_->lateral_margin);
 
   if (std::abs(result.shift_length) < 0.1) {
     result.reason = InfeasibleReason::NO_ADJACENT_LANE;
@@ -374,12 +341,39 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::passThrough(const Infeasib
     output.path = reference_path_;
     output.reference_path = reference_path_;
   }
+  if (output.path.points.empty() && !prev_output_.path.points.empty()) {
+    output.path = prev_output_.path;
+  }
+  if (output.path.points.empty()) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId stop_point;
+    stop_point.point.pose = planner_data_->self_odometry->pose.pose;
+    stop_point.point.longitudinal_velocity_mps = 0.0;
+    output.path.points.push_back(stop_point);
+    auto forward_point = stop_point;
+    const double yaw = tf2::getYaw(stop_point.point.pose.orientation);
+    forward_point.point.pose.position.x += 0.1 * std::cos(yaw);
+    forward_point.point.pose.position.y += 0.1 * std::sin(yaw);
+    output.path.points.push_back(forward_point);
+    output.path.header.frame_id = "map";
+  }
+  if (reason == InfeasibleReason::PATH_GENERATION_FAILED) {
+    for (auto & point : output.path.points) {
+      point.point.longitudinal_velocity_mps = 0.0;
+    }
+  }
+  if (output.reference_path.points.empty()) {
+    output.reference_path = output.path;
+  }
   return output;
 }
 
 BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::adjustDrivableArea(
   const ShiftedPath & path, const lanelet::ConstLanelets & adjacent_lanelets) const
 {
+  if (path.path.points.empty() || path.shift_length.empty()) {
+    return passThrough(InfeasibleReason::PATH_GENERATION_FAILED);
+  }
+
   BehaviorModuleOutput out;
   const auto & p = planner_data_->parameters;
   const auto & dp = planner_data_->drivable_area_expansion_parameters;
@@ -399,12 +393,12 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::adjustDrivableArea(
     output_path.points, current_pose.position, current_seg_idx, p.forward_path_length,
     p.backward_path_length + p.input_path_interval);
 
-  const auto direction = active_adjacent_lane_.has_value()
-                           ? active_adjacent_lane_->direction
-                           : LCAvoidanceDirection::LEFT;
-  const auto drivable_lanes =
-    generateDrivableLanesWithAdjacent(current_lanelets_, adjacent_lanelets, direction);
+  const auto drivable_lanes = utils::lane_change::generateDrivableLanes(
+    *planner_data_->route_handler, current_lanelets_, adjacent_lanelets);
   const auto shorten_lanes = utils::cutOverlappedLanes(output_path, drivable_lanes);
+  if (output_path.points.empty()) {
+    return passThrough(InfeasibleReason::PATH_GENERATION_FAILED);
+  }
   const auto expanded_lanes =
     utils::expandLanelets(shorten_lanes, left_offset, right_offset, dp.drivable_area_types_to_skip);
 

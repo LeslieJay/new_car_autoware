@@ -6,7 +6,7 @@
     #  0: publish the trajectory even if it is invalid
     #  1: publish the last validated trajectory
     #  2: publish the last validated trajectory with soft stop
-    default_handling_type: 0
+    default_handling_type: 2
 
     publish_diag: true  # if true, diagnostic msg is published
 

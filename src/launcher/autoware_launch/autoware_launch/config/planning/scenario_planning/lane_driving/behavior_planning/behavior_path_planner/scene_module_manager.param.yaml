@@ -80,7 +80,10 @@
 
     simple_lane_change_avoidance:
       enable_rtc: false
-      enable_simultaneous_execution_as_approved_module: true
+      # Keep the higher-priority lane-change avoidance exclusive in slot2, matching
+      # avoidance_by_lane_change. This prevents simple_avoidance from layering another shift while
+      # the lane-change maneuver is still running.
+      enable_simultaneous_execution_as_approved_module: false
       enable_simultaneous_execution_as_candidate_module: false
 
     dynamic_obstacle_avoidance:

@@ -102,8 +102,14 @@ private:
       filtered->points.push_back(pt);
     }
 
+    //设置点云元数据
+    filtered->width = filtered->points.size();
+    filtered->height = 1;
+    filtered->is_dense = true;
+
     sensor_msgs::msg::PointCloud2 output;
     pcl::toROSMsg(*filtered, output);
+    output.is_dense = true;
     output.header.frame_id = "base_link";
     output.header.stamp = msg->header.stamp;
     pub_filtered_->publish(output);
