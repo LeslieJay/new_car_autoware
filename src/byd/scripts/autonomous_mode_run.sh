@@ -68,9 +68,14 @@ ros2 topic pub --once /control/shift_decider/gear_cmd \
 
 sleep 0.5
 
+# These are diagnostic reads only.  Some simulator variants do not publish one
+# of the latched status topics immediately after the mode hand-off; that must
+# not turn a successful four-service transition into a false shell failure.
+set +e
 gate_mode=$(ros2 topic echo /control/current_gate_mode --once 2>/dev/null | awk '/data:/ {print $2; exit}')
 gear_cmd=$(ros2 topic echo /control/command/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
-shift_gear=$(ros2 topic echo /control/shift_decider/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}' || true)
+shift_gear=$(ros2 topic echo /control/shift_decider/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
+set -e
 
 echo "=== 切回完成 ==="
 echo "  gate_mode (0=AUTO): ${gate_mode:-unknown}"

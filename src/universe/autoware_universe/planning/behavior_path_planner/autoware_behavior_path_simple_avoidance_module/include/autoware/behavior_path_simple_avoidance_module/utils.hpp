@@ -39,6 +39,13 @@ PathWithLaneId make_safe_stop_path(
 double getClosestShiftLength(
   const ShiftedPath & shifted_path, const geometry_msgs::msg::Point & ego_point);
 
+double calcLateralTrackingError(double expected_current_shift, double actual_lateral_offset);
+
+bool isLateralExecutionLagging(
+  double expected_current_shift, double actual_lateral_offset, double threshold);
+
+bool isWithinCommitmentWindow(double distance_to_shift_start, double commitment_lead_distance);
+
 ShiftLengthResult calcShiftLength(
   const AvoidanceTarget & target, const SimpleAvoidanceParameters & parameters,
   const double ego_half_width);

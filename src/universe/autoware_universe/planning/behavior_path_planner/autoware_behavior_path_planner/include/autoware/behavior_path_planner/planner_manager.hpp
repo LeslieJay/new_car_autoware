@@ -32,6 +32,7 @@
 #include <lanelet2_core/primitives/Lanelet.h>
 
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -129,10 +130,12 @@ class SubPlannerManager
 public:
   explicit SubPlannerManager(
     std::shared_ptr<std::optional<lanelet::ConstLanelet>> lanelet,
-    std::unordered_map<std::string, double> & processing_time, ModuleUpdateInfo & debug_info)
+    std::unordered_map<std::string, double> & processing_time, ModuleUpdateInfo & debug_info,
+    const rclcpp::Logger & logger)
   : current_route_lanelet_(lanelet),
     processing_time_(std::ref(processing_time)),
-    debug_info_(std::ref(debug_info))
+    debug_info_(std::ref(debug_info)),
+    logger_(logger)
   {
   }
 
@@ -363,6 +366,8 @@ private:
   std::vector<SceneModulePtr> candidate_module_ptrs_;
 
   ModuleUpdateInfo & debug_info_;
+
+  rclcpp::Logger logger_;
 };
 
 class PlannerManager

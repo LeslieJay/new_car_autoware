@@ -1,0 +1,18 @@
+# One-factor-at-a-time sensitivity matrix. Each case requires a fresh simulator
+# launch with the selected parameter value in the active planning preset.
+baseline_longitudinal_m: 25.0
+baseline_intrusion_m: 0.5
+baseline_speed_mps: 2.0
+cases:
+  th_moving_speed: [0.2, 0.4, 0.8]
+  min_forward_distance: [2.0, 3.0, 4.0]
+  max_forward_distance: [30.0, 50.0, 70.0]
+  lateral_margin: [0.3, 0.5, 0.7]
+  max_shift_length: [2.0, 3.0, 4.0]
+  avoidance_start_distance_before_object_front: [2.0, 3.0, 4.0]
+  min_shifting_distance: [4.0, 5.0, 6.0]
+  shifting_lateral_jerk: [0.6, 0.8, 1.0]
+  min_shifting_speed: [0.3, 1.2, 2.0]
+  return_distance_after_object: [3.0, 5.0, 7.0]
+  target_lost_time_threshold: [1.0, 2.0, 3.0]
+  lateral_execution_threshold: [0.1, 0.2, 0.3]

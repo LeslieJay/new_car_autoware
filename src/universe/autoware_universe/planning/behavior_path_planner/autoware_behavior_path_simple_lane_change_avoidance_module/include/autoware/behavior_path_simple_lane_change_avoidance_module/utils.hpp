@@ -41,11 +41,23 @@ double applyLaneShiftMargin(const double raw_shift_length, const double lateral_
 double calcLaneShiftLength(
   const double adjacent_lane_distance_from_reference, const double lateral_margin);
 
+double limitLaneShiftLength(const double shift_length, const double max_shift_length);
+
 bool shouldInitializeManeuver(const ShiftLineArray & shift_lines);
 
 bool canCompleteManeuver(
   const bool has_target, const ShiftLineArray & shift_lines, const double current_shift,
-  const double zero_threshold);
+  const double actual_lateral_offset, const double zero_threshold);
+
+bool canCompleteManeuver(
+  const LCAvoidanceCompletionStatus & status, size_t stable_count, size_t required_stable_count);
+
+bool isShiftLengthWithinLimit(const double required_shift_length, const double max_shift_length);
+
+bool areFeasibilityParametersValid(const SimpleLCAvoidanceParameters & parameters);
+
+bool isValidShiftLineGeometry(
+  const ShiftLineArray & shift_lines, size_t reference_path_size);
 
 FeasibilityResult checkFeasibility(
   const LCAvoidanceTarget & target, const double shift_length,

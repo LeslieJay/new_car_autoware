@@ -1,0 +1,7 @@
+# Empty sensor-kit diagnostic set for planning simulation.
+# The dummy diagnostic publisher still requires a valid extra parameter file.
+---
+/**:
+  ros__parameters:
+    required_diags:
+      dummy_diag_empty: default

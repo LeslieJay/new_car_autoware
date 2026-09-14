@@ -6,16 +6,18 @@
       max_forward_distance: 60.0
       lateral_margin: 0.4
       max_shift_length: 4.0
-      # PathShifter 要求 end_idx - start_idx > 1；参考路径按 1m 重采样，
-      # 侧移段至少留足若干米，避免 path_generation_failed
-      min_prepare_distance: 5.0
+      # 理想绕障起点到障碍物前缘的距离；实际起点还会根据侧移过渡距离和
+      # lateral_margin 自动提前，以确保侧移完成后仍在障碍物前缘之前。
+      avoidance_start_distance_before_object_front: 10.0
       min_shifting_distance: 10.0
       shifting_lateral_jerk: 0.5
       min_shifting_speed: 1.0
       return_distance_after_object: 5.0
       target_lost_time_threshold: 1.0
       target_hold_lateral_hysteresis: 0.3
+      commitment_distance_before_shift_start: 2.0
       lateral_execution_threshold: 0.05
+      road_boundary_margin: 0.10
       path_generation_failure_timeout: 0.5
       completion_stable_count: 3
       trailer:

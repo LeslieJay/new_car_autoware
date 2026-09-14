@@ -90,13 +90,14 @@ flowchart TD
 - parked vehicle 判定（`shiftable_ratio`、`th_offset_from_centerline`）
 - ambiguous vehicle → wait-and-see 或 RTC 人工批准
 
-**本模块**（`detectTarget()`）仅检查：
+**本模块**（`detectTarget()`）检查：
 
 1. 速度 < `th_moving_speed`（默认 0.5 m/s）
 2. 对象在当前 route lanelet 内
 3. 纵向距离在 `[min_forward_distance, max_forward_distance]` 内
 4. 横向与自车有重叠（`overlap < ego_half_width + lateral_margin` 才需要绕）
-5. 多个满足条件时取**纵向最近**的一个
+5. 横向偏移不超过 `max_shift_length`，且纵向起点/侧移终点可行
+6. 多个满足条件时取**纵向最近**的一个；不可行的近目标会被跳过，继续寻找更远目标
 
 **为什么这样改：**
 
@@ -145,7 +146,7 @@ shift_length = -required_clearance  // 障碍物在右侧
 
 | 线段 | 起点纵向 | 终点纵向 | 偏移变化 |
 |------|----------|----------|----------|
-| avoid | ego + min_prepare_distance | avoid_start + jerk距离 | 当前偏移 → shift_length |
+| avoid | ego + dist_to_avoid_start（障碍物前缘前的要求距离） | avoid_start + transition_distance | 当前偏移 → shift_length |
 | return | 障碍物后沿 + return_distance_after_object | return_start + jerk距离 | shift_length → 0 |
 
 **为什么这样改：**
@@ -169,18 +170,34 @@ shift_length = -required_clearance  // 障碍物在右侧
 
 这样可避免“刚生成避障路径，但 ego 还没开始横移，模块就 SUCCESS/DELETE”的问题。
 
+候选路径在第一条 shift line 起点前 `commitment_distance_before_shift_start` 米进入
+`COMMITTED`。承诺距离使用自车到 shift line 起点的连续弧长计算，不依赖离散的 ego index。
+进入 `COMMITTED` 后，如果重新计算出的目标距离已经不足以生成新的侧移线，只要上一周期路径
+仍连续、道路边界有效且车辆跟踪当前路径正常，就继续上一条已承诺路径；只有当前期望横向偏移
+与实际偏移的误差超过 `lateral_execution_threshold`，或旧路径无效时才安全停车。
+
 ### 4.5 可行性检查：只保留纵向 jerk 约束
 
 **原版** 检查：横向 jerk/accel 限制、comfortable 路径、可行驶区域边界、同向/对向冲突等。
 
-**本模块** `checkFeasibility()` 仅验证：
+**本模块** `checkFeasibility()` 统一计算起点、侧移终点和障碍物前缘的纵向距离：
 
 ```
-dist_to_shift_end = min_prepare_distance + max(jerk_distance, min_shifting_distance)
+transition_distance = max(jerk_distance, min_shifting_distance)
+required_start_distance_before_front = max(
+  avoidance_start_distance_before_object_front,
+  lateral_margin + transition_distance)
+dist_to_avoid_start = target.longitudinal - object_half_length
+                        - required_start_distance_before_front
+dist_to_shift_end = dist_to_avoid_start + transition_distance
 dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 
-若 dist_to_shift_end > dist_to_obstacle → INSUFFICIENT_DISTANCE
+若 dist_to_avoid_start <= 0 或 dist_to_shift_end > dist_to_obstacle
+  → INSUFFICIENT_DISTANCE
 ```
+
+新目标在 `detectTarget()` 阶段同时经过 `calcShiftLength()` 和上述纵向检查；不可行目标被跳过，
+继续寻找检测范围内更远的可行目标。已进入 `COMMITTED/RETURNING` 的目标仍按原生命周期继续执行。
 
 **为什么这样改：**
 
@@ -264,13 +281,14 @@ planning。目标消失不属于路径生成失败：已承诺轨迹会继续执
 | `max_forward_distance` | 60.0 | 最远检测距离 [m] |
 | `lateral_margin` | 0.4 | 自车与障碍物之间的横向安全距离 [m] |
 | `max_shift_length` | 4.0 | 最大横向偏移 [m] |
-| `min_prepare_distance` | 5.0 | 开始侧移前的前向准备距离 [m] |
+| `avoidance_start_distance_before_object_front` | 10.0 | 理想到障碍物前缘的绕障起点距离 [m]；实际值还会受侧移距离和 lateral_margin 约束 |
 | `min_shifting_distance` | 10.0 | 侧移阶段最小纵向距离 [m] |
 | `shifting_lateral_jerk` | 0.5 | 侧移横向 jerk 限制 [m/s³] |
 | `min_shifting_speed` | 1.0 | 计算 jerk 距离时的最低假设速度 [m/s] |
 | `return_distance_after_object` | 5.0 | 过障碍物后多远开始回正 [m] |
 | `target_lost_time_threshold` | 1.0 | 已锁定目标短暂丢失时的保持时间 [s] |
 | `target_hold_lateral_hysteresis` | 0.3 | 已锁定目标 overlap 判断的横向迟滞 [m] |
+| `commitment_distance_before_shift_start` | 2.0 | 距第一条 shift line 起点不大于此距离时提前进入 COMMITTED [m]；负值按 0 处理 |
 | `lateral_execution_threshold` | 0.05 | 判断 base offset / ego shift 已回零的阈值 [m] |
 | `path_generation_failure_timeout` | 0.5 | 生成失败时复用最后连续轨迹的最长时间 [s] |
 | `completion_stable_count` | 3 | 回正条件连续满足多少个周期后才退出 |
@@ -370,7 +388,7 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 |------|----------|------|
 | 日志 `pass-through reason=no_target` | 无满足条件的障碍物 | 查速度阈值、纵向距离、横向 overlap |
 | `infeasible_no_room` | 所需偏移超过 max_shift_length | 增大 `max_shift_length` 或 `lateral_margin` |
-| `infeasible_distance` | 准备距离不够完成侧移 | 减小 `min_prepare_distance` 或增大障碍物前距离 |
+| `infeasible_distance` | 起点或侧移终点无法满足障碍物前缘约束 | 增大障碍物前距离；若侧移本身需要更长距离，系统会自动提前起点 |
 | 已生成绕障路径后又变 no_overlap | shifted path 改变了目标相对横向距离 | 已锁定目标会按 UUID 保持，检查 `target_lost_time_threshold` 和日志 |
 | 绕障后不回正 | return shift 未执行完即丢失目标 | 检查 `return_distance_after_object`；模块会在 shift 未完成时继续生成 |
 | 有路径但车仍停 | 下游 obstacle_stop 触发 | 非本模块问题，查 behavior velocity planner |

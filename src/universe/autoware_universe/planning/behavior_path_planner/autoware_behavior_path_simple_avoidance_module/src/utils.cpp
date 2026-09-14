@@ -149,6 +149,26 @@ double getClosestShiftLength(
   return shifted_path.shift_length.at(closest);
 }
 
+double calcLateralTrackingError(
+  const double expected_current_shift, const double actual_lateral_offset)
+{
+  return std::abs(expected_current_shift - actual_lateral_offset);
+}
+
+bool isLateralExecutionLagging(
+  const double expected_current_shift, const double actual_lateral_offset, const double threshold)
+{
+  return !std::isfinite(expected_current_shift) || !std::isfinite(actual_lateral_offset) ||
+         calcLateralTrackingError(expected_current_shift, actual_lateral_offset) >
+           std::max(0.0, threshold);
+}
+
+bool isWithinCommitmentWindow(
+  const double distance_to_shift_start, const double commitment_lead_distance)
+{
+  return distance_to_shift_start <= std::max(0.0, commitment_lead_distance);
+}
+
 ShiftLengthResult calcShiftLength(
   const AvoidanceTarget & target, const SimpleAvoidanceParameters & parameters,
   const double ego_half_width)
@@ -189,19 +209,25 @@ FeasibilityResult checkFeasibility(
   const SimpleAvoidanceParameters & parameters, const double ego_speed)
 {
   FeasibilityResult result;
-  result.min_prepare_distance = parameters.min_prepare_distance;
   result.min_shifting_distance = parameters.min_shifting_distance;
   result.ego_speed = ego_speed;
   result.jerk_distance = autoware::motion_utils::calc_longitudinal_dist_from_jerk(
     std::abs(shift_length), parameters.shifting_lateral_jerk,
     std::max(ego_speed, parameters.min_shifting_speed));
-  result.dist_to_shift_end =
-    result.min_prepare_distance + std::max(result.jerk_distance, result.min_shifting_distance);
+  result.transition_distance =
+    std::max(result.jerk_distance, result.min_shifting_distance);
+  result.required_start_distance_before_front = std::max(
+    parameters.avoidance_start_distance_before_object_front,
+    parameters.lateral_margin + result.transition_distance);
+  result.dist_to_avoid_start =
+    target.longitudinal_distance - target.object_half_length -
+    result.required_start_distance_before_front;
+  result.dist_to_shift_end = result.dist_to_avoid_start + result.transition_distance;
   // lateral_margin is reused as the longitudinal buffer before the obstacle front edge
   result.dist_to_obstacle =
     target.longitudinal_distance - target.object_half_length - parameters.lateral_margin;
 
-  if (result.dist_to_shift_end > result.dist_to_obstacle) {
+  if (result.dist_to_avoid_start <= 0.0 || result.dist_to_shift_end > result.dist_to_obstacle) {
     result.reason = InfeasibleReason::INSUFFICIENT_DISTANCE;
     return result;
   }

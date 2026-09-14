@@ -16,6 +16,11 @@
 
 #include "autoware_utils/ros/update_param.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <stdexcept>
+
 namespace autoware::behavior_path_planner
 {
 
@@ -30,15 +35,103 @@ void SimpleLaneChangeAvoidanceModuleManager::init(rclcpp::Node * node)
   p.min_forward_distance = node->declare_parameter<double>(ns + "min_forward_distance", 1.0);
   p.max_forward_distance = node->declare_parameter<double>(ns + "max_forward_distance", 50.0);
   p.lateral_margin = node->declare_parameter<double>(ns + "lateral_margin", 0.3);
+  p.max_shift_length = node->declare_parameter<double>(ns + "max_shift_length", 4.5);
   p.min_prepare_distance = node->declare_parameter<double>(ns + "min_prepare_distance", 3.0);
   p.min_shifting_distance = node->declare_parameter<double>(ns + "min_shifting_distance", 5.0);
   p.shifting_lateral_jerk = node->declare_parameter<double>(ns + "shifting_lateral_jerk", 0.2);
   p.min_shifting_speed = node->declare_parameter<double>(ns + "min_shifting_speed", 1.0);
   p.return_distance_after_object =
     node->declare_parameter<double>(ns + "return_distance_after_object", 5.0);
+  p.lateral_execution_threshold =
+    node->declare_parameter<double>(ns + "lateral_execution_threshold", 0.3);
+  p.target_lost_time_threshold =
+    node->declare_parameter<double>(ns + "target_lost_time_threshold", 1.0);
+  p.target_hold_lateral_hysteresis =
+    node->declare_parameter<double>(ns + "target_hold_lateral_hysteresis", 0.3);
+  p.road_boundary_margin =
+    node->declare_parameter<double>(ns + "road_boundary_margin", 0.1);
+  p.stop_margin_before_object =
+    node->declare_parameter<double>(ns + "stop_margin_before_object", 1.0);
+  p.path_generation_failure_timeout =
+    node->declare_parameter<double>(ns + "path_generation_failure_timeout", 0.5);
+  p.completion_stable_count = static_cast<size_t>(std::max<int64_t>(
+    node->declare_parameter<int64_t>(ns + "completion_stable_count", 3), 1));
+  p.footprint_sampling_interval =
+    node->declare_parameter<double>(ns + "footprint_sampling_interval", 0.5);
+  p.trailer_configuration_topic = node->declare_parameter<std::string>(
+    ns + "trailer.configuration_topic", "/vehicle/status/trailer_configuration");
+  p.tractor_rear_axle_to_hitch =
+    node->declare_parameter<double>(ns + "trailer.tractor_rear_axle_to_hitch", 0.6);
+  p.trailer_footprint_sampling_interval =
+    node->declare_parameter<double>(ns + "trailer.footprint_sampling_interval", 0.5);
+  p.trailer_lateral_search_resolution =
+    node->declare_parameter<double>(ns + "trailer.lateral_search_resolution", 0.1);
+  p.trailer_return_search_resolution =
+    node->declare_parameter<double>(ns + "trailer.return_search_resolution", 0.5);
+  p.trailer_max_extra_return_distance =
+    node->declare_parameter<double>(ns + "trailer.max_extra_return_distance", 20.0);
+  p.trailer_max_planning_time_ms =
+    node->declare_parameter<double>(ns + "trailer.max_planning_time_ms", 20.0);
+  p.trailer_stationary_speed_threshold =
+    node->declare_parameter<double>(ns + "trailer.stationary_speed_threshold", 0.05);
+  const auto trailer_type_names =
+    node->declare_parameter<std::vector<std::string>>(ns + "trailer.type_names", {"default"});
+  constexpr double degree_to_radian = 0.017453292519943295;
+  for (const auto & type : trailer_type_names) {
+    const auto type_ns = ns + "trailer.types." + type + ".";
+    TrailerGeometry geometry;
+    geometry.type = type;
+    geometry.width = node->declare_parameter<double>(type_ns + "width", 1.305);
+    geometry.axle_to_body_front =
+      node->declare_parameter<double>(type_ns + "axle_to_body_front", 1.0);
+    geometry.axle_to_body_rear =
+      node->declare_parameter<double>(type_ns + "axle_to_body_rear", 0.7);
+    geometry.front_hitch_to_axle =
+      node->declare_parameter<double>(type_ns + "front_hitch_to_axle", 0.9);
+    geometry.axle_to_rear_hitch =
+      node->declare_parameter<double>(type_ns + "axle_to_rear_hitch", 0.6);
+    geometry.max_articulation_angle_rad =
+      node->declare_parameter<double>(type_ns + "max_articulation_angle_deg", 45.0) *
+      degree_to_radian;
+    if (!isValidTrailerGeometry(geometry)) {
+      throw std::invalid_argument("invalid trailer geometry for type: " + type);
+    }
+    p.trailer_types.emplace(type, geometry);
+  }
   p.publish_debug_marker = node->declare_parameter<bool>(ns + "publish_debug_marker", true);
 
   parameters_ = std::make_shared<SimpleLCAvoidanceParameters>(p);
+  trailer_configuration_store_ = std::make_shared<TrailerConfigurationStore>();
+  trailer_configuration_store_->update({}, parameters_->trailer_types);
+  trailer_configuration_sub_ =
+    node->create_subscription<byd_vehicle_msgs::msg::TrailerConfiguration>(
+      p.trailer_configuration_topic, rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(
+        &SimpleLaneChangeAvoidanceModuleManager::onTrailerConfiguration, this,
+        std::placeholders::_1));
+}
+
+void SimpleLaneChangeAvoidanceModuleManager::onTrailerConfiguration(
+  const byd_vehicle_msgs::msg::TrailerConfiguration & message)
+{
+  const auto current = trailer_configuration_store_->snapshot();
+  if (message.trailer_types != current.types && planner_data_ && planner_data_->self_odometry) {
+    const double speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+    if (speed > parameters_->trailer_stationary_speed_threshold) {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "Reject trailer configuration change while moving: speed=%.3fm/s threshold=%.3fm/s",
+        speed, parameters_->trailer_stationary_speed_threshold);
+      return;
+    }
+  }
+  if (!trailer_configuration_store_->update(message.trailer_types, parameters_->trailer_types)) {
+    RCLCPP_ERROR(
+      node_->get_logger(), "Reject trailer configuration containing unknown or invalid type");
+    return;
+  }
+  RCLCPP_INFO(
+    node_->get_logger(), "Accepted trailer configuration: count=%zu", message.trailer_types.size());
 }
 
 void SimpleLaneChangeAvoidanceModuleManager::updateModuleParams(
@@ -52,11 +145,38 @@ void SimpleLaneChangeAvoidanceModuleManager::updateModuleParams(
   update_param(parameters, ns + "min_forward_distance", p->min_forward_distance);
   update_param(parameters, ns + "max_forward_distance", p->max_forward_distance);
   update_param(parameters, ns + "lateral_margin", p->lateral_margin);
+  update_param(parameters, ns + "max_shift_length", p->max_shift_length);
   update_param(parameters, ns + "min_prepare_distance", p->min_prepare_distance);
   update_param(parameters, ns + "min_shifting_distance", p->min_shifting_distance);
   update_param(parameters, ns + "shifting_lateral_jerk", p->shifting_lateral_jerk);
   update_param(parameters, ns + "min_shifting_speed", p->min_shifting_speed);
   update_param(parameters, ns + "return_distance_after_object", p->return_distance_after_object);
+  update_param(parameters, ns + "lateral_execution_threshold", p->lateral_execution_threshold);
+  update_param(parameters, ns + "target_lost_time_threshold", p->target_lost_time_threshold);
+  update_param(
+    parameters, ns + "target_hold_lateral_hysteresis", p->target_hold_lateral_hysteresis);
+  update_param(parameters, ns + "road_boundary_margin", p->road_boundary_margin);
+  update_param(parameters, ns + "stop_margin_before_object", p->stop_margin_before_object);
+  update_param(
+    parameters, ns + "path_generation_failure_timeout", p->path_generation_failure_timeout);
+  int64_t completion_stable_count = static_cast<int64_t>(p->completion_stable_count);
+  update_param(parameters, ns + "completion_stable_count", completion_stable_count);
+  p->completion_stable_count = static_cast<size_t>(std::max<int64_t>(completion_stable_count, 1));
+  update_param(parameters, ns + "footprint_sampling_interval", p->footprint_sampling_interval);
+  update_param(parameters, ns + "trailer.configuration_topic", p->trailer_configuration_topic);
+  update_param(
+    parameters, ns + "trailer.tractor_rear_axle_to_hitch", p->tractor_rear_axle_to_hitch);
+  update_param(
+    parameters, ns + "trailer.footprint_sampling_interval", p->trailer_footprint_sampling_interval);
+  update_param(
+    parameters, ns + "trailer.lateral_search_resolution", p->trailer_lateral_search_resolution);
+  update_param(
+    parameters, ns + "trailer.return_search_resolution", p->trailer_return_search_resolution);
+  update_param(
+    parameters, ns + "trailer.max_extra_return_distance", p->trailer_max_extra_return_distance);
+  update_param(parameters, ns + "trailer.max_planning_time_ms", p->trailer_max_planning_time_ms);
+  update_param(
+    parameters, ns + "trailer.stationary_speed_threshold", p->trailer_stationary_speed_threshold);
   update_param(parameters, ns + "publish_debug_marker", p->publish_debug_marker);
 
   std::for_each(observers_.begin(), observers_.end(), [&p](const auto & observer) {

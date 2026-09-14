@@ -1,0 +1,61 @@
+# Simple Avoidance distance/trajectory test configuration.
+frame_id: map
+
+ego:
+  # Captured from /home/nvidia/autoware/log/local.log on the active map.
+  x: 279.52191162109375
+  y: -33.24296569824219
+  z: -1.0602384937589355
+  yaw: -1.07513
+
+goal:
+  # Captured from /home/nvidia/autoware/log/goal.log on the active map.
+  x: 305.87670392887543
+  y: -123.50780948384602
+  z: -1.2911186136124073
+  yaw: -2.66461
+
+obstacle:
+  lane_yaw: -1.07513
+  lane_width: 4.0
+  shoulder_side: right
+  length: 2.0
+  width: 1.5
+  height: 1.5
+  velocity: 0.0
+
+topics:
+  dummy_object: /simulation/dummy_perception_publisher/object_info
+  # planning_simulator remaps simulator input/initialpose to this topic.
+  initial_pose: /initialpose3d
+  goal: /planning/mission_planning/goal
+  predicted_objects: /perception/object_recognition/objects
+  candidate_path: /planning/path_candidate/simple_avoidance
+  behavior_path: /planning/scenario_planning/lane_driving/behavior_planning/path_with_lane_id
+  trajectory: /planning/trajectory
+  odometry: /localization/kinematic_state
+  simple_factors: /planning/planning_factors/simple_avoidance
+  obstacle_stop_factors: /planning/planning_factors/obstacle_stop
+
+# The same driver can be used for either isolated path module.  The launch
+# command must disable the other module and both obstacle-stop variants.
+modes:
+  simple_avoidance:
+    candidate_path: /planning/path_candidate/simple_avoidance
+    planning_factors: /planning/planning_factors/simple_avoidance
+  simple_lc_avoidance:
+    candidate_path: /planning/path_candidate/simple_lane_change_avoidance
+    planning_factors: /planning/planning_factors/simple_lane_change_avoidance
+
+test:
+  longitudinal_distances_m: [3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 35.0, 40.0, 50.0, 55.0]
+  speeds_mps: [2.0, 0.3]
+  intrusions_m: [0.3, 0.5, 1.0]
+  shoulders: [right, left]
+  obstacle_hold_sec: 30.0
+  settle_sec: 3.0
+  sample_sec: 25.0
+  publish_rate_hz: 10.0
+  min_shift_m: 0.2
+  max_tracking_error_m: 0.8
+  min_clearance_m: 0.0

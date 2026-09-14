@@ -15,7 +15,8 @@
         threshold: 1.5
       min_lon_accel:
         enable: true
-        threshold: -3.0
+        # 2 m/s 园区 AGV 正常减速度约 -1.0 m/s^2；保留 0.5 m/s^2 瞬态余量。
+        threshold: -1.5
       max_lon_accel:
         enable: true
         threshold: 1.5
@@ -30,13 +31,17 @@
         threshold: 1.0
       distance_deviation:
         enable: true
-        threshold: 100.0
+        # 不使用乘用车默认的近似关闭值；2.0 m 可容忍低速绕障跟踪误差，
+        # 同时仍能拦截本次 LC 回正阶段超过 3 m 的实际偏离。
+        threshold: 2.0
       lon_distance_deviation:
         enable: true
         threshold: 1.0
       velocity_deviation:
         enable: true
-        threshold: 100.0
+        # 宽松仿真验收：允许 LC 输出切换时从 2 m/s 轨迹短暂降速，不因单帧
+        # 速度重规划触发 MRM；几何偏差、加速度和轨迹连续性检查仍保持启用。
+        threshold: 2.5
       yaw_deviation:
         enable: true
         threshold: 1.5708 # (= 90 degrees)

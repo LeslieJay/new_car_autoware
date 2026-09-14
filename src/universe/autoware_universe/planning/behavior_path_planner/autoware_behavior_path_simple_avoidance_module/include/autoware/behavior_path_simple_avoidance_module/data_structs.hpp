@@ -39,6 +39,10 @@ enum class InfeasibleReason {
   PATH_GENERATION_FAILED,
   TRAILER_COLLISION,
   ROAD_BOUNDARY,
+  BOUNDARY_UNAVAILABLE,
+  FOOTPRINT_OUT_OF_BOUNDARY,
+  LATERAL_EXECUTION_LAG,
+  TARGET_UNCERTAIN_STOP,
   ARTICULATION_LIMIT,
   COMPUTATION_TIMEOUT,
 };
@@ -60,6 +64,14 @@ inline const char * toString(const InfeasibleReason reason)
       return "trailer_collision";
     case InfeasibleReason::ROAD_BOUNDARY:
       return "road_boundary";
+    case InfeasibleReason::BOUNDARY_UNAVAILABLE:
+      return "boundary_unavailable";
+    case InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY:
+      return "footprint_out_of_boundary";
+    case InfeasibleReason::LATERAL_EXECUTION_LAG:
+      return "lateral_execution_lag";
+    case InfeasibleReason::TARGET_UNCERTAIN_STOP:
+      return "target_uncertain_stop";
     case InfeasibleReason::ARTICULATION_LIMIT:
       return "articulation_limit";
     case InfeasibleReason::COMPUTATION_TIMEOUT:
@@ -75,14 +87,18 @@ struct SimpleAvoidanceParameters
   double max_forward_distance{60.0};
   double lateral_margin{0.4};
   double max_shift_length{4.0};
-  double min_prepare_distance{0.5};
+  double avoidance_start_distance_before_object_front{10.0};
   double min_shifting_distance{1.0};
   double shifting_lateral_jerk{0.8};
   double min_shifting_speed{0.2};
   double return_distance_after_object{2.0};
   double target_lost_time_threshold{1.0};
   double target_hold_lateral_hysteresis{0.3};
+  // Commit before the discrete shift-line start so replanning latency cannot turn an already
+  // selected maneuver into a late safety stop.
+  double commitment_distance_before_shift_start{2.0};
   double lateral_execution_threshold{0.05};
+  double road_boundary_margin{0.1};
   double path_generation_failure_timeout{0.5};
   size_t completion_stable_count{3};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
@@ -122,6 +138,23 @@ struct AvoidanceCompletionStatus
 
 enum class AvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING, STOPPING };
 
+inline const char * toString(const AvoidanceLifecycleState state)
+{
+  switch (state) {
+    case AvoidanceLifecycleState::IDLE:
+      return "IDLE";
+    case AvoidanceLifecycleState::CANDIDATE:
+      return "CANDIDATE";
+    case AvoidanceLifecycleState::COMMITTED:
+      return "COMMITTED";
+    case AvoidanceLifecycleState::RETURNING:
+      return "RETURNING";
+    case AvoidanceLifecycleState::STOPPING:
+      return "STOPPING";
+  }
+  return "UNKNOWN";
+}
+
 enum class AvoidanceLifecycleAction {
   NONE,
   CANCEL_CANDIDATE,
@@ -152,7 +185,14 @@ struct AvoidanceLifecycleDecision
   size_t completion_stable_count{0};
 };
 
-enum class TargetRejectReason { MOVING, OUT_OF_LANE, LONGITUDINAL, NO_OVERLAP };
+enum class TargetRejectReason {
+  MOVING,
+  OUT_OF_LANE,
+  LONGITUDINAL,
+  NO_OVERLAP,
+  NO_ROOM,
+  INSUFFICIENT_DISTANCE
+};
 
 inline const char * toString(const TargetRejectReason reason)
 {
@@ -165,6 +205,10 @@ inline const char * toString(const TargetRejectReason reason)
       return "longitudinal_range";
     case TargetRejectReason::NO_OVERLAP:
       return "no_overlap";
+    case TargetRejectReason::NO_ROOM:
+      return "infeasible_no_room";
+    case TargetRejectReason::INSUFFICIENT_DISTANCE:
+      return "infeasible_distance";
   }
   return "unknown";
 }
@@ -199,6 +243,8 @@ struct NoTargetDiagnosis
   size_t rejected_out_of_lane{0};
   size_t rejected_longitudinal{0};
   size_t rejected_no_overlap{0};
+  size_t rejected_no_room{0};
+  size_t rejected_insufficient_distance{0};
   bool has_nearest_rejection{false};
   TargetRejectReason nearest_reject_reason{TargetRejectReason::MOVING};
   std::string nearest_uuid;
@@ -208,8 +254,13 @@ struct NoTargetDiagnosis
   double nearest_overlap{0.0};
   double nearest_obj_x{0.0};
   double nearest_obj_y{0.0};
+  double nearest_object_half_length{0.0};
   double nearest_threshold{0.0};
   double nearest_shortfall{0.0};
+  double nearest_transition_distance{0.0};
+  double nearest_dist_to_avoid_start{0.0};
+  double nearest_dist_to_shift_end{0.0};
+  double nearest_dist_to_obstacle{0.0};
 };
 
 struct ShiftLengthResult
@@ -226,9 +277,11 @@ struct FeasibilityResult
   InfeasibleReason reason{InfeasibleReason::NONE};
   double dist_to_shift_end{0.0};
   double dist_to_obstacle{0.0};
+  double dist_to_avoid_start{0.0};
+  double transition_distance{0.0};
+  double required_start_distance_before_front{0.0};
   double jerk_distance{0.0};
   double ego_speed{0.0};
-  double min_prepare_distance{0.0};
   double min_shifting_distance{0.0};
 };
 

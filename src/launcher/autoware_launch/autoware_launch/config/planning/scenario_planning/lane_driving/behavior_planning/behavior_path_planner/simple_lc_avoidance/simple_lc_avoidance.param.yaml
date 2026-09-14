@@ -1,13 +1,57 @@
 /**:
   ros__parameters:
     simple_lane_change_avoidance:
-      th_moving_speed: 0.5
-      min_forward_distance: 1.0
-      max_forward_distance: 50.0
+      th_moving_speed: 0.8
+      min_forward_distance: 3.0
+      max_forward_distance: 60.0
       lateral_margin: 0.3
+      max_shift_length: 4.5
+      # 2 m/s AGV: use a smooth full-lane shift first; actual-path recovery below
+      # prevents the module from exiting while the vehicle is still in the adjacent lane.
       min_prepare_distance: 3.0
       min_shifting_distance: 5.0
       shifting_lateral_jerk: 0.2
       min_shifting_speed: 1.0
       return_distance_after_object: 5.0
+      # Wide simulation criterion. Must remain below planning_validator lat_shift_th=0.5 m.
+      lateral_execution_threshold: 0.3
+      target_lost_time_threshold: 1.0
+      target_hold_lateral_hysteresis: 0.3
+      road_boundary_margin: 0.1
+      stop_margin_before_object: 1.0
+      path_generation_failure_timeout: 0.5
+      completion_stable_count: 3
+      footprint_sampling_interval: 0.5
+      trailer:
+        configuration_topic: /vehicle/status/trailer_configuration
+        tractor_rear_axle_to_hitch: 0.6
+        footprint_sampling_interval: 0.5
+        lateral_search_resolution: 0.1
+        return_search_resolution: 0.5
+        max_extra_return_distance: 20.0
+        max_planning_time_ms: 20.0
+        stationary_speed_threshold: 0.05
+        type_names: [default, wide, articulation]
+        types:
+          default:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          wide:
+            width: 3.0
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          articulation:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 10.0
       publish_debug_marker: true

@@ -27,7 +27,7 @@ protected:
     SimpleAvoidanceParameters p;
     p.lateral_margin = 0.8;
     p.max_shift_length = 3.0;
-    p.min_prepare_distance = 1.0;
+    p.avoidance_start_distance_before_object_front = 10.0;
     p.min_shifting_distance = 2.0;
     p.shifting_lateral_jerk = 0.5;
     p.min_shifting_speed = 0.3;
@@ -132,6 +132,97 @@ TEST_F(SimpleAvoidanceUtilsTest, CheckFeasibilitySufficientDistance)
   EXPECT_GT(result.dist_to_obstacle, result.dist_to_shift_end);
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, LateralExecutionLagUsesCurrentExpectedShift)
+{
+  EXPECT_DOUBLE_EQ(calcLateralTrackingError(0.0, 0.0), 0.0);
+  EXPECT_FALSE(isLateralExecutionLagging(0.0, 0.0, 0.2));
+
+  // A 1.5m final maneuver target is irrelevant while the vehicle is still on the
+  // zero-offset portion of the generated shift path.
+  EXPECT_FALSE(isLateralExecutionLagging(0.0, 0.0, 0.2));
+  EXPECT_TRUE(isLateralExecutionLagging(0.0, 0.3, 0.2));
+  EXPECT_TRUE(isLateralExecutionLagging(0.3, 0.0, -0.1));
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, CommitmentWindowUsesContinuousDistanceBoundary)
+{
+  EXPECT_FALSE(isWithinCommitmentWindow(2.01, 2.0));
+  EXPECT_TRUE(isWithinCommitmentWindow(2.0, 2.0));
+  EXPECT_TRUE(isWithinCommitmentWindow(-0.1, 2.0));
+  EXPECT_FALSE(isWithinCommitmentWindow(0.01, -1.0));
+  EXPECT_TRUE(isWithinCommitmentWindow(0.0, -1.0));
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartKeepsFixedDistanceFromObjectFront)
+{
+  auto params = defaultParameters();
+  params.lateral_margin = 0.4;
+  params.min_shifting_distance = 10.0;
+  params.avoidance_start_distance_before_object_front = 10.0;
+
+  for (const double target_distance : {20.5, 40.5, 60.5}) {
+    const auto target = makeTarget(0.5, target_distance, 0.5, 0.5);
+    const auto result = checkFeasibility(target, -2.0, params, 1.0);
+
+    ASSERT_EQ(result.reason, InfeasibleReason::NONE);
+    EXPECT_NEAR(
+      target.longitudinal_distance - target.object_half_length - result.dist_to_avoid_start,
+      10.4, 1e-6);
+    EXPECT_GE(
+      target.longitudinal_distance - target.object_half_length - result.dist_to_avoid_start,
+      params.avoidance_start_distance_before_object_front);
+  }
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, ActualStartIncludesTransitionAndLateralMargin)
+{
+  auto params = defaultParameters();
+  params.lateral_margin = 0.4;
+  params.min_shifting_distance = 10.0;
+  params.avoidance_start_distance_before_object_front = 10.0;
+  const auto target = makeTarget(0.5, 40.5, 0.5, 0.5);
+
+  const auto result = checkFeasibility(target, -2.0, params, 1.0);
+
+  ASSERT_EQ(result.reason, InfeasibleReason::NONE);
+  EXPECT_DOUBLE_EQ(result.transition_distance, 10.0);
+  EXPECT_DOUBLE_EQ(result.required_start_distance_before_front, 10.4);
+  EXPECT_DOUBLE_EQ(result.dist_to_shift_end, result.dist_to_obstacle);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartFailsWhenObjectIsTooClose)
+{
+  auto params = defaultParameters();
+  params.lateral_margin = 0.4;
+  params.min_shifting_distance = 10.0;
+  params.avoidance_start_distance_before_object_front = 10.0;
+  const auto target = makeTarget(0.5, 10.5, 0.5, 0.5);
+
+  const auto result = checkFeasibility(target, -2.0, params, 1.0);
+
+  EXPECT_EQ(result.reason, InfeasibleReason::INSUFFICIENT_DISTANCE);
+  EXPECT_LE(result.dist_to_avoid_start, 0.0);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, JerkDistanceCanMoveAvoidanceStartEarlier)
+{
+  auto params = defaultParameters();
+  params.lateral_margin = 0.4;
+  params.min_shifting_distance = 1.0;
+  params.avoidance_start_distance_before_object_front = 10.0;
+  params.shifting_lateral_jerk = 1.0e-6;
+  const auto target = makeTarget(0.5, 1000.0, 0.5, 0.5);
+
+  const auto result = checkFeasibility(target, -3.0, params, 1.0);
+
+  ASSERT_EQ(result.reason, InfeasibleReason::NONE);
+  EXPECT_GT(result.jerk_distance, params.min_shifting_distance);
+  EXPECT_DOUBLE_EQ(
+    result.required_start_distance_before_front,
+    params.lateral_margin + result.transition_distance);
+  EXPECT_GT(result.required_start_distance_before_front, 10.0);
+}
+
 TEST_F(SimpleAvoidanceUtilsTest, CheckFeasibilityInsufficientDistance)
 {
   const auto params = defaultParameters();
@@ -142,14 +233,14 @@ TEST_F(SimpleAvoidanceUtilsTest, CheckFeasibilityInsufficientDistance)
   const auto result = checkFeasibility(target, shift_length, params, ego_speed);
 
   EXPECT_EQ(result.reason, InfeasibleReason::INSUFFICIENT_DISTANCE);
-  EXPECT_GT(result.dist_to_shift_end, result.dist_to_obstacle);
+  EXPECT_LE(result.dist_to_avoid_start, 0.0);
 }
 
 TEST_F(SimpleAvoidanceUtilsTest, CheckFeasibilityCloseObjectAtLowSpeed)
 {
   const auto params = defaultParameters();
-  // lon=9.22m, obj_hl=2.5m, shift=1.36m, ego_speed=0.48m/s
-  const auto target = makeTarget(-2.91, 9.22, 3.0, 2.5);
+  // lon=15.22m, obj_hl=2.5m, shift=1.36m, ego_speed=0.48m/s
+  const auto target = makeTarget(-2.91, 15.22, 3.0, 2.5);
   constexpr double ego_speed = 0.48;
   constexpr double shift_length = 1.36;
 

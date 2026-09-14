@@ -74,6 +74,10 @@ private:
   ShiftLineArray buildShiftLines(
     const AvoidanceTarget & target, double shift_length, double extra_return_distance = 0.0) const;
   InfeasibleReason validateVehicleRoadBoundary(const PathWithLaneId & path) const;
+  BehaviorModuleOutput stopBeforeTarget(
+    const AvoidanceTarget & target, InfeasibleReason reason,
+    const PassThroughDebugInfo & debug_info) const;
+  bool isLateralExecutionIncomplete() const;
   InfeasibleReason validateArticulatedPath(const PathWithLaneId & path) const;
   std::optional<ShiftedPath> generateTrailerAwarePath(
     const AvoidanceTarget & target, double initial_shift_length, ShiftLineArray & selected_lines,

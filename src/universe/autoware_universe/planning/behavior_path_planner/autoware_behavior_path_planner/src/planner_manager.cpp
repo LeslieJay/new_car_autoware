@@ -80,7 +80,7 @@ void PlannerManager::configureModuleSlot(
   }
 
   for (const auto & slot : slot_configuration) {
-    SubPlannerManager sub_manager(current_route_lanelet_, processing_time_, debug_info_);
+    SubPlannerManager sub_manager(current_route_lanelet_, processing_time_, debug_info_, logger_);
     for (const auto & module_name : slot) {
       if (const auto it = registered_modules.find(module_name); it != registered_modules.end()) {
         sub_manager.addSceneModuleManager(it->second);
@@ -803,6 +803,7 @@ BehaviorModuleOutput SubPlannerManager::run(
   const SceneModulePtr & module_ptr, const std::shared_ptr<PlannerData> & planner_data,
   const BehaviorModuleOutput & previous_module_output) const
 {
+  const auto timing_start = std::chrono::steady_clock::now();
   StopWatch<std::chrono::milliseconds> stop_watch;
   stop_watch.tic(module_ptr->name());
 
@@ -820,6 +821,23 @@ BehaviorModuleOutput SubPlannerManager::run(
   module_ptr->publishObjectsOfInterestMarker();
 
   processing_time_.at(module_ptr->name()) += stop_watch.toc(module_ptr->name(), true);
+  const auto timing_end = std::chrono::steady_clock::now();
+  const auto elapsed_ms = std::chrono::duration<double, std::milli>(
+                            timing_end - timing_start)
+                            .count();
+  if (elapsed_ms > 500.0) {
+    const auto start_mono_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 timing_start.time_since_epoch())
+                                 .count();
+    const auto end_mono_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               timing_end.time_since_epoch())
+                               .count();
+    RCLCPP_WARN(
+      logger_,
+      "[BPP_SCENE_TIMING] module=%s start_mono_ns=%lld end_mono_ns=%lld run_ms=%.3f",
+      module_ptr->name().c_str(), static_cast<long long>(start_mono_ns),
+      static_cast<long long>(end_mono_ns), elapsed_ms);
+  }
   return result;
 }
 

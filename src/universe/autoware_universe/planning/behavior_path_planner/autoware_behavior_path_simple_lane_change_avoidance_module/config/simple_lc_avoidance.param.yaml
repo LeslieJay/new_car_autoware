@@ -70,6 +70,9 @@
       #   绕行更容易，但安全裕度减小。
       lateral_margin: 0.3
 
+      # [m] Absolute cap on the shift toward the adjacent lane.
+      max_shift_length: 4.5
+
       # [m] 开始横向移动前至少保留的准备距离。
       #
       # 车辆不会立即开始横移，而是在准备距离之后开始执行侧移。
@@ -126,6 +129,48 @@
       # 调小：
       #   更快回到原路径。
       return_distance_after_object: 5.0
+
+      lateral_execution_threshold: 0.3
+      target_lost_time_threshold: 1.0
+      target_hold_lateral_hysteresis: 0.3
+      road_boundary_margin: 0.1
+      stop_margin_before_object: 1.0
+      path_generation_failure_timeout: 0.5
+      completion_stable_count: 3
+      footprint_sampling_interval: 0.5
+
+      trailer:
+        configuration_topic: /vehicle/status/trailer_configuration
+        tractor_rear_axle_to_hitch: 0.6
+        footprint_sampling_interval: 0.5
+        lateral_search_resolution: 0.1
+        return_search_resolution: 0.5
+        max_extra_return_distance: 20.0
+        max_planning_time_ms: 20.0
+        stationary_speed_threshold: 0.05
+        type_names: [default, wide, articulation]
+        types:
+          default:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          wide:
+            width: 3.0
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          articulation:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 10.0
 
       # 是否发布调试 Marker。
       #

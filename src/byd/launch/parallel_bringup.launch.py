@@ -3,6 +3,7 @@
 
 import os
 import sys
+from datetime import datetime
 
 from launch import LaunchContext, LaunchDescription
 from launch.actions import (
@@ -23,7 +24,6 @@ _LAUNCH_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _LAUNCH_DIR)
 from launch_utils import (  # noqa: E402
     as_bool,
-    default_log_root,
     default_map_path,
     make_wait_process,
     register_stage_transition,
@@ -33,6 +33,49 @@ from launch_utils import (  # noqa: E402
 
 def _share_path(package_name: str, *parts: str) -> PathJoinSubstitution:
     return PathJoinSubstitution([FindPackageShare(package_name), *parts])
+
+
+def _set_combined_launch_log(log_directory: str, log_filename: str) -> None:
+    """Redirect launch and all captured process output to one log file."""
+    import launch.logging as launch_logging
+
+    launch_config = launch_logging.launch_config
+    previous_handler = launch_config.file_handlers.get("launch.log")
+
+    # Launch creates its default handler before this launch file is loaded. Replace
+    # that handler so output from the launch process is written to our session file.
+    launch_config._log_dir = log_directory
+    combined_handler = launch_config.log_handler_factory(
+        os.path.join(log_directory, log_filename),
+        encoding="utf-8",
+    )
+    combined_handler.setFormatter(launch_config.file_formatter)
+
+    if previous_handler is not None:
+        for logger in launch_logging.LaunchLogger.all_loggers:
+            if previous_handler in logger.handlers:
+                logger.removeHandler(previous_handler)
+        previous_handler.close()
+
+    launch_config.file_handlers["launch.log"] = combined_handler
+
+
+def _prepare_log_directory(context: LaunchContext):
+    log_root = LaunchConfiguration("log_root").perform(context)
+    now = datetime.now()
+    date_directory = now.strftime("%Y%m%d")
+    timestamp = now.strftime("%Y%m%d%H%M%S")
+    log_directory = os.path.join(log_root, date_directory)
+    os.makedirs(log_directory, exist_ok=True)
+    _set_combined_launch_log(log_directory, f"{timestamp}.log")
+
+    return [
+        SetEnvironmentVariable(name="ROS_LOG_DIR", value=log_directory),
+        SetEnvironmentVariable(
+            name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+            value="both",
+        ),
+    ]
 
 
 def _launch_everything(context: LaunchContext):
@@ -69,6 +112,12 @@ def _launch_everything(context: LaunchContext):
             launch_arguments={
                 "map_path": LaunchConfiguration("map_path"),
                 "rviz": LaunchConfiguration("enable_rviz"),
+                "launch_obstacle_stop_module": LaunchConfiguration(
+                    "launch_obstacle_stop_module"
+                ),
+                "launch_dynamic_obstacle_stop_module": LaunchConfiguration(
+                    "launch_dynamic_obstacle_stop_module"
+                ),
                 "launch_sensing_driver": "false",
             }.items(),
         ),
@@ -174,13 +223,23 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "log_root",
-                default_value=default_log_root(),
+                default_value="/home/nvidia/autoware/log",
                 description="Root directory for launch log output",
             ),
             DeclareLaunchArgument(
                 "enable_rviz",
                 default_value="true",
                 description="Launch RViz inside autoware.launch.xml",
+            ),
+            DeclareLaunchArgument(
+                "launch_obstacle_stop_module",
+                default_value="true",
+                description="Enable the static obstacle stop module",
+            ),
+            DeclareLaunchArgument(
+                "launch_dynamic_obstacle_stop_module",
+                default_value="true",
+                description="Enable the dynamic obstacle stop module",
             ),
             DeclareLaunchArgument(
                 "driver_respawn",
@@ -263,10 +322,7 @@ def generate_launch_description():
                 description="byd_vehicle_state config",
             ),
             *set_console_format(),
-            SetEnvironmentVariable(
-                name="ROS_LOG_DIR",
-                value=[LaunchConfiguration("log_root"), "/parallel_bringup"],
-            ),
+            OpaqueFunction(function=_prepare_log_directory),
             OpaqueFunction(function=_launch_everything),
         ]
     )

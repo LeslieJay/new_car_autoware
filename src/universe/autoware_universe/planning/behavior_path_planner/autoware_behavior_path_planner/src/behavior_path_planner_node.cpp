@@ -314,6 +314,15 @@ bool BehaviorPathPlannerNode::isDataReady()
 
 void BehaviorPathPlannerNode::run()
 {
+  const auto timing_entry = std::chrono::steady_clock::now();
+  const auto entry_gap_ms = has_timing_entry_
+                              ? std::chrono::duration<double, std::milli>(
+                                  timing_entry - last_timing_entry_)
+                                  .count()
+                              : 0.0;
+  last_timing_entry_ = timing_entry;
+  has_timing_entry_ = true;
+  ++timing_cycle_;
   const auto stamp = this->now();
 
   takeData();
@@ -384,7 +393,11 @@ void BehaviorPathPlannerNode::run()
     planner_manager_->resetCurrentRouteLanelet(planner_data_);
 
   // run behavior planner
+  const auto planner_start = std::chrono::steady_clock::now();
   const auto output = planner_manager_->run(planner_data_);
+  const auto planner_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - planner_start)
+                            .count();
 
   // path handling
   const auto path = getPath(output, planner_data_);
@@ -450,6 +463,25 @@ void BehaviorPathPlannerNode::run()
   planner_manager_->publishMarker();
   planner_manager_->publishVirtualWall();
   lk_manager.unlock();  // release planner_manager_
+
+  const auto timing_exit = std::chrono::steady_clock::now();
+  const auto total_ms = std::chrono::duration<double, std::milli>(
+                          timing_exit - timing_entry)
+                          .count();
+  if (entry_gap_ms > 500.0 || planner_ms > 500.0 || total_ms > 500.0) {
+    const auto entry_mono_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 timing_entry.time_since_epoch())
+                                 .count();
+    const auto exit_mono_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                timing_exit.time_since_epoch())
+                                .count();
+    RCLCPP_WARN(
+      get_logger(),
+      "[BPP_TIMING] cycle=%llu entry_mono_ns=%lld exit_mono_ns=%lld entry_gap_ms=%.3f "
+      "planner_run_ms=%.3f total_run_ms=%.3f",
+      static_cast<unsigned long long>(timing_cycle_), static_cast<long long>(entry_mono_ns),
+      static_cast<long long>(exit_mono_ns), entry_gap_ms, planner_ms, total_ms);
+  }
 
   RCLCPP_DEBUG(get_logger(), "----- behavior path planner end -----\n\n");
 }

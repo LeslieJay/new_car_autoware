@@ -32,6 +32,7 @@ public:
   SimpleLaneChangeAvoidanceModule(
     const std::string & name, rclcpp::Node & node,
     const std::shared_ptr<SimpleLCAvoidanceParameters> & parameters,
+    const std::shared_ptr<TrailerConfigurationStore> & trailer_configuration_store,
     const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> & rtc_interface_ptr_map,
     std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
       objects_of_interest_marker_interface_ptr_map,
@@ -62,6 +63,10 @@ private:
 
   void initVariables();
   std::optional<LCAvoidanceTarget> detectTarget() const;
+  std::optional<LCAvoidanceTarget> detectAssociatedTargetByUuid() const;
+  std::optional<LCAvoidanceTarget> getActiveTargetOrHeldTarget();
+  bool isActiveTargetPassed(const LCAvoidanceTarget & target) const;
+  bool isEgoOnShiftLine() const;
   AdjacentLaneResult findAdjacentLane(const LCAvoidanceTarget & target) const;
   LaneShiftResult calcLaneShift(const LCAvoidanceTarget & target) const;
   ShiftLineArray buildShiftLines(
@@ -69,16 +74,42 @@ private:
   BehaviorModuleOutput adjustDrivableArea(
     const ShiftedPath & path, const lanelet::ConstLanelets & adjacent_lanelets) const;
   BehaviorModuleOutput passThrough(InfeasibleReason reason) const;
+  BehaviorModuleOutput stopBeforeTarget(
+    const LCAvoidanceTarget & target, InfeasibleReason reason) const;
+  BehaviorModuleOutput handlePathGenerationFailure(InfeasibleReason reason);
   PathWithLaneId extendBackwardLength(const PathWithLaneId & original_path) const;
+  double getEgoLateralOffsetToReference() const;
+  std::optional<ShiftedPath> generateEgoAlignedReturnPath();
+  bool isGeneratedPathContinuous(const ShiftedPath & path) const;
+  InfeasibleReason validatePathSafety(
+    const ShiftedPath & path, const LCAvoidanceTarget & target,
+    const lanelet::ConstLanelets & adjacent_lanelets) const;
+  InfeasibleReason validateArticulatedPath(
+    const PathWithLaneId & path, const lanelet::ConstLanelets & drivable_lanelets) const;
+  bool isAdjacentLaneOccupied(
+    const LCAvoidanceTarget & target, const lanelet::ConstLanelets & adjacent_lanelets) const;
+  BehaviorModuleOutput makeSafeStopOutput(
+    InfeasibleReason reason = InfeasibleReason::PATH_GENERATION_FAILED) const;
   void setDebugMarkersVisualization() const;
 
   PathWithLaneId reference_path_{};
   lanelet::ConstLanelets current_lanelets_{};
+  // The lane from which the maneuver was committed. The geometric closest lanelet can become
+  // the borrowed lane while the vehicle is shifting; keep this route-scoped source lane so the
+  // safety union remains {source lane, adjacent lane} throughout the maneuver.
+  lanelet::ConstLanelets maneuver_base_lanelets_{};
   std::shared_ptr<SimpleLCAvoidanceParameters> parameters_;
+  std::shared_ptr<TrailerConfigurationStore> trailer_configuration_store_;
+  ResolvedTrailerConfiguration active_trailer_configuration_;
   PathShifter path_shifter_;
   ShiftedPath prev_output_{};
   std::optional<LCAvoidanceTarget> active_target_;
   std::optional<AdjacentLaneResult> active_adjacent_lane_;
+  LCAvoidanceLifecycleState lifecycle_state_{LCAvoidanceLifecycleState::IDLE};
+  size_t completion_stable_count_{0};
+  bool active_target_passed_{false};
+  std::optional<rclcpp::Time> path_generation_failure_started_;
+  std::optional<std::string> route_id_;
   mutable SimpleLCAvoidanceDebugData debug_data_;
 };
 

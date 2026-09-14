@@ -44,6 +44,8 @@
 #include <visualization_msgs/msg/marker.hpp>
 
 #include <map>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -233,6 +235,12 @@ private:
   std::unique_ptr<autoware_utils::LoggerLevelConfigure> logger_configure_;
 
   std::unique_ptr<autoware_utils::PublishedTimePublisher> published_time_publisher_;
+
+  // Host-side diagnosis: distinguish a slow planner callback from a timer
+  // callback that was not scheduled for several seconds.
+  std::chrono::steady_clock::time_point last_timing_entry_{};
+  std::uint64_t timing_cycle_{0};
+  bool has_timing_entry_{false};
 };
 }  // namespace autoware::behavior_path_planner
 

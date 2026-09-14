@@ -16,13 +16,17 @@
 #define AUTOWARE__BEHAVIOR_PATH_SIMPLE_LANE_CHANGE_AVOIDANCE_MODULE__DATA_STRUCTS_HPP_
 
 #include "autoware/behavior_path_planner_common/utils/path_shifter/path_shifter.hpp"
+#include "autoware/behavior_path_planner_common/utils/articulated_vehicle/trailer_geometry.hpp"
 
 #include <geometry_msgs/msg/pose.hpp>
 #include <lanelet2_core/LaneletMap.h>
+#include <rclcpp/time.hpp>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace autoware::behavior_path_planner
 {
@@ -33,8 +37,16 @@ enum class InfeasibleReason {
   NONE,
   NO_TARGET,
   NO_ADJACENT_LANE,
+  NO_ROOM,
+  ADJACENT_LANE_OCCUPIED,
   INSUFFICIENT_DISTANCE,
   PATH_GENERATION_FAILED,
+  VEHICLE_COLLISION,
+  TRAILER_COLLISION,
+  FOOTPRINT_OUT_OF_BOUNDARY,
+  ARTICULATION_LIMIT,
+  PATH_DISCONTINUITY,
+  TARGET_UNCERTAIN_STOP,
 };
 
 inline const char * toString(const InfeasibleReason reason)
@@ -46,10 +58,26 @@ inline const char * toString(const InfeasibleReason reason)
       return "no_target";
     case InfeasibleReason::NO_ADJACENT_LANE:
       return "no_adjacent_lane";
+    case InfeasibleReason::NO_ROOM:
+      return "no_room";
+    case InfeasibleReason::ADJACENT_LANE_OCCUPIED:
+      return "adjacent_lane_occupied";
     case InfeasibleReason::INSUFFICIENT_DISTANCE:
       return "infeasible_distance";
     case InfeasibleReason::PATH_GENERATION_FAILED:
       return "path_generation_failed";
+    case InfeasibleReason::VEHICLE_COLLISION:
+      return "vehicle_collision";
+    case InfeasibleReason::TRAILER_COLLISION:
+      return "trailer_collision";
+    case InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY:
+      return "footprint_out_of_boundary";
+    case InfeasibleReason::ARTICULATION_LIMIT:
+      return "articulation_limit";
+    case InfeasibleReason::PATH_DISCONTINUITY:
+      return "path_discontinuity";
+    case InfeasibleReason::TARGET_UNCERTAIN_STOP:
+      return "target_uncertain_stop";
   }
   return "unknown";
 }
@@ -60,11 +88,29 @@ struct SimpleLCAvoidanceParameters
   double min_forward_distance{1.0};
   double max_forward_distance{50.0};
   double lateral_margin{0.3};
+  double max_shift_length{4.5};
   double min_prepare_distance{3.0};
   double min_shifting_distance{5.0};
   double shifting_lateral_jerk{0.2};
   double min_shifting_speed{1.0};
   double return_distance_after_object{5.0};
+  double lateral_execution_threshold{0.3};
+  double target_lost_time_threshold{1.0};
+  double target_hold_lateral_hysteresis{0.3};
+  double road_boundary_margin{0.1};
+  double stop_margin_before_object{1.0};
+  double path_generation_failure_timeout{0.5};
+  size_t completion_stable_count{3};
+  double footprint_sampling_interval{0.5};
+  std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
+  double tractor_rear_axle_to_hitch{0.6};
+  double trailer_footprint_sampling_interval{0.5};
+  double trailer_lateral_search_resolution{0.1};
+  double trailer_return_search_resolution{0.5};
+  double trailer_max_extra_return_distance{20.0};
+  double trailer_max_planning_time_ms{20.0};
+  double trailer_stationary_speed_threshold{0.05};
+  std::unordered_map<std::string, TrailerGeometry> trailer_types;
   bool publish_debug_marker{true};
 };
 
@@ -76,6 +122,7 @@ struct LCAvoidanceTarget
   double object_half_width{0.0};
   double object_half_length{0.0};
   std::string uuid;
+  rclcpp::Time last_seen{};
   LCAvoidanceDirection direction{LCAvoidanceDirection::LEFT};
 };
 
@@ -103,6 +150,20 @@ struct FeasibilityResult
   double ego_speed{0.0};
   double min_prepare_distance{0.0};
   double min_shifting_distance{0.0};
+};
+
+enum class LCAvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING, STOPPING };
+
+struct LCAvoidanceCompletionStatus
+{
+  bool has_active_target{false};
+  bool is_active_target_passed{false};
+  bool has_shift_lines{false};
+  bool is_ego_on_shift_line{false};
+  double base_offset{0.0};
+  double planned_shift{0.0};
+  double actual_lateral_offset{0.0};
+  double lateral_execution_threshold{0.3};
 };
 
 struct SimpleLCAvoidanceDebugData

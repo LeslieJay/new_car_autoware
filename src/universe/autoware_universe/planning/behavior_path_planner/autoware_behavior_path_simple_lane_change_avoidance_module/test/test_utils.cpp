@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace autoware::behavior_path_planner
 {
 namespace
@@ -106,6 +108,73 @@ TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthDoesNotApplyExistingUpstre
     2.13, 1e-6);
 }
 
+TEST_F(SimpleLCAvoidanceUtilsTest, LimitLaneShiftLengthPreservesDirection)
+{
+  EXPECT_NEAR(limitLaneShiftLength(4.3, 3.0), 3.0, 1e-6);
+  EXPECT_NEAR(limitLaneShiftLength(-4.3, 3.0), -3.0, 1e-6);
+  EXPECT_NEAR(limitLaneShiftLength(2.0, 3.0), 2.0, 1e-6);
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, RequiredShiftMustFitHardSafetyLimit)
+{
+  EXPECT_TRUE(isShiftLengthWithinLimit(4.5, 4.5));
+  EXPECT_TRUE(isShiftLengthWithinLimit(-4.5, 4.5));
+  EXPECT_FALSE(isShiftLengthWithinLimit(4.5001, 4.5));
+  EXPECT_FALSE(isShiftLengthWithinLimit(3.0, 0.0));
+  EXPECT_FALSE(isShiftLengthWithinLimit(std::numeric_limits<double>::quiet_NaN(), 4.5));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, InvalidFeasibilityParametersAreRejected)
+{
+  auto parameters = defaultParameters();
+  parameters.shifting_lateral_jerk = 0.0;
+  EXPECT_FALSE(areFeasibilityParametersValid(parameters));
+
+  parameters = defaultParameters();
+  parameters.max_forward_distance = parameters.min_forward_distance - 1.0;
+  EXPECT_FALSE(areFeasibilityParametersValid(parameters));
+
+  parameters = defaultParameters();
+  parameters.max_shift_length = 4.5;
+  EXPECT_TRUE(areFeasibilityParametersValid(parameters));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, CompletionRequiresStableSafeGeometry)
+{
+  LCAvoidanceCompletionStatus status;
+  status.is_active_target_passed = true;
+  status.lateral_execution_threshold = 0.3;
+
+  EXPECT_FALSE(canCompleteManeuver(status, 2, 3));
+  EXPECT_TRUE(canCompleteManeuver(status, 3, 3));
+
+  status.base_offset = 0.31;
+  EXPECT_FALSE(canCompleteManeuver(status, 3, 3));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, ShiftLineGeometryRejectsCollapsedAndOutOfRangeLines)
+{
+  ShiftLine line;
+  line.start_idx = 1;
+  line.end_idx = 3;
+  line.start_shift_length = 0.0;
+  line.end_shift_length = 3.0;
+  EXPECT_TRUE(isValidShiftLineGeometry({line}, 5));
+
+  line.end_idx = 2;
+  EXPECT_FALSE(isValidShiftLineGeometry({line}, 5));
+  line.end_idx = 5;
+  EXPECT_FALSE(isValidShiftLineGeometry({line}, 5));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, ShiftOverHardLimitIsReportedAsNoRoom)
+{
+  auto parameters = defaultParameters();
+  parameters.max_shift_length = 4.5;
+  const auto result = checkFeasibility(makeTarget(1.0, 30.0), 4.6, parameters, 1.0);
+  EXPECT_EQ(result.reason, InfeasibleReason::NO_ROOM);
+}
+
 TEST_F(SimpleLCAvoidanceUtilsTest, InitializeManeuverOnlyWhenNoShiftLinesExist)
 {
   ShiftLineArray no_shift_lines;
@@ -120,10 +189,11 @@ TEST_F(SimpleLCAvoidanceUtilsTest, CompleteManeuverOnlyAfterTargetAndShiftLinesA
   ShiftLineArray no_shift_lines;
   ShiftLineArray active_shift_lines(1);
 
-  EXPECT_FALSE(canCompleteManeuver(false, active_shift_lines, 0.0, 0.05));
-  EXPECT_FALSE(canCompleteManeuver(true, no_shift_lines, 0.0, 0.05));
-  EXPECT_FALSE(canCompleteManeuver(false, no_shift_lines, 0.1, 0.05));
-  EXPECT_TRUE(canCompleteManeuver(false, no_shift_lines, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(false, active_shift_lines, 0.0, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(true, no_shift_lines, 0.0, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(false, no_shift_lines, 0.1, 0.0, 0.05));
+  EXPECT_FALSE(canCompleteManeuver(false, no_shift_lines, 0.0, 0.1, 0.05));
+  EXPECT_TRUE(canCompleteManeuver(false, no_shift_lines, 0.0, 0.0, 0.05));
 }
 
 TEST_F(SimpleLCAvoidanceUtilsTest, CheckFeasibilitySufficientDistance)

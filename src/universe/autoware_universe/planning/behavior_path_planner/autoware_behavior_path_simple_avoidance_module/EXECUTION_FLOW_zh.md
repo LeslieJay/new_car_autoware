@@ -181,7 +181,12 @@ detectTarget()
      │    overlap = |lateral_offset| - object_half_width
      │    overlap >= ego_half_width + lateral_margin → continue（离路径太远）
      │
-     └─ ⑤ 取纵向最近 → AvoidanceTarget
+     ├─ ⑤ 横向/纵向可行性过滤
+     │    calcShiftLength() 返回 NO_ROOM → continue
+     │    checkFeasibility() 返回 INSUFFICIENT_DISTANCE → continue
+     │    （继续寻找更远的可行目标）
+     │
+     └─ ⑥ 取纵向最近 → AvoidanceTarget
           { pose, lon, lat, obj_hw, obj_hl, uuid }
 ```
 
@@ -213,8 +218,10 @@ detectTarget()
 
 1. `MOVING` — 速度过快
 2. `OUT_OF_LANE` — polygon 不在 current_lanelets_
-3. `LONGITUDINAL` — 纵向距离超范围
-4. `NO_OVERLAP` — 横向无重叠，不需绕障
+3. `LONGITUDINAL` — 不在检测范围内
+4. `NO_OVERLAP` — 横向不重叠
+5. `NO_ROOM` — 所需横移超过 `max_shift_length`
+6. `INSUFFICIENT_DISTANCE` — 起点或侧移终点的纵向约束无法满足
 
 ---
 
@@ -232,7 +239,12 @@ plan()
 ├─ [Step 1] reference_path_.points < 2
 │    └─ passThrough(NO_TARGET) ──────────────────────────► 退出①
 │
-├─ [Step 2] target = getActiveTargetOrHeldTarget()
+├─ [Step 2] CANDIDATE 承诺判断
+│    ├─ 自车到第一条 shift line 起点的连续弧长 <= commitment_distance_before_shift_start
+│    ├─ 或 ego 已进入 shift line / 已有实际 shift / base offset 已非零
+│    └─ 任一成立 → lifecycle_state_ = COMMITTED
+│
+├─ [Step 3] target = getActiveTargetOrHeldTarget()
 │    │
 │    ├─ 无 target：
 │    │    ├─ CANDIDATE：清除候选状态并透传 NO_TARGET ───────────────► 退出②
@@ -245,28 +257,28 @@ plan()
 │    │    │    ├─ lifecycle_state_ = RETURNING
 │    │    │    └─ return adjustDrivableArea(shifted_path) ────────────► 退出③（延续并回正）
 │    │
-│    └─ 有 target：继续 Step 3
+│    └─ 有 target：继续 Step 4
 │
-├─ [Step 3] active_target_ = target
+├─ [Step 4] active_target_ = target
 │
-├─ [Step 4] shift_result = calcShiftLength(target, params, ego_half_width)
+├─ [Step 5] shift_result = calcShiftLength(target, params, ego_half_width)
 │    └─ reason != NONE → passThrough(NO_ROOM) ────────────────────────► 退出⑤
 │
-├─ [Step 5] feasibility = checkFeasibility(target, shift_length, params, ego_speed)
+├─ [Step 6] feasibility = checkFeasibility(target, shift_length, params, ego_speed)
 │    └─ reason != NONE → passThrough(INSUFFICIENT_DISTANCE) ──────────► 退出⑥
 │
-├─ [Step 6] shift_lines = buildShiftLines(target, shift_length)
+├─ [Step 7] shift_lines = buildShiftLines(target, shift_length)
 │    path_shifter_.setShiftLines(shift_lines)
 │
-├─ [Step 7] path_shifter_.generate(&shifted_path)
+├─ [Step 8] path_shifter_.generate(&shifted_path)
 │    └─ 失败或空路径 → passThrough(PATH_GENERATION_FAILED) ───────────► 退出⑦
 │
-├─ [Step 8] setOrientation(&shifted_path.path)
+├─ [Step 9] setOrientation(&shifted_path.path)
 │    prev_output_ = shifted_path
 │    记录 debug_data_
 │    LOG: "avoidance path generated ..."
 │
-└─ [Step 9] return adjustDrivableArea(shifted_path) ───────────────────► 退出⑧（成功）
+└─ [Step 10] return adjustDrivableArea(shifted_path) ──────────────────► 退出⑧（成功）
 ```
 
 ### 8.1 `passThrough()` — 失败 / 透传退出
@@ -326,14 +338,21 @@ passThrough(reason, debug_info)
      |shift_length|, shifting_lateral_jerk,
      max(ego_speed, min_shifting_speed))
 
-2. dist_to_shift_end = min_prepare_distance + max(jerk_distance, min_shifting_distance)
-   （完成侧移所需的最小纵向距离）
+2. transition_distance = max(jerk_distance, min_shifting_distance)
 
-3. dist_to_obstacle = target.lon - obj_hl - lateral_margin
-   （障碍物前沿前的可用纵向空间）
+3. required_start_distance_before_front = max(
+     avoidance_start_distance_before_object_front,
+     lateral_margin + transition_distance)
 
-4. dist_to_shift_end > dist_to_obstacle → INSUFFICIENT_DISTANCE
-   否则 → NONE
+4. dist_to_avoid_start = target.lon - obj_hl
+     - required_start_distance_before_front
+
+5. dist_to_shift_end = dist_to_avoid_start + transition_distance
+
+6. dist_to_obstacle = target.lon - obj_hl - lateral_margin
+
+7. dist_to_avoid_start <= 0 或 dist_to_shift_end > dist_to_obstacle
+   → INSUFFICIENT_DISTANCE；否则 → NONE
 ```
 
 ### 9.3 `buildShiftLines()` — 构造两条 ShiftLine
@@ -342,8 +361,8 @@ passThrough(reason, debug_info)
 
 ```
 avoid_shift（绕障段）:
-  start: ego + min_prepare_distance
-  end:   start + max(jerk_distance, min_shifting_distance)
+  start: ego + dist_to_avoid_start
+  end:   start + transition_distance
   shift: 当前偏移 → shift_length
 
 return_shift（回正段）:
@@ -438,7 +457,8 @@ canTransitSuccessState()
 
 ```
 [SIMPLE_AVOIDANCE] avoidance path generated shift=... target_lon=... target_lat=...
-  required_clearance=... jerk_distance=... dist_to_shift_end=... dist_to_obstacle=... lon_margin=...
+  required_clearance=... required_before_front=... dist_to_avoid_start=...
+  transition=... jerk_distance=... dist_to_shift_end=... dist_to_obstacle=... lon_margin=...
 ```
 
 ---

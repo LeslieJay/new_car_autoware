@@ -81,7 +81,8 @@ TEST_F(
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
     marker_interfaces;
   SimpleLaneChangeAvoidanceModule module{
-    "simple_lane_change_avoidance", node, parameters, rtc_interfaces, marker_interfaces, nullptr};
+    "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+    nullptr};
 
   auto planner_data = std::make_shared<PlannerData>();
   auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
@@ -103,7 +104,7 @@ TEST_F(
   EXPECT_FALSE(fallback_output.path.points.empty());
 }
 
-TEST_F(SimpleLaneChangeAvoidanceSceneTest, ObstacleWithoutAdjacentLaneDoesNotRequestExecution)
+TEST_F(SimpleLaneChangeAvoidanceSceneTest, ObstacleWithoutAdjacentLaneProducesSafeStop)
 {
   rclcpp::Node node{"simple_lane_change_avoidance_no_adjacent_lane_test"};
   auto parameters = std::make_shared<SimpleLCAvoidanceParameters>();
@@ -112,7 +113,8 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, ObstacleWithoutAdjacentLaneDoesNotReq
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
     marker_interfaces;
   SimpleLaneChangeAvoidanceModule module{
-    "simple_lane_change_avoidance", node, parameters, rtc_interfaces, marker_interfaces, nullptr};
+    "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+    nullptr};
 
   auto planner_data = std::make_shared<PlannerData>();
   auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
@@ -127,8 +129,16 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, ObstacleWithoutAdjacentLaneDoesNotReq
   module.setData(planner_data);
   module.setPreviousModuleOutput(makeStraightOutput());
 
-  ASSERT_NO_THROW(module.run());
-  EXPECT_FALSE(module.isExecutionRequested());
+  // The manager asks for execution before the scene has received its first updateData() call.
+  // Detection must therefore use the upstream path rather than an as-yet empty cached reference.
+  EXPECT_TRUE(module.isExecutionRequested());
+
+  BehaviorModuleOutput output;
+  ASSERT_NO_THROW(output = module.run());
+  ASSERT_FALSE(output.path.points.empty());
+  EXPECT_TRUE(std::any_of(output.path.points.begin(), output.path.points.end(), [](const auto & p) {
+    return p.point.longitudinal_velocity_mps == 0.0;
+  }));
 }
 
 TEST_F(SimpleLaneChangeAvoidanceSceneTest, EmptyInputsProduceNonEmptySafeStop)
@@ -139,7 +149,8 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, EmptyInputsProduceNonEmptySafeStop)
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
     marker_interfaces;
   SimpleLaneChangeAvoidanceModule module{
-    "simple_lane_change_avoidance", node, parameters, rtc_interfaces, marker_interfaces, nullptr};
+    "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+    nullptr};
 
   auto planner_data = std::make_shared<PlannerData>();
   auto odometry = std::make_shared<nav_msgs::msg::Odometry>();

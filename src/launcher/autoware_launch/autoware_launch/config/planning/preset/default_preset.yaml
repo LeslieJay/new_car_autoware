@@ -17,10 +17,10 @@ launch:
       default: "false"
   - arg:
       name: launch_simple_lc_avoidance
-      default: "true"
+      default: "false"
   - arg:
       name: launch_dynamic_obstacle_avoidance
-      default: "true"
+      default: "false"
   - arg:
       name: launch_sampling_planner_module
       default: "false" # Warning, experimental module, use only in simulations
@@ -52,10 +52,10 @@ launch:
   # behavior velocity modules
   - arg:
       name: launch_crosswalk_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_walkway_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_traffic_light_module
       default: "false"
@@ -73,7 +73,7 @@ launch:
       default: "false"
   - arg:
       name: launch_detection_area_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_virtual_traffic_light_module
       default: "false"
@@ -82,16 +82,16 @@ launch:
       default: "false"
   - arg:
       name: launch_stop_line_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_occlusion_spot_module
       default: "false"
   - arg:
       name: launch_speed_bump_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_no_drivable_lane_module
-      default: "true"
+      default: "false"
 
   # motion planning modules
   - arg:
@@ -102,7 +102,9 @@ launch:
 
   - arg:
       name: motion_path_planner_type
-      default: path_optimizer
+      # The low-speed AGV simple-LC path is already kinematically smooth. The generic
+      # optimizer amplified a 3.0 m request to 4.88 m and prevented return completion.
+      default: none
       # option: path_optimizer
       #         path_sampler
       #         none
@@ -110,7 +112,7 @@ launch:
   # motion velocity planner modules
   - arg:
       name: launch_obstacle_stop_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_obstacle_slow_down_module
       default: "true"
@@ -119,7 +121,7 @@ launch:
       default: "true"
   - arg:
       name: launch_dynamic_obstacle_stop_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_out_of_lane_module
       default: "true"

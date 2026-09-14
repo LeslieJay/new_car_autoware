@@ -35,7 +35,8 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
   p.max_forward_distance = node->declare_parameter<double>(ns + "max_forward_distance", 60.0);
   p.lateral_margin = node->declare_parameter<double>(ns + "lateral_margin", 0.4);
   p.max_shift_length = node->declare_parameter<double>(ns + "max_shift_length", 4.0);
-  p.min_prepare_distance = node->declare_parameter<double>(ns + "min_prepare_distance", 2.0);
+  p.avoidance_start_distance_before_object_front = node->declare_parameter<double>(
+    ns + "avoidance_start_distance_before_object_front", 10.0);
   p.min_shifting_distance = node->declare_parameter<double>(ns + "min_shifting_distance", 4.0);
   p.shifting_lateral_jerk = node->declare_parameter<double>(ns + "shifting_lateral_jerk", 0.5);
   p.min_shifting_speed = node->declare_parameter<double>(ns + "min_shifting_speed", 1.0);
@@ -45,8 +46,11 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
     node->declare_parameter<double>(ns + "target_lost_time_threshold", 1.0);
   p.target_hold_lateral_hysteresis =
     node->declare_parameter<double>(ns + "target_hold_lateral_hysteresis", 0.3);
+  p.commitment_distance_before_shift_start = std::max(
+    0.0, node->declare_parameter<double>(ns + "commitment_distance_before_shift_start", 2.0));
   p.lateral_execution_threshold =
     node->declare_parameter<double>(ns + "lateral_execution_threshold", 0.05);
+  p.road_boundary_margin = node->declare_parameter<double>(ns + "road_boundary_margin", 0.1);
   p.path_generation_failure_timeout =
     node->declare_parameter<double>(ns + "path_generation_failure_timeout", 0.5);
   p.completion_stable_count = static_cast<size_t>(
@@ -140,7 +144,9 @@ void SimpleAvoidanceModuleManager::updateModuleParams(
   update_param(parameters, ns + "max_forward_distance", p->max_forward_distance);
   update_param(parameters, ns + "lateral_margin", p->lateral_margin);
   update_param(parameters, ns + "max_shift_length", p->max_shift_length);
-  update_param(parameters, ns + "min_prepare_distance", p->min_prepare_distance);
+  update_param(
+    parameters, ns + "avoidance_start_distance_before_object_front",
+    p->avoidance_start_distance_before_object_front);
   update_param(parameters, ns + "min_shifting_distance", p->min_shifting_distance);
   update_param(parameters, ns + "shifting_lateral_jerk", p->shifting_lateral_jerk);
   update_param(parameters, ns + "min_shifting_speed", p->min_shifting_speed);
@@ -148,7 +154,13 @@ void SimpleAvoidanceModuleManager::updateModuleParams(
   update_param(parameters, ns + "target_lost_time_threshold", p->target_lost_time_threshold);
   update_param(
     parameters, ns + "target_hold_lateral_hysteresis", p->target_hold_lateral_hysteresis);
+  update_param(
+    parameters, ns + "commitment_distance_before_shift_start",
+    p->commitment_distance_before_shift_start);
+  p->commitment_distance_before_shift_start =
+    std::max(0.0, p->commitment_distance_before_shift_start);
   update_param(parameters, ns + "lateral_execution_threshold", p->lateral_execution_threshold);
+  update_param(parameters, ns + "road_boundary_margin", p->road_boundary_margin);
   update_param(
     parameters, ns + "path_generation_failure_timeout", p->path_generation_failure_timeout);
   int64_t completion_stable_count = static_cast<int64_t>(p->completion_stable_count);
