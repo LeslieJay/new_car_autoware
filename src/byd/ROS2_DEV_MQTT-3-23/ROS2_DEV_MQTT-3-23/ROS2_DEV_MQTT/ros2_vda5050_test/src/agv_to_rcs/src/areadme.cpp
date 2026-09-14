@@ -42,3 +42,10 @@ ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder
 [INFO] [1788397600.268217713] [can_action_server]: 开始执行挂钩: 目标高度=1.00, 信号=1
 [INFO] [1788397600.268342032] [can_action_server]: 下达挂钩升降到位置1命令 (CAN ID:0x401, data[4]=1)
 [INFO] [1788397600.268363504] [can_action_server]: 挂钩CAN帧已成功发送到发送队列
+
+
+倒车
+order要求rotation_allowed必须为true，orientation为3.141592653589793
+ros2 topic pub --once /uagv/v1/BYD/qqa0001/order vda5050_interfaces/msg/AGVOrder "{header_id: 1, timestamp: '2026-07-20T14:04:11.185981+08:00', version: v1, manufacturer: BYD, serial_number: qqa0001, order_id: 'task-p2p-20260720-O51P', order_update_id: 0, zone_set_id: map_floor_1, nodes: [{node_id: '1#电池卸料点1', sequence_id: 0, released: true, node_position: {x: 299.183135986328, y: -61.0916442871094, theta: -1.07944893836975, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: []}, {node_id: '1#电池卸料点2', sequence_id: 2, released: true, node_position: {x: 294.183135986328, y: -61.0916442871094, theta: -1.07944893836975, map_id: '', map_description: '', allowed_deviation_xy: 0.5, allowed_deviation_theta: 5.0}, actions: [{action_type: UNLOAD, action_id: 'drop-action-001', action_description: '', blocking_type: HARD, action_parameters: [{key: height, value: {array_value: [], boolean_value: false, number_value: 1.0, string_value: ''}}]}]}], edges: [{edge_id: 'edge_to_2', sequence_id: 1, edge_description: '', released: true, start_node_id: '1#电池卸料点1', end_node_id: '1#电池卸料点2', max_speed: 1.0, max_height: 0.0, orientation: 3.141592653589793, orientation_type: TANGENTIAL, direction: '', rotation_allowed: true, max_rotation_speed: 0.0, length: 0.0, obstacle_avoidance_channel: 0, trajectory: {degree: 1, knot_vector: [], control_points: []}, actions: []}]}"
+必须启动倒车服务端
+ros2 launch agv_high_precision_reverse_controller agv_high_precision_reverse_controller.launch.py

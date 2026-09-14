@@ -381,7 +381,7 @@ int main(int argc, char const *argv[])
     // 以下是黑匣子功能类实例的创建和数据记录的线程运行。
     AGVBlackBox blackBox(agv_bone);
 
-    blackBox.startRecording();
+    // blackBox.startRecording();
 
     // 开始构建行为树*****************************************************************************
 
@@ -496,7 +496,7 @@ int main(int argc, char const *argv[])
     }
 
     // 遇到障碍需要黑匣子记录数据
-    blackBox.stopRecording();
+    // blackBox.stopRecording();
 
     // 停止MQTT订阅（如果已启动）
     if (mqtt_subscriber) {

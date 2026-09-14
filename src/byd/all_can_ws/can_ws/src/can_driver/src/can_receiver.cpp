@@ -704,6 +704,8 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 this->pushRecord(frame, current_angle, current_speed);
                 // 一个字节有8个标志位，与操作只保留一个，具体含义完全由用户协定
                 int operate_mode = frame.data[4] & 0x01;
+                RCLCPP_ERROR(node_->get_logger(), "%d", operate_mode);
+                
                 if (agv_info_.operate_mode != operate_mode){
                     agv_info_.operate_mode = operate_mode;  // 车辆操作模式  1：自动  0：人工
                     // 切换模式时， 都要调用服务

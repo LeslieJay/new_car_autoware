@@ -363,7 +363,6 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 //     std::cout << value << " ";
                 // }
                 // std::cout << std::endl;
-                std::cout << "AAAAAAAAAAAAAAASSSSSSSSSSSSSSSSSSSSSSSASAAAAAAAA车辆前进模式: " << order_messages_.goal_edge_orientation[0] << std::endl;
 
                 if (order_messages_.goal_edge_orientation[0] == 0) {
                     // 如果是切向行驶，直接使用目标点
@@ -371,6 +370,8 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 } else{
                     forward = false;
                 }
+                std::cout << "AAAAAAAAAAAAAAASSSSSSSSSSSSSSSSSSSSSSSASAAAAAAAA车辆前进模式: " << order_messages_.goal_edge_orientation[0] << std::endl;
+
                 // instant_action瞬时任务，只有一个目标点
                 Point one_point = {order_messages_.goal_x[point_index], order_messages_.goal_y[point_index], order_messages_.goal_theta[point_index]};
                 goal_points_to_driver.push_back(one_point);

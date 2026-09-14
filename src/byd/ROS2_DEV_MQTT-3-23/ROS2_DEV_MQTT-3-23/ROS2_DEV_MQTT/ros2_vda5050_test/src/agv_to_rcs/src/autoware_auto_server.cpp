@@ -25,6 +25,7 @@ public:
     using AutowareAuto = ref_slam_interface::action::AutowareAuto;
     using GoalHandle = rclcpp_action::ServerGoalHandle<AutowareAuto>;
 
+    
     AutowareAutoServer()
         : Node("autoware_auto_server"),
           current_autoware_state_(0),    // 先与声明顺序一致
@@ -34,8 +35,7 @@ public:
             this,
             "autoware_auto",
             std::bind(&AutowareAutoServer::handle_goal, this, _1, _2),
-            std::bind(&Aut.
-                owareAutoServer::handle_cancel, this, _1),
+            std::bind(&AutowareAutoServer::handle_cancel, this, _1),
             std::bind(&AutowareAutoServer::handle_accepted, this, _1)
         );
 
@@ -58,7 +58,7 @@ public:
         );
 
         reverse_parking_client_ = this->create_client<reverse_parking_planner::srv::SetGoalPose>(
-            "/reverse_parking_planner/set_goal_pose");
+            "/agv_high_precision_reverse_controller/set_goal_pose");
 
         // 操作模式切换客户端
         autonomous_client_ = this->create_client<autoware_adapi_v1_msgs::srv::ChangeOperationMode>(
