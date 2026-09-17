@@ -23,10 +23,13 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace autoware::behavior_path_planner
 {
+
+struct SimpleAvoidanceBoundaryValidationCache;
 
 class SimpleAvoidanceModule : public SceneModuleInterface
 {
@@ -74,6 +77,7 @@ private:
   ShiftLineArray buildShiftLines(
     const AvoidanceTarget & target, double shift_length, double extra_return_distance = 0.0) const;
   InfeasibleReason validateVehicleRoadBoundary(const PathWithLaneId & path) const;
+  InfeasibleReason validateVehicleRoadBoundaryLegacy(const PathWithLaneId & path) const;
   BehaviorModuleOutput stopBeforeTarget(
     const AvoidanceTarget & target, InfeasibleReason reason,
     const PassThroughDebugInfo & debug_info) const;
@@ -114,6 +118,7 @@ private:
   bool ego_aligned_return_active_{false};
   std::optional<rclcpp::Time> path_generation_failure_started_;
   std::optional<unique_identifier_msgs::msg::UUID> route_id_;
+  mutable std::shared_ptr<SimpleAvoidanceBoundaryValidationCache> boundary_validation_cache_;
   mutable SimpleAvoidanceDebugData debug_data_;
 };
 

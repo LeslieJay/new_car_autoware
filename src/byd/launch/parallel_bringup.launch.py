@@ -35,6 +35,25 @@ def _share_path(package_name: str, *parts: str) -> PathJoinSubstitution:
     return PathJoinSubstitution([FindPackageShare(package_name), *parts])
 
 
+def _disable_external_node_logs() -> None:
+    """Keep node output in the launch log without creating per-node log files."""
+    original_init = getattr(Node, "_byd_original_init", None)
+    if original_init is not None:
+        return
+
+    original_init = Node.__init__
+
+    def init_without_external_logs(self, *args, **kwargs):
+        ros_arguments = list(kwargs.get("ros_arguments") or [])
+        if "--disable-external-lib-logs" not in ros_arguments:
+            ros_arguments.append("--disable-external-lib-logs")
+        kwargs["ros_arguments"] = ros_arguments
+        original_init(self, *args, **kwargs)
+
+    Node._byd_original_init = original_init
+    Node.__init__ = init_without_external_logs
+
+
 def _set_combined_launch_log(log_directory: str, log_filename: str) -> None:
     """Redirect launch and all captured process output to one log file."""
     import launch.logging as launch_logging
@@ -68,6 +87,11 @@ def _prepare_log_directory(context: LaunchContext):
     log_directory = os.path.join(log_root, date_directory)
     os.makedirs(log_directory, exist_ok=True)
     _set_combined_launch_log(log_directory, f"{timestamp}.log")
+    # ExecuteLocal reads this override from the launch process environment when
+    # each Node action is constructed.  The launch action below is still needed
+    # so the same environment reaches subprocesses.
+    os.environ["ROS_LOG_DIR"] = log_directory
+    os.environ["OVERRIDE_LAUNCH_PROCESS_OUTPUT"] = "both"
 
     return [
         SetEnvironmentVariable(name="ROS_LOG_DIR", value=log_directory),
@@ -79,6 +103,8 @@ def _prepare_log_directory(context: LaunchContext):
 
 
 def _launch_everything(context: LaunchContext):
+    _disable_external_node_logs()
+
     respawn = as_bool(context, "driver_respawn", default=True)
     log_level = LaunchConfiguration("log_level").perform(context)
 
@@ -112,12 +138,6 @@ def _launch_everything(context: LaunchContext):
             launch_arguments={
                 "map_path": LaunchConfiguration("map_path"),
                 "rviz": LaunchConfiguration("enable_rviz"),
-                "launch_obstacle_stop_module": LaunchConfiguration(
-                    "launch_obstacle_stop_module"
-                ),
-                "launch_dynamic_obstacle_stop_module": LaunchConfiguration(
-                    "launch_dynamic_obstacle_stop_module"
-                ),
                 "launch_sensing_driver": "false",
             }.items(),
         ),
@@ -230,16 +250,6 @@ def generate_launch_description():
                 "enable_rviz",
                 default_value="true",
                 description="Launch RViz inside autoware.launch.xml",
-            ),
-            DeclareLaunchArgument(
-                "launch_obstacle_stop_module",
-                default_value="true",
-                description="Enable the static obstacle stop module",
-            ),
-            DeclareLaunchArgument(
-                "launch_dynamic_obstacle_stop_module",
-                default_value="true",
-                description="Enable the dynamic obstacle stop module",
             ),
             DeclareLaunchArgument(
                 "driver_respawn",

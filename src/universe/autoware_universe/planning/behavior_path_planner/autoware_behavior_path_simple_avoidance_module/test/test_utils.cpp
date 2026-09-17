@@ -296,6 +296,65 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsLostCandidateBeforeCommitment)
   EXPECT_EQ(decision.action, AvoidanceLifecycleAction::CANCEL_CANDIDATE);
 }
 
+TEST_F(SimpleAvoidanceUtilsTest, MergeShiftLinesPreservesCommittedPrefix)
+{
+  const auto make_line = [](const size_t start_idx, const size_t end_idx,
+                            const double start_shift, const double end_shift) {
+    ShiftLine line;
+    line.start_idx = start_idx;
+    line.end_idx = end_idx;
+    line.start_shift_length = start_shift;
+    line.end_shift_length = end_shift;
+    return line;
+  };
+
+  const ShiftLine committed_prefix = make_line(2, 8, 0.0, -0.9);
+  const ShiftLine old_return = make_line(12, 40, -0.9, 0.0);
+  const ShiftLine new_avoid = make_line(18, 28, 0.0, -0.9);
+  const ShiftLine new_return = make_line(34, 46, -0.9, 0.0);
+
+  const auto merged = mergeShiftLines(
+    {old_return, committed_prefix}, {new_return, new_avoid});
+
+  ASSERT_EQ(merged.size(), 3U);
+  EXPECT_EQ(merged.at(0).start_idx, committed_prefix.start_idx);
+  EXPECT_EQ(merged.at(1).start_idx, new_avoid.start_idx);
+  EXPECT_EQ(merged.at(2).start_idx, new_return.start_idx);
+  EXPECT_EQ(merged.at(0).end_shift_length, committed_prefix.end_shift_length);
+  EXPECT_EQ(merged.at(1).end_shift_length, new_avoid.end_shift_length);
+  EXPECT_EQ(merged.at(2).end_shift_length, new_return.end_shift_length);
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, MergeShiftLinesKeepsNonConflictingOppositeReturn)
+{
+  ShiftLine registered_return;
+  registered_return.start_idx = 12;
+  registered_return.end_idx = 16;
+  registered_return.start_shift_length = -0.9;
+  registered_return.end_shift_length = 0.0;
+
+  ShiftLine opposite_avoid;
+  opposite_avoid.start_idx = 18;
+  opposite_avoid.end_idx = 28;
+  opposite_avoid.start_shift_length = 0.0;
+  opposite_avoid.end_shift_length = 0.9;
+
+  ShiftLine opposite_return;
+  opposite_return.start_idx = 34;
+  opposite_return.end_idx = 46;
+  opposite_return.start_shift_length = 0.9;
+  opposite_return.end_shift_length = 0.0;
+
+  const auto merged = mergeShiftLines(
+    {registered_return}, {opposite_avoid, opposite_return});
+
+  ASSERT_EQ(merged.size(), 3U);
+  EXPECT_EQ(merged.at(0).start_idx, registered_return.start_idx);
+  EXPECT_EQ(merged.at(1).start_idx, opposite_avoid.start_idx);
+  EXPECT_EQ(merged.at(2).start_idx, opposite_return.start_idx);
+  EXPECT_DOUBLE_EQ(merged.at(1).end_shift_length, 0.9);
+}
+
 TEST_F(SimpleAvoidanceUtilsTest, LifecycleCommitsCandidateAfterExecutionStarts)
 {
   AvoidanceLifecycleObservation observation;

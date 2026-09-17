@@ -53,10 +53,11 @@ public:
     RCLCPP_INFO(this->get_logger(), "Side Lidar CropBox Node Initialized with 3D Transform");
     RCLCPP_INFO(this->get_logger(), "Roll: %.2f, Pitch: %.2f, Yaw: %.2f", TransformRoll, TransformPitch, TransformYaw);
 
-    // 2. 订阅与发布
-    pub_filtered_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, 10);
+    // 2. 订阅与发布 - 使用 SensorDataQoS (Best Effort) 避免队列积压，保证实时性并与 Autoware 节点匹配
+    rclcpp::SensorDataQoS sensor_qos;
+    pub_filtered_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, sensor_qos);
     sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        input_topic, 10,
+        input_topic, sensor_qos,
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
           this->pointCloudCallback(msg);
         });
@@ -65,6 +66,10 @@ public:
 private:
   void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
+    if (msg->data.empty() || msg->width * msg->height == 0) {
+      return;
+    }
+
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZI>);
     pcl::fromROSMsg(*msg, *cloud_in); 
 
@@ -102,7 +107,7 @@ private:
       filtered->points.push_back(pt);
     }
 
-    //设置点云元数据
+    // 设置点云元数据
     filtered->width = filtered->points.size();
     filtered->height = 1;
     filtered->is_dense = true;

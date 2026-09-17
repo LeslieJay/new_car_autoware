@@ -63,8 +63,11 @@ sleep 1
 
 # 5. 显式复位档位为 DRIVE（辅助 shift_decider / gate 脱离 LOCAL 时的 R 锁存）
 echo "[5/5] 复位档位为 DRIVE..."
-ros2 topic pub --once /control/shift_decider/gear_cmd \
-  autoware_vehicle_msgs/msg/GearCommand "{stamp: {sec: 0, nanosec: 0}, command: 2}" >/dev/null
+if ! timeout 10s ros2 topic pub --once /control/shift_decider/gear_cmd \
+  autoware_vehicle_msgs/msg/GearCommand \
+  "{stamp: {sec: 0, nanosec: 0}, command: 2}" >/dev/null; then
+  echo "WARNING: DRIVE 档位一次性发布超时，继续读取车辆状态" >&2
+fi
 
 sleep 0.5
 
@@ -72,9 +75,9 @@ sleep 0.5
 # of the latched status topics immediately after the mode hand-off; that must
 # not turn a successful four-service transition into a false shell failure.
 set +e
-gate_mode=$(ros2 topic echo /control/current_gate_mode --once 2>/dev/null | awk '/data:/ {print $2; exit}')
-gear_cmd=$(ros2 topic echo /control/command/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
-shift_gear=$(ros2 topic echo /control/shift_decider/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
+gate_mode=$(timeout 8s ros2 topic echo /control/current_gate_mode --once 2>/dev/null | awk '/data:/ {print $2; exit}')
+gear_cmd=$(timeout 8s ros2 topic echo /control/command/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
+shift_gear=$(timeout 8s ros2 topic echo /control/shift_decider/gear_cmd --once 2>/dev/null | awk '/command:/ {print $2; exit}')
 set -e
 
 echo "=== 切回完成 ==="

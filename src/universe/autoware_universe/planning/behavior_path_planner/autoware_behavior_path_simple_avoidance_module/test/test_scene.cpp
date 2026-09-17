@@ -315,6 +315,80 @@ TEST_F(SimpleAvoidanceSceneTest, CommittedAvoidanceContinuesAfterTargetLossAndPa
   EXPECT_EQ(module.getCurrentStatus(), ModuleStatus::SUCCESS);
 }
 
+TEST_F(SimpleAvoidanceSceneTest, ReturningDetectsNewObstacleAndKeepsPathContinuous)
+{
+  rclcpp::Node node{"simple_avoidance_returning_new_target_test"};
+  auto parameters = makeParameters();
+  parameters->target_lost_time_threshold = 0.0;
+  parameters->lateral_execution_threshold = 0.1;
+  parameters->commitment_distance_before_shift_start = 2.0;
+  auto trailer_store = std::make_shared<TrailerConfigurationStore>();
+  const std::unordered_map<std::string, std::shared_ptr<RTCInterface>> rtc_interfaces;
+  std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
+    marker_interfaces;
+  SimpleAvoidanceModule module{
+    "simple_avoidance", node,   parameters, trailer_store, rtc_interfaces,
+    marker_interfaces,  nullptr};
+
+  auto odometry = std::make_shared<nav_msgs::msg::Odometry>();
+  odometry->pose.pose.orientation.w = 1.0;
+  odometry->twist.twist.linear.x = 1.0;
+  auto planner_data = std::make_shared<PlannerData>();
+  planner_data->self_odometry = odometry;
+  planner_data->dynamic_object = makeStaticObstacle(20.0, 31);
+  planner_data->parameters.vehicle_width = 1.0;
+  planner_data->parameters.backward_path_length = 10.0;
+  planner_data->parameters.forward_path_length = 100.0;
+  planner_data->parameters.input_path_interval = 1.0;
+  planner_data->parameters.ego_nearest_dist_threshold = 3.0;
+  planner_data->parameters.ego_nearest_yaw_threshold = 1.57;
+  module.setData(planner_data);
+
+  const auto upstream = makeStraightOutput(101);
+  module.setPreviousModuleOutput(upstream);
+  module.onEntry();
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  // Enter the commitment window while the first target is still present.
+  odometry->pose.pose.position.x = 8.0;
+  module.setPreviousModuleOutput(upstream);
+  ASSERT_FALSE(module.run().path.points.empty());
+
+  // The first target is gone; the committed path must begin returning instead of being reset.
+  planner_data->dynamic_object =
+    std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
+  odometry->pose.pose.position.x = 14.0;
+  module.setPreviousModuleOutput(upstream);
+  const auto returning_output = module.run();
+  ASSERT_FALSE(returning_output.path.points.empty());
+
+  // A second target appears before the vehicle has returned to the center line.
+  planner_data->dynamic_object = makeStaticObstacle(50.0, 32);
+  odometry->pose.pose.position.x = 18.0;
+  module.setPreviousModuleOutput(upstream);
+  const auto replanned_output = module.run();
+  ASSERT_FALSE(replanned_output.path.points.empty());
+
+  const auto lateral_offset_near = [](const BehaviorModuleOutput & output, const double x) {
+    const auto closest = std::min_element(
+      output.path.points.begin(), output.path.points.end(),
+      [x](const auto & left, const auto & right) {
+        return std::abs(left.point.pose.position.x - x) < std::abs(right.point.pose.position.x - x);
+      });
+    return closest->point.pose.position.y;
+  };
+
+  // The old return line ends near x=35.5. The second target must extend the avoidance path beyond
+  // that point, proving that RETURNING did not suppress target refresh.
+  EXPECT_LT(lateral_offset_near(replanned_output, 45.0), -0.1);
+  EXPECT_LT(
+    std::abs(
+      lateral_offset_near(replanned_output, 18.0) - lateral_offset_near(returning_output, 18.0)),
+    0.1);
+  module.updateCurrentState();
+  EXPECT_EQ(module.getCurrentStatus(), ModuleStatus::RUNNING);
+}
+
 TEST_F(SimpleAvoidanceSceneTest, AvoidanceStartCommitmentWindowPreventsLateStop)
 {
   rclcpp::Node node{"simple_avoidance_commitment_window_test"};

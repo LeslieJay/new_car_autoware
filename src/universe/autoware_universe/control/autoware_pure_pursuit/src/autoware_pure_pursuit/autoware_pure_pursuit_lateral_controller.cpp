@@ -89,6 +89,8 @@ PurePursuitLateralController::PurePursuitLateralController(rclcpp::Node & node)
     node.declare_parameter<double>("curvature_calculation_distance");
   param_.enable_path_smoothing = node.declare_parameter<bool>("enable_path_smoothing");
   param_.path_filter_moving_ave_num = node.declare_parameter<int64_t>("path_filter_moving_ave_num");
+  param_.publish_steering_diagnostics =
+    node.declare_parameter<bool>("publish_steering_diagnostics", false);
 
   // Debug Publishers
   pub_debug_marker_ =
@@ -382,6 +384,7 @@ Lateral PurePursuitLateralController::generateOutputControlCmd()
 
   if (pp_output) {
     output_cmd = generateCtrlCmdMsg(pp_output->curvature);
+    logSteeringDiagnostics(pp_output->curvature, output_cmd);
     prev_cmd_ = boost::optional<Lateral>(output_cmd);
     publishDebugMarker();
   } else {
@@ -394,6 +397,29 @@ Lateral PurePursuitLateralController::generateOutputControlCmd()
     }
   }
   return output_cmd;
+}
+
+void PurePursuitLateralController::logSteeringDiagnostics(
+  const double target_curvature, const Lateral & command) const
+{
+  if (!param_.publish_steering_diagnostics) {
+    return;
+  }
+
+  const double raw_steering =
+    planning_utils::convertCurvatureToSteeringAngle(param_.wheel_base, target_curvature);
+  const bool clamped = std::abs(raw_steering) > param_.max_steering_angle;
+  RCLCPP_INFO(
+    logger_,
+    "[DEBUG-PP-STEER] target_curvature=%.6f raw_front_wheel_angle_rad=%.6f "
+    "raw_front_wheel_angle_deg=%.3f clamped_front_wheel_angle_rad=%.6f "
+    "clamped_front_wheel_angle_deg=%.3f max_steering_angle_rad=%.6f "
+    "max_steering_angle_deg=%.3f hard_clamp=%s",
+    target_curvature, raw_steering, raw_steering * 180.0 / M_PI,
+    static_cast<double>(command.steering_tire_angle),
+    static_cast<double>(command.steering_tire_angle) * 180.0 / M_PI,
+    param_.max_steering_angle, param_.max_steering_angle * 180.0 / M_PI,
+    clamped ? "true" : "false");
 }
 
 Lateral PurePursuitLateralController::generateCtrlCmdMsg(const double target_curvature)

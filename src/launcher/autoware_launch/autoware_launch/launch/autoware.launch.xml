@@ -10,10 +10,6 @@
   <!-- launch module preset -->
   <arg name="planning_module_preset" default="default" description="planning module preset"/>
   <arg name="control_module_preset" default="default" description="control module preset"/>
-  <arg name="launch_simple_avoidance" default="true" description="enable Simple Avoidance"/>
-  <arg name="launch_simple_lc_avoidance" default="true" description="enable Simple Lane Change Avoidance"/>
-  <arg name="launch_obstacle_stop_module" default="true" description="enable Obstacle Stop"/>
-  <arg name="launch_dynamic_obstacle_stop_module" default="true" description="enable Dynamic Obstacle Stop"/>
   <arg name="lateral_controller_mode" default="pure_pursuit" description="lateral controller: mpc or pure_pursuit"/>
 
   <!-- Optional parameters -->
@@ -126,10 +122,6 @@
   <group if="$(var launch_planning)">
     <include file="$(find-pkg-share autoware_launch)/launch/components/tier4_planning_component.launch.xml">
       <arg name="module_preset" value="$(var planning_module_preset)"/>
-      <arg name="launch_simple_avoidance" value="$(var launch_simple_avoidance)"/>
-      <arg name="launch_simple_lc_avoidance" value="$(var launch_simple_lc_avoidance)"/>
-      <arg name="launch_obstacle_stop_module" value="$(var launch_obstacle_stop_module)"/>
-      <arg name="launch_dynamic_obstacle_stop_module" value="$(var launch_dynamic_obstacle_stop_module)"/>
       <arg name="enable_all_modules_auto_mode" value="$(var enable_all_modules_auto_mode)"/>
       <arg name="is_simulation" value="$(var is_simulation)"/>
       <arg name="use_sim_time" value="$(var use_sim_time)"/>

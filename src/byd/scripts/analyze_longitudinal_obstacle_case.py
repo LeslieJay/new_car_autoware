@@ -26,6 +26,9 @@ START_OW = 0.8589569589419735
 OBSTACLE_LENGTH_M = 2.0
 VEHICLE_LENGTH_M = 1.008 + 0.546 + 0.676
 VEHICLE_WIDTH_M = 0.835 + 0.235 + 0.235
+# Autoware's base_link is at the rear axle.  The collision envelope center is
+# therefore forward of base_link by half(front_extent - rear_extent).
+BASE_LINK_TO_VEHICLE_CENTER_M = ((1.008 + 0.546) - 0.676) / 2.0
 
 
 def quat_to_yaw(ox: float, oy: float, oz: float, ow: float) -> float:
@@ -35,6 +38,12 @@ def quat_to_yaw(ox: float, oy: float, oz: float, ow: float) -> float:
 def longitudinal(x: float, y: float) -> float:
     yaw = quat_to_yaw(START_OX, START_OY, START_OZ, START_OW)
     return (x - START_X) * math.cos(yaw) + (y - START_Y) * math.sin(yaw)
+
+
+def lateral_offset(x: float, y: float) -> float:
+    """Signed offset from the test route centerline; positive is left."""
+    yaw = quat_to_yaw(START_OX, START_OY, START_OZ, START_OW)
+    return -(x - START_X) * math.sin(yaw) + (y - START_Y) * math.cos(yaw)
 
 
 def uuid_hex(value) -> str:
@@ -57,16 +66,18 @@ def rectangle_signed_clearance(
 ) -> float:
     """Return positive separation, or negative overlap, for two OBBs.
 
-    The vehicle dimensions match the BYD vehicle_info parameters.  The base_link
-    pose is used as the vehicle rectangle center, which is conservative for this
-    collision sanity check and is preferable to treating the object as a point.
+    The vehicle dimensions match the BYD vehicle_info parameters.  The incoming
+    ego pose is base_link (rear axle), so shift it to the vehicle envelope center
+    before applying the separating-axis test.
     """
     ego_axes = ((math.cos(ego_yaw), math.sin(ego_yaw)), (-math.sin(ego_yaw), math.cos(ego_yaw)))
     obstacle_axes = (
         (math.cos(obstacle_yaw), math.sin(obstacle_yaw)),
         (-math.sin(obstacle_yaw), math.cos(obstacle_yaw)),
     )
-    delta = (obstacle_x - ego_x, obstacle_y - ego_y)
+    ego_center_x = ego_x + BASE_LINK_TO_VEHICLE_CENTER_M * math.cos(ego_yaw)
+    ego_center_y = ego_y + BASE_LINK_TO_VEHICLE_CENTER_M * math.sin(ego_yaw)
+    delta = (obstacle_x - ego_center_x, obstacle_y - ego_center_y)
     ego_half = (VEHICLE_LENGTH_M / 2.0, VEHICLE_WIDTH_M / 2.0)
     obstacle_half = (obstacle_length / 2.0, obstacle_width / 2.0)
     clearances = []
@@ -81,6 +92,9 @@ def rectangle_signed_clearance(
             for half, basis in zip(obstacle_half, obstacle_axes)
         )
         clearances.append(projection - ego_radius - obstacle_radius)
+    # OBBs are separated if any candidate axis has a positive gap.  The maximum
+    # signed axis gap is therefore the SAT separation metric: negative means
+    # overlap on every axis, zero means contact, positive means separation.
     return max(clearances)
 
 
@@ -119,6 +133,53 @@ def count_log_matches_since(
     return count
 
 
+def classify_result(
+    *,
+    bag_valid: bool,
+    object_count_ok: bool,
+    add_count_ok: bool,
+    clear_confirmed: bool,
+    module_configuration_ok: bool,
+    has_dynamic_obstacle_stop: bool,
+    mrm_operation_count: int,
+    invalid_trajectory_count: int,
+    min_collision_clearance: float | None,
+    timeout: bool,
+    monitor_result: str | None,
+    vehicle_passed: bool,
+    goal_reached: bool,
+    has_simple_avoidance: bool,
+    obstacle_stop_behavior_ok: bool,
+    pre_obstacle_motion: bool,
+) -> tuple[str, str]:
+    """Map raw case evidence to the stable matrix result vocabulary."""
+    if not bag_valid:
+        return "SETUP_INVALID", "MISSING_ROSBAG_OR_GROUND_TRUTH"
+    if not object_count_ok or not add_count_ok or not clear_confirmed:
+        return "SETUP_INVALID", "PERCEPTION_OBJECT_OR_CLEAR_INVALID"
+    if not module_configuration_ok or has_dynamic_obstacle_stop:
+        return "SETUP_INVALID", "MODULE_CONFIGURATION_INVALID"
+    if mrm_operation_count > 0:
+        return "MRM", "MRM_OPERATION_DETECTED"
+    if invalid_trajectory_count > 0:
+        return "INVALID_TRAJECTORY", "INVALID_TRAJECTORY_DETECTED"
+    if min_collision_clearance is not None and min_collision_clearance < 0.0:
+        return "COLLISION", "NEGATIVE_RECTANGLE_CLEARANCE"
+    if timeout or monitor_result == "TIMEOUT":
+        return "TIMEOUT", "OBSERVATION_TIMEOUT"
+    if not vehicle_passed:
+        return "STOPPED_BEFORE_OBSTACLE", "OBSTACLE_NOT_CROSSED"
+    if not goal_reached:
+        return "STOPPED_AFTER_OBSTACLE", "GOAL_NOT_REACHED"
+    if not has_simple_avoidance:
+        return "STOPPED_BEFORE_OBSTACLE", "NO_SIMPLE_AVOIDANCE_FACTOR"
+    if not obstacle_stop_behavior_ok or pre_obstacle_motion:
+        return "STOPPED_BEFORE_OBSTACLE", "UNEXPECTED_STOP_OR_PRE_OBSTACLE_MOTION"
+    if not (min_collision_clearance is not None and min_collision_clearance >= 0.0):
+        return "COLLISION", "COLLISION_CLEARANCE_UNAVAILABLE"
+    return "PASS", ""
+
+
 def analyze(args: argparse.Namespace) -> dict:
     types = {
         "/simulation/dummy_perception_publisher/object_info": DummyObject,
@@ -131,6 +192,19 @@ def analyze(args: argparse.Namespace) -> dict:
         "/planning/planning_factors/obstacle_stop": PlanningFactorArray,
         "/planning/planning_factors/dynamic_obstacle_stop": PlanningFactorArray,
     }
+    if not args.bag.exists():
+        return {
+            "case_id": args.case_id,
+            "repetition": args.repetition,
+            "longitudinal_m": args.distance,
+            "intrusion_m": args.intrusion,
+            "shoulder": args.shoulder,
+            "result": "SETUP_INVALID",
+            "failure_category": "SETUP_INVALID",
+            "early_stop_reason": "MISSING_ROSBAG",
+            "bag_path": str(args.bag),
+        }
+
     reader = rosbag2_py.SequentialReader()
     reader.open(
         rosbag2_py.StorageOptions(uri=str(args.bag), storage_id="sqlite3"),
@@ -154,6 +228,7 @@ def analyze(args: argparse.Namespace) -> dict:
     has_obstacle_stop = False
     has_dynamic_obstacle_stop = False
     ego_samples: list[tuple[int, float]] = []
+    ego_speed_samples: list[tuple[int, float]] = []
     ego_poses: list[tuple[int, float, float, float]] = []
 
     while reader.has_next():
@@ -217,6 +292,7 @@ def analyze(args: argparse.Namespace) -> dict:
                 msg.pose.pose.orientation.w,
             )
             ego_samples.append((bag_time, longitudinal(ego_x, ego_y)))
+            ego_speed_samples.append((bag_time, float(msg.twist.twist.linear.x)))
             ego_poses.append((bag_time, ego_x, ego_y, ego_yaw))
         elif topic == "/planning/planning_factors/simple_avoidance":
             has_simple_avoidance = has_simple_avoidance or factor_has_behavior(msg, 4) or factor_has_behavior(msg, 5)
@@ -322,32 +398,76 @@ def analyze(args: argparse.Namespace) -> dict:
     )
     obstacle_stop_behavior_ok = args.allow_obstacle_stop or not has_obstacle_stop
 
-    if not args.bag.exists() or max_ground_truth_count == 0:
-        result = "INCOMPLETE"
-    elif (
-        object_count_ok
-        and args.clear_confirmed
-        and add_count_ok
-        and has_simple_avoidance
-        and vehicle_passed
-        and obstacle_stop_behavior_ok
-        and not has_dynamic_obstacle_stop
-        and module_configuration_ok
-        and collision_free
-        and invalid_trajectory_count == 0
-        and mrm_operation_count == 0
-        and not pre_obstacle_motion
-    ):
-        result = "PASS"
-    else:
-        result = "FAIL"
+    goal_reached = bool(
+        monitor_data.get("goal_reached", monitor_data.get("monitor_result") == "ARRIVED")
+    )
+    monitor_result = monitor_data.get("monitor_result")
+
+    result, failure_reason = classify_result(
+        bag_valid=args.bag.exists() and max_ground_truth_count > 0,
+        object_count_ok=object_count_ok,
+        add_count_ok=add_count_ok,
+        clear_confirmed=args.clear_confirmed,
+        module_configuration_ok=module_configuration_ok,
+        has_dynamic_obstacle_stop=has_dynamic_obstacle_stop,
+        mrm_operation_count=mrm_operation_count,
+        invalid_trajectory_count=invalid_trajectory_count,
+        min_collision_clearance=min_collision_clearance,
+        timeout=bool(monitor_data.get("timeout", False)),
+        monitor_result=monitor_result,
+        vehicle_passed=vehicle_passed,
+        goal_reached=goal_reached,
+        has_simple_avoidance=has_simple_avoidance,
+        obstacle_stop_behavior_ok=obstacle_stop_behavior_ok,
+        pre_obstacle_motion=pre_obstacle_motion,
+    )
+    if result != "PASS" and monitor_data.get("early_stop_reason"):
+        failure_reason = str(monitor_data["early_stop_reason"])
+
+    post_add_speeds = [
+        (timestamp, speed)
+        for timestamp, speed in ego_speed_samples
+        if first_add_time is None or timestamp >= first_add_time
+    ]
+    max_speed_mps = max((abs(speed) for _, speed in post_add_speeds), default=None)
+    min_speed_mps = min((abs(speed) for _, speed in post_add_speeds), default=None)
+    max_stopped_sec = 0.0
+    stopped_start: int | None = None
+    previous_time: int | None = None
+    active_started = False
+    for timestamp, speed in post_add_speeds:
+        contiguous = previous_time is not None and timestamp - previous_time <= 2_000_000_000
+        if abs(speed) > 0.2:
+            active_started = True
+        if abs(speed) <= 0.2 and active_started:
+            if stopped_start is None or not contiguous:
+                stopped_start = timestamp
+        elif stopped_start is not None and previous_time is not None:
+            max_stopped_sec = max(max_stopped_sec, (previous_time - stopped_start) / 1e9)
+            stopped_start = None
+        previous_time = timestamp
+    if stopped_start is not None and previous_time is not None:
+        max_stopped_sec = max(max_stopped_sec, (previous_time - stopped_start) / 1e9)
+
+    max_abs_lateral = max(
+        (abs(lateral_offset(x, y)) for _, x, y, _ in ego_poses), default=None
+    )
+    max_signed_lateral = max(
+        (lateral_offset(x, y) for _, x, y, _ in ego_poses), default=None
+    )
+    min_signed_lateral = min(
+        (lateral_offset(x, y) for _, x, y, _ in ego_poses), default=None
+    )
 
     return {
+        "case_id": args.case_id,
+        "repetition": args.repetition,
         "longitudinal_m": args.distance,
-        "intrusion_m": 0.5,
-        "shoulder": "right",
+        "intrusion_m": args.intrusion,
+        "shoulder": args.shoulder,
         "label": "unknown",
         "result": result,
+        "failure_category": None if result == "PASS" else result,
         "clear_confirmed": args.clear_confirmed,
         "object_count": max_ground_truth_count,
         "dummy_unique_ids": len(dummy_ids),
@@ -372,6 +492,9 @@ def analyze(args: argparse.Namespace) -> dict:
         "mrm_operation_count": mrm_operation_count,
         "mrm_count_start_epoch": mrm_start_epoch,
         "obstacle_longitudinal_m": obstacle_lon,
+        "obstacle_x": obstacle_center[0] if obstacle_center is not None else None,
+        "obstacle_y": obstacle_center[1] if obstacle_center is not None else None,
+        "obstacle_yaw": obstacle_yaw,
         "max_ego_longitudinal_m": max_ego_lon,
         "vehicle_passed": vehicle_passed,
         "obstacle_crossed": bool(monitor_data.get("obstacle_crossed", vehicle_passed)),
@@ -386,6 +509,25 @@ def analyze(args: argparse.Namespace) -> dict:
         "early_stop_reason": monitor_data.get("early_stop_reason"),
         "timeout": bool(monitor_data.get("timeout", False)),
         "monitor_result": monitor_data.get("monitor_result"),
+        "failure_reason": failure_reason,
+        "max_abs_lateral_offset_m": max_abs_lateral,
+        "max_signed_lateral_offset_m": max_signed_lateral,
+        "min_signed_lateral_offset_m": min_signed_lateral,
+        "min_speed_mps": min_speed_mps,
+        "max_speed_mps": max_speed_mps,
+        "max_stopped_sec": max_stopped_sec,
+        "time_to_obstacle_cross_sec": (
+            monitor_data.get("obstacle_crossed_epoch") - monitor_data.get("start_epoch")
+            if monitor_data.get("obstacle_crossed_epoch") is not None
+            and monitor_data.get("start_epoch") is not None
+            else None
+        ),
+        "time_to_goal_sec": (
+            monitor_data.get("goal_reached_epoch") - monitor_data.get("start_epoch")
+            if monitor_data.get("goal_reached_epoch") is not None
+            and monitor_data.get("start_epoch") is not None
+            else None
+        ),
         "bag_path": str(args.bag),
         "log_paths": [str(path) for path in log_paths],
     }
@@ -395,6 +537,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bag", type=Path, required=True)
     parser.add_argument("--distance", type=float, required=True)
+    parser.add_argument("--intrusion", type=float, default=0.5)
+    parser.add_argument("--shoulder", choices=("left", "right"), default="right")
+    parser.add_argument("--case-id", default="")
+    parser.add_argument("--repetition", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--log", type=Path, action="append", default=[])
     parser.add_argument("--monitor", type=Path, default=None)
@@ -421,11 +567,25 @@ def main() -> int:
         help="调用方已在该测试点结束后确认三条感知链路为空",
     )
     args = parser.parse_args()
-    result = analyze(args)
+    try:
+        result = analyze(args)
+    except Exception as exc:  # rosbag corruption and missing type support
+        result = {
+            "case_id": args.case_id,
+            "repetition": args.repetition,
+            "longitudinal_m": args.distance,
+            "intrusion_m": args.intrusion,
+            "shoulder": args.shoulder,
+            "result": "SETUP_INVALID",
+            "failure_category": "SETUP_INVALID",
+            "early_stop_reason": f"ROSBAG_ANALYSIS_ERROR:{type(exc).__name__}",
+            "failure_reason": str(exc),
+            "bag_path": str(args.bag),
+        }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["result"] != "INCOMPLETE" else 2
+    return 0 if result["result"] != "SETUP_INVALID" else 2
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
   <!-- launch module preset -->
   <arg name="planning_module_preset" default="default" description="planning module preset"/>
   <arg name="control_module_preset" default="default" description="control module preset"/>
+  <arg name="lateral_controller_mode" default="pure_pursuit" description="lateral controller: mpc or pure_pursuit"/>
 
   <!-- Optional parameters -->
   <!-- Modules to be launched -->
@@ -46,6 +47,7 @@
       <!-- launch module preset -->
       <arg name="planning_module_preset" value="$(var planning_module_preset)"/>
       <arg name="control_module_preset" value="$(var control_module_preset)"/>
+      <arg name="lateral_controller_mode" value="$(var lateral_controller_mode)"/>
       <!-- Modules to be launched -->
       <arg name="launch_vehicle" value="$(var vehicle)"/>
       <arg name="launch_map" value="$(var map)"/>

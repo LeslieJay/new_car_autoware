@@ -13,7 +13,6 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(cv_bridge REQUIRED)
 
 # 2. 查找 Autoware 消息依赖
 find_package(autoware_vehicle_msgs REQUIRED)
@@ -30,7 +29,6 @@ add_executable(multi_recorder_node src/multi_recorder_node.cpp)
 ament_target_dependencies(multi_recorder_node
   rclcpp
   sensor_msgs
-  cv_bridge
   autoware_vehicle_msgs
 )
 

@@ -2,6 +2,7 @@
 """Tests for the theoretical avoidance-matrix report generator."""
 
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
@@ -48,6 +49,7 @@ class TheoreticalAvoidanceMatrixTest(unittest.TestCase):
             lc_lateral_jerk_mps3=0.2,
             lc_min_shifting_speed_mps=1.0,
             lc_max_shift_length_m=4.5,
+            lc_stop_margin_before_object_m=1.0,
         )
 
         row = self.generator.calculate_case(
@@ -77,6 +79,7 @@ class TheoreticalAvoidanceMatrixTest(unittest.TestCase):
             lc_lateral_jerk_mps3=0.2,
             lc_min_shifting_speed_mps=1.0,
             lc_max_shift_length_m=4.5,
+            lc_stop_margin_before_object_m=1.0,
         )
 
         row = self.generator.calculate_case(
@@ -101,10 +104,30 @@ class TheoreticalAvoidanceMatrixTest(unittest.TestCase):
         self.assertTrue(all(len(group) == 3 for group in groups.values()))
         self.assertEqual(sum(row.expected_result == "FAIL" for row in rows), 18)
         self.assertEqual(sum(row.expected_result == "PASS" for row in rows), 36)
-        self.assertTrue(all(row.actual_result == "NOT_EXECUTED" for row in rows))
-        self.assertTrue(
-            all(row.actual_min_clearance_m == "NOT_EXECUTED" for row in rows)
-        )
+        self.assertEqual(sum(row.shoulder == "right" for row in rows), 27)
+        self.assertEqual(sum(row.shoulder == "left" for row in rows), 27)
+        self.assertEqual(rows, self.generator.build_rows(params))
+        self.assertGreaterEqual(len({row.expected_min_clearance_m for row in rows}), 45)
+        for row in rows:
+            self.assertGreaterEqual(row.expected_min_clearance_m, 0.0)
+            self.assertEqual(round(row.expected_min_clearance_m, 3), row.expected_min_clearance_m)
+            if row.module == self.generator.SIMPLE_AVOIDANCE:
+                threshold = params.lateral_margin_m
+            elif row.expected_result == "FAIL":
+                threshold = params.lc_stop_margin_before_object_m
+            else:
+                threshold = params.lc_lateral_margin_m
+            self.assertGreaterEqual(row.expected_min_clearance_m, threshold)
+            self.assertEqual(row.expected_mrm_count, 0)
+            self.assertEqual(row.expected_invalid_trajectory_count, 0)
+            if row.expected_result == "PASS":
+                self.assertEqual(row.expected_vehicle_passed, "YES")
+                self.assertEqual(row.expected_return_completed, "YES")
+                self.assertEqual(row.expected_stop_count, 0)
+            else:
+                self.assertEqual(row.expected_vehicle_passed, "NO")
+                self.assertEqual(row.expected_return_completed, "N/A")
+                self.assertEqual(row.expected_stop_count, 1)
 
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "matrix.md"
@@ -113,28 +136,36 @@ class TheoreticalAvoidanceMatrixTest(unittest.TestCase):
             detail = content.split("## 详细结果表", 1)[1]
             expected_columns = (
                 "case_id", "module", "speed_mps", "longitudinal_m", "intrusion_m",
-                "shoulder", "result", "remarks",
+                "shoulder", "result", "min_clearance_m", "obstacle_passed",
+                "return_completed", "stop_count", "MRM_count",
+                "Invalid_Trajectory_count", "remarks",
             )
             for column in expected_columns:
                 self.assertIn(column, detail)
             for removed_column in (
                 "required_shift_m", "jerk_distance_m", "theoretical_min_distance_m",
-                "distance_level", "engineering_margin_m", "expected_min_clearance_m",
-                "expected_vehicle_passed", "calculation_basis", "assessment_class",
+                "distance_level", "engineering_margin_m", "calculation_basis",
+                "assessment_class",
                 "expected_fail", "expected_pass", "actual_result",
-                "min_approx_clearance_m", "obstacle_passed", "return_completed",
+                "min_approx_clearance_m",
                 "actual_speed_max_mps", "tracking_valid", "obstacle_stop",
                 "dynamic_obstacle_stop", "invalid_trajectory_count",
                 "mrm_operation_count", "timeout", "bag_path", "log_path",
             ):
                 self.assertNotIn(removed_column, detail)
-            for placeholder in ("NOT_EVALUATED", "N/A", "NOT_EXECUTED"):
+            for placeholder in ("NOT_EVALUATED", "NOT_EXECUTED"):
                 self.assertNotIn(placeholder, content)
             table_lines = detail.splitlines()
             data_lines = [line for line in table_lines if line.startswith("| TC-")]
             self.assertEqual(len(data_lines), 54)
             self.assertEqual(sum("| FAIL |" in line for line in data_lines), 18)
             self.assertEqual(sum("| PASS |" in line for line in data_lines), 36)
+            clearance_values = [
+                field
+                for line in data_lines
+                for field in line.split("|")[8:9]
+            ]
+            self.assertTrue(all(re.fullmatch(r"\s*\d+\.\d{3}\s*", value) for value in clearance_values))
             header = next(line for line in table_lines if line.startswith("| case_id"))
             self.assertEqual(len(header.split("|")) - 2, len(expected_columns))
 

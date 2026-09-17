@@ -54,6 +54,28 @@ the selected module.
 
 参数敏感性使用 `config/simple_avoidance_sensitivity.yaml` 逐项生成测试矩阵。每次改变一个参数后必须重新启动 planning simulator，避免 ROS 参数只在节点启动时读取造成假对比。
 
+针对 11:17 绕障事件的曲率/边界反事实扫描可使用：
+
+```bash
+cd /home/nvidia/autoware
+bash src/byd/obstacle_avoidance_limit_test/run_steering_parameter_sweep.sh \
+  --bag /home/nvidia/autoware/log/20260914/110528_bag \
+  --start-offset 675 --playback-seconds 20 \
+  --output-root /tmp/simple_avoidance_parameter_sweep
+```
+
+默认扫描 `shifting_lateral_jerk={0.8,1.2,1.6,2.4}` 与
+`min_shifting_distance={5,4,3}`，每组仅改变这两个参数，并将结果写入
+`/tmp/simple_avoidance_steering_sweep_<timestamp>/`。脚本默认使用与
+`110528_bag` route lanelet ID 匹配的 `new_two_lanelet2_map_with_latlon.osm`，
+并从 bag 起点完整回放 30 秒以预热 route、route state、operation mode 后再回放 675 秒
+障碍物窗口；如测试其他 bag，可使用 `--route-preroll-offset`、
+`--route-preroll-seconds` 和地图选项覆盖。先用 `--dry-run` 检查 12 组矩阵；
+汇总文件为 `summary.csv` 和 `summary.md`。汇总默认取每组启动后第一条完整
+`pre_boundary_candidate`，保证各参数在同一回放阶段比较；其中 `max angle` 使用
+`atan(1.008 * curvature)`。边界结果来自 `[DEBUG-SA-STEER]` 日志，仅作附加记录，
+不作为本参数陡峭度对照的通过条件。
+
 当前判定还要求车辆实际纵向越过障碍物，并用车辆与障碍物在车道坐标系中的保守矩形间隙判定碰撞；因此只看到模块输出侧移而车辆没有驶过障碍物，不会计为成功。
 
 距离边界的主口径是模块第一次输出 `active target locked` 时的

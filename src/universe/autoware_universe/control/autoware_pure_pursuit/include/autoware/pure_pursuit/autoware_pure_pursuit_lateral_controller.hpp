@@ -90,6 +90,7 @@ struct Param
   double long_ld_lateral_error_threshold;
   bool enable_path_smoothing;
   int path_filter_moving_ave_num;
+  bool publish_steering_diagnostics;
 };
 
 struct DebugData
@@ -160,6 +161,8 @@ private:
   boost::optional<Trajectory> generatePredictedTrajectory();
 
   Lateral generateOutputControlCmd();
+
+  void logSteeringDiagnostics(const double target_curvature, const Lateral & command) const;
 
   bool calcIsSteerConverged(const Lateral & cmd);
 

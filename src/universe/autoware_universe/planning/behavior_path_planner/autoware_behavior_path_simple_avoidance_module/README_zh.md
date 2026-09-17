@@ -23,15 +23,15 @@ launch_simple_avoidance: "true"
 |------|--------------------------|----------------------------|
 | 代码规模 | ~8000 行（scene + utils + shift_line_generator + debug） | ~600 行（scene + utils + manager） |
 | 参数数量 | 300+ 项（按对象类型、策略分组） | 少量核心参数与拖车参数 |
-| 目标处理 | 多目标，复杂过滤链 | **仅最近一个**静止目标 |
+| 目标处理 | 多目标，复杂过滤链 | **单活动目标，按最近可行目标顺序接管** |
 | 对象类型 | 按 PEDESTRIAN / CAR / TRUCK 等分别配置 | 不区分类型，统一处理 |
-| 偏移线生成 | AvoidOutline → merge/trim/combine 多阶段 | 直接生成 avoid + return 两条 ShiftLine |
+| 偏移线生成 | AvoidOutline → merge/trim/combine 多阶段 | 直接生成 avoid + return，两者与已注册线冲突合成 |
 | RTC 审批 | 支持左右侧 RTC，ambiguous 车辆需人工批准 | **无 RTC**，`isExecutionReady()` 恒为 true |
 | 安全检查 | 相邻车道来车、对向车、hysteresis | **无** |
 | 速度规划 | insertPrepareVelocity / insertWaitPoint / insertStopPoint 等 | 正常绕障不修改速度；连续生成失败时例外停车 |
 | 状态机 | avoid / yield / stop / wait-and-see | IDLE / CANDIDATE / COMMITTED / RETURNING / STOPPING |
 | 不可行时行为 | 插入等待点或停车点 | 承诺前透传；承诺后短时复用连续路径，超时停车 |
-| 感知丢失补偿 | 有（compensateLostTargetObjects） | 锁定目标短时保持；承诺后沿既有轨迹回正 |
+| 感知丢失补偿 | 有（compensateLostTargetObjects） | 锁定目标短时保持；回正期间仍刷新并接管后续目标 |
 | 适用场景 | 开放道路、多类型障碍物、需人机协同 | 封闭道路、低速 AGV、环境可预期 |
 
 ---
@@ -60,7 +60,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[感知对象] --> B[简单过滤<br/>速度/车道/纵向距离/横向重叠]
-    B --> C[取最近一个目标]
+    B --> C[刷新活动目标<br/>短时丢失保持/通过后接管下一目标]
     C --> D{有目标?}
     D -->|否| E[透传上游路径]
     D -->|是| F[calcShiftLength<br/>计算偏移量]
@@ -68,18 +68,20 @@ flowchart TD
     G --> H{可行?}
     H -->|否| E
     H -->|是| I[buildShiftLines<br/>avoid + return 两条线]
-    I --> J[PathShifter 生成路径]
-    J --> K[扩展可行驶区域]
-    K --> L[输出路径]
+    I --> J[mergeShiftLines<br/>保留前缀/裁剪冲突尾段]
+    J --> K[PathShifter 生成路径]
+    K --> L[扩展可行驶区域]
+    L --> M[输出路径]
 ```
 
-核心差异：**Simple Avoidance 是一条直线流水线**，没有分支状态机，不可行就直接透传，不在路径上插停车/等待点。
+核心差异：**Simple Avoidance 保持轻量状态机**，单周期只规划一个目标；不可行时不覆盖已承诺轨迹，
+按当前失败状态机保持安全路径或停车，不引入 RTC 和复杂多目标生成器。
 
 ---
 
 ## 4. 逐项改动说明
 
-### 4.1 目标检测：从多目标复杂过滤到单目标最近优先
+### 4.1 目标检测：从多目标复杂过滤到单活动目标按可行性顺序接管
 
 **原版**（`filterTargetObjects` 等）检查：
 
@@ -142,7 +144,7 @@ shift_length = -required_clearance  // 障碍物在右侧
 - `addReturnShiftLine` — 条件性追加回正线
 - `findNewShiftLine` — 提取 RTC 待审批的新线
 
-**本模块** `buildShiftLines()` 直接构造两条 ShiftLine：
+**本模块** `buildShiftLines()` 直接构造两条 ShiftLine，并通过 `mergeShiftLines()` 与已注册线合成：
 
 | 线段 | 起点纵向 | 终点纵向 | 偏移变化 |
 |------|----------|----------|----------|
@@ -151,7 +153,7 @@ shift_length = -required_clearance  // 障碍物在右侧
 
 **为什么这样改：**
 
-- 单目标场景不需要 merge/combine/trim
+- 单目标生成仍保持简单，但连续目标出现时保留已承诺前缀并裁剪冲突尾段
 - 原版 return shift 常因 `no_enough_distance`、`object_near_goal` 等被跳过，导致绕障后无法回正
 - 直接两条线，行为可预测，便于仿真验证
 
@@ -164,9 +166,14 @@ shift_length = -required_clearance  // 障碍物在右侧
 - 目标一旦锁定，优先按 UUID 刷新
 - shifted path 导致 overlap 短暂变成 no-overlap 时，目标最多保持 `target_lost_time_threshold`
 - 已锁定目标使用 `target_hold_lateral_hysteresis`，避免阈值附近反复进入/退出
+- 目标通过或保持超时后，会在同一周期释放旧目标并选择下一个可行目标；车辆尚未回正时不会
+  因 `RETURNING` 状态跳过刷新
+- 新目标的 avoid/return shift line 与当前已注册线按起点和终点偏移冲突规则合成，保留已执行
+  前缀并替换被覆盖的未来回正线
 - `COMMITTED/RETURNING` 阶段即使目标保持超时，也继续用已承诺的 `PathShifter` 状态生成路径；
   shift line 清空后仍以正确的 `base_offset` 跟随滚动后的上游参考路径，直到完成回正
-- 只有 active target 已通过、shift line 清空、base offset 和 ego shift 都小于 `lateral_execution_threshold` 后，模块才允许 SUCCESS
+- 只有没有有效目标、shift line 清空、base offset/ego shift/实际偏移都小于
+  `lateral_execution_threshold`，并连续满足 `completion_stable_count` 周期后，模块才允许 SUCCESS
 
 这样可避免“刚生成避障路径，但 ego 还没开始横移，模块就 SUCCESS/DELETE”的问题。
 
@@ -290,6 +297,9 @@ planning。目标消失不属于路径生成失败：已承诺轨迹会继续执
 | `target_hold_lateral_hysteresis` | 0.3 | 已锁定目标 overlap 判断的横向迟滞 [m] |
 | `commitment_distance_before_shift_start` | 2.0 | 距第一条 shift line 起点不大于此距离时提前进入 COMMITTED [m]；负值按 0 处理 |
 | `lateral_execution_threshold` | 0.05 | 判断 base offset / ego shift 已回零的阈值 [m] |
+| `road_boundary_margin` | 0.10 | 车辆 footprint 与原始道路边界的最小安全间距 [m] |
+| `boundary_check_resample_interval` | 0.30 | 道路边界检查的粗采样间距 [m]；临界区域仍使用精确检查 |
+| `publish_steering_diagnostics` | false | 输出候选路径曲率、等效前轮角和边界净空诊断日志，不改变决策 |
 | `path_generation_failure_timeout` | 0.5 | 生成失败时复用最后连续轨迹的最长时间 [s] |
 | `completion_stable_count` | 3 | 回正条件连续满足多少个周期后才退出 |
 | `publish_debug_marker` | true | 是否发布 shift line 调试 marker |
@@ -341,6 +351,15 @@ grep 'SIMPLE_AVOIDANCE' your.log
 
 # debug marker（需 publish_debug_marker: true）
 ros2 topic echo /planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/debug/simple_avoidance --once
+
+# 候选路径/边界诊断（需 publish_steering_diagnostics: true）
+grep '\[DEBUG-SA-STEER\]' your.log
+
+# 对已有 bag 统一按 wheel_base 转换曲率与等效前轮角
+python3 src/byd/obstacle_avoidance_limit_test/scripts/analyze_avoidance_steering.py \
+  /home/nvidia/autoware/log/20260914/110528_bag \
+  --output /tmp/avoidance_steering_diagnosis.md --wheel-base 1.008 \
+  --max-steering-angle 0.65
 ```
 
 ### 5.4 编译
@@ -358,14 +377,14 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 ### 6.1 适用
 
 - 封闭园区 / 工厂 / 仓库等**固定路线**低速 AGV
-- 障碍物为**静止**物体，且一次只需绕**一个**
+- 障碍物为**静止**物体；每周期只规划一个活动目标，但同一 RUNNING 生命周期可连续接管后续目标
 - 不需要 RTC 人工审批
 - 希望**快速调通**绕障链路、减少参数维度
 
 ### 6.2 不适用（应切回 Static Avoidance）
 
 - 开放道路，需检查相邻车道来车、对向车
-- 多个障碍物需同时规划（同向排列、反方向等）
+- 需要对多个障碍物做全局联合优化（本模块只按可行性顺序逐个接管）
 - 需区分对象类型（行人 vs 车辆不同策略）
 - 需 wait-and-see（观察 merging/deviating 车辆）
 - 需 RTC 人工确认后再绕障
@@ -373,11 +392,12 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 
 ### 6.3 已知局限
 
-1. **单目标**：前方有两个障碍物时只绕最近的一个
+1. **单活动目标**：每周期只规划一个最近可行目标；连续障碍物可在同一 RUNNING 生命周期内依次接管，
+   但不做多目标全局联合优化
 2. **无安全兜底**：不检查侧方来车，依赖封闭场景假设
-3. **不可行时只透传**：不会主动停车，需下游 obstacle_stop 等模块兜底
-4. **不重新预测消失目标**：候选阶段目标消失会取消候选；已承诺阶段只保证沿已生成轨迹完成回正，
-   不会对消失目标重新估计位置或生成新的绕障方案
+3. **新目标不可行时保持安全**：不覆盖既有承诺/回正轨迹，按当前失败状态机继续安全路径或停车
+4. **不重新预测长期消失目标**：短时丢失使用 held target；保持超时后释放旧目标并尝试接管下一可行目标，
+   不对长期消失目标重新估计位置
 5. **无对象类型过滤**：动态行人/车辆若速度低于阈值可能被误当作绕障目标
 
 ---

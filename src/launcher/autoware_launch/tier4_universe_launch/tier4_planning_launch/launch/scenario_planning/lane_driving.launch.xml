@@ -1,8 +1,6 @@
 <launch>
   <arg name="enable_all_modules_auto_mode"/>
   <arg name="is_simulation"/>
-  <arg name="launch_obstacle_stop_module" default="true"/>
-  <arg name="launch_dynamic_obstacle_stop_module" default="true"/>
   <arg name="input_objects_topic_name"/>
   <arg name="input_pointcloud_topic_name"/>
 
@@ -29,8 +27,6 @@
       <group>
         <include file="$(find-pkg-share tier4_planning_launch)/launch/scenario_planning/lane_driving/motion_planning/motion_planning.launch.xml">
           <arg name="container_type" value="component_container_mt"/>
-          <arg name="launch_obstacle_stop_module" value="$(var launch_obstacle_stop_module)"/>
-          <arg name="launch_dynamic_obstacle_stop_module" value="$(var launch_dynamic_obstacle_stop_module)"/>
           <arg name="input_objects_topic_name" value="$(var input_objects_topic_name)"/>
           <arg name="input_pointcloud_topic_name" value="$(var input_pointcloud_topic_name)"/>
         </include>

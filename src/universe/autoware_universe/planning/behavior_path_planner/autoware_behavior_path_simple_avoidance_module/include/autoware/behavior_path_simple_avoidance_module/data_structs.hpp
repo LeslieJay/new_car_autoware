@@ -99,6 +99,8 @@ struct SimpleAvoidanceParameters
   double commitment_distance_before_shift_start{2.0};
   double lateral_execution_threshold{0.05};
   double road_boundary_margin{0.1};
+  double boundary_check_resample_interval{0.3};
+  bool publish_steering_diagnostics{false};
   double path_generation_failure_timeout{0.5};
   size_t completion_stable_count{3};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};

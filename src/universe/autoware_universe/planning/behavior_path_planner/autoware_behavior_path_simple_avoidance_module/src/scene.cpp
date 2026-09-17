@@ -30,21 +30,292 @@
 #include <boost/geometry/algorithms/correct.hpp>
 #include <boost/geometry/algorithms/covered_by.hpp>
 #include <boost/geometry/algorithms/distance.hpp>
+#include <boost/geometry/algorithms/envelope.hpp>
 #include <boost/geometry/algorithms/intersects.hpp>
 #include <boost/geometry/algorithms/is_valid.hpp>
+#include <boost/geometry/index/rtree.hpp>
 
 #include <lanelet2_core/primitives/LineString.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <functional>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace autoware::behavior_path_planner
 {
+
+struct SimpleAvoidanceBoundaryClearanceDetails
+{
+  double minimum_clearance{std::numeric_limits<double>::max()};
+  size_t path_index{0};
+  std::string side{"none"};
+  autoware_utils::Point2d nearest_footprint_vertex{};
+  std::vector<autoware_utils::Point2d> area_vertices;
+  bool valid{false};
+};
+
+struct SimpleAvoidanceBoundaryValidationCache
+{
+  using BoundaryRTree = boost::geometry::index::rtree<
+    autoware_utils::Segment2d, boost::geometry::index::rstar<16>>;
+
+  autoware_utils::LineString2d left_bound;
+  autoware_utils::LineString2d right_bound;
+  autoware_utils::Polygon2d corridor;
+  BoundaryRTree side_boundary_rtree;
+  BoundaryRTree corridor_boundary_rtree;
+  std::uint64_t context_hash{0};
+  std::uint64_t path_hash{0};
+  bool context_valid{false};
+  bool path_result_valid{false};
+  InfeasibleReason path_result{InfeasibleReason::BOUNDARY_UNAVAILABLE};
+  double minimum_boundary_clearance{std::numeric_limits<double>::max()};
+  SimpleAvoidanceBoundaryClearanceDetails minimum_clearance_details;
+};
+
 namespace
 {
+using BoundaryRTree = SimpleAvoidanceBoundaryValidationCache::BoundaryRTree;
+
+void hashCombine(std::uint64_t & seed, const std::uint64_t value)
+{
+  // A small, deterministic hash is sufficient here: the cache is deliberately a one-entry
+  // optimization and all geometry is still checked when the fingerprint changes.
+  seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+}
+
+void hashCombine(std::uint64_t & seed, const double value)
+{
+  hashCombine(seed, std::hash<double>{}(value));
+}
+
+std::uint64_t hashLineString(const autoware_utils::LineString2d & line)
+{
+  std::uint64_t result = line.size();
+  for (const auto & point : line) {
+    hashCombine(result, point.x());
+    hashCombine(result, point.y());
+  }
+  return result;
+}
+
+std::uint64_t hashPath(const PathWithLaneId & path, const size_t ego_index)
+{
+  std::uint64_t result = path.points.size();
+  hashCombine(result, ego_index);
+  for (const auto & path_point : path.points) {
+    const auto & pose = path_point.point.pose;
+    hashCombine(result, pose.position.x);
+    hashCombine(result, pose.position.y);
+    hashCombine(result, pose.position.z);
+    hashCombine(result, pose.orientation.x);
+    hashCombine(result, pose.orientation.y);
+    hashCombine(result, pose.orientation.z);
+    hashCombine(result, pose.orientation.w);
+  }
+  return result;
+}
+
+std::uint64_t hashFootprint(const autoware_utils::LinearRing2d & footprint)
+{
+  std::uint64_t result = footprint.size();
+  for (const auto & point : footprint) {
+    hashCombine(result, point.x());
+    hashCombine(result, point.y());
+  }
+  return result;
+}
+
+template <class Line>
+void insertLineSegments(const Line & line, BoundaryRTree & rtree)
+{
+  constexpr double duplicate_point_tolerance = 1.0e-6;
+  std::vector<autoware_utils::Segment2d> segments;
+  segments.reserve(line.size() > 1 ? line.size() - 1 : 0);
+  for (size_t i = 1; i < line.size(); ++i) {
+    if (boost::geometry::distance(line.at(i - 1), line.at(i)) <= duplicate_point_tolerance) {
+      continue;
+    }
+    segments.emplace_back(line.at(i - 1), line.at(i));
+  }
+  rtree.insert(segments.begin(), segments.end());
+}
+
+autoware_utils::Box2d expandBox(const autoware_utils::Box2d & box, const double margin)
+{
+  return autoware_utils::Box2d{
+    autoware_utils::Point2d{
+      boost::geometry::get<boost::geometry::min_corner, 0>(box) - margin,
+      boost::geometry::get<boost::geometry::min_corner, 1>(box) - margin},
+    autoware_utils::Point2d{
+      boost::geometry::get<boost::geometry::max_corner, 0>(box) + margin,
+      boost::geometry::get<boost::geometry::max_corner, 1>(box) + margin}};
+}
+
+bool hasBoundaryIntersection(
+  const autoware_utils::Polygon2d & area,
+  const SimpleAvoidanceBoundaryValidationCache::BoundaryRTree & rtree)
+{
+  const auto box = boost::geometry::return_envelope<autoware_utils::Box2d>(area);
+  std::vector<autoware_utils::Segment2d> candidates;
+  candidates.reserve(8);
+  rtree.query(boost::geometry::index::intersects(box), std::back_inserter(candidates));
+  return std::any_of(candidates.begin(), candidates.end(), [&area](const auto & segment) {
+    return boost::geometry::intersects(area, segment);
+  });
+}
+
+bool hasSideBoundaryViolation(
+  const autoware_utils::Polygon2d & area,
+  const SimpleAvoidanceBoundaryValidationCache::BoundaryRTree & rtree, const double margin,
+  double & minimum_clearance, const size_t path_index,
+  const autoware_utils::LineString2d & left_bound,
+  const autoware_utils::LineString2d & right_bound,
+  SimpleAvoidanceBoundaryClearanceDetails * details)
+{
+  if (details != nullptr) {
+    const auto update_details = [&](const autoware_utils::LineString2d & bound,
+                                    const char * const side) {
+      const double clearance = boost::geometry::distance(area, bound);
+      if (clearance >= details->minimum_clearance) {
+        return;
+      }
+
+      minimum_clearance = std::min(minimum_clearance, clearance);
+      details->minimum_clearance = clearance;
+      details->path_index = path_index;
+      details->side = side;
+      details->area_vertices.assign(area.outer().begin(), area.outer().end());
+      details->valid = true;
+
+      double nearest_vertex_distance = std::numeric_limits<double>::max();
+      for (const auto & vertex : area.outer()) {
+        const double vertex_distance = boost::geometry::distance(vertex, bound);
+        if (vertex_distance < nearest_vertex_distance) {
+          nearest_vertex_distance = vertex_distance;
+          details->nearest_footprint_vertex = vertex;
+        }
+      }
+    };
+    update_details(left_bound, "left");
+    update_details(right_bound, "right");
+  }
+
+  const auto area_box = boost::geometry::return_envelope<autoware_utils::Box2d>(area);
+  const auto query_box = expandBox(area_box, margin);
+  std::vector<autoware_utils::Segment2d> candidates;
+  candidates.reserve(8);
+  rtree.query(boost::geometry::index::intersects(query_box), std::back_inserter(candidates));
+  for (const auto & segment : candidates) {
+    const double clearance = boost::geometry::distance(area, segment);
+    minimum_clearance = std::min(minimum_clearance, clearance);
+    if (clearance < margin || boost::geometry::intersects(area, segment)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+struct PathSteeringDetails
+{
+  double maximum_abs_curvature{0.0};
+  double signed_curvature{0.0};
+  double equivalent_steering_angle_rad{0.0};
+  size_t path_index{0};
+  double path_arclength{0.0};
+  double path_x{0.0};
+  double path_y{0.0};
+  bool valid{false};
+};
+
+PathSteeringDetails calculatePathSteeringDetails(
+  const PathWithLaneId & path, const size_t first_index, const double wheel_base)
+{
+  PathSteeringDetails details;
+  if (path.points.size() < 3 || first_index >= path.points.size()) {
+    return details;
+  }
+
+  const auto curvatures = autoware::motion_utils::calcCurvature(path.points);
+  double arclength = 0.0;
+  const size_t begin = std::max<size_t>(1, first_index);
+  for (size_t i = 1; i < path.points.size(); ++i) {
+    arclength += autoware_utils::calc_distance2d(
+      path.points.at(i - 1).point.pose.position, path.points.at(i).point.pose.position);
+    if (i < begin || i >= curvatures.size() || !std::isfinite(curvatures.at(i))) {
+      continue;
+    }
+
+    const double curvature = curvatures.at(i);
+    if (!details.valid || std::abs(curvature) > details.maximum_abs_curvature) {
+      details.valid = true;
+      details.maximum_abs_curvature = std::abs(curvature);
+      details.signed_curvature = curvature;
+      details.equivalent_steering_angle_rad = std::atan(wheel_base * curvature);
+      details.path_index = i;
+      details.path_arclength = arclength;
+      details.path_x = path.points.at(i).point.pose.position.x;
+      details.path_y = path.points.at(i).point.pose.position.y;
+    }
+  }
+  return details;
+}
+
+void logPathSteeringDiagnostics(
+  const rclcpp::Logger & logger, const char * const stage, const PathWithLaneId & path,
+  const size_t first_index, const double wheel_base)
+{
+  const auto details = calculatePathSteeringDetails(path, first_index, wheel_base);
+  if (!details.valid) {
+    RCLCPP_INFO(
+      logger, "[DEBUG-SA-STEER] stage=%s path_points=%zu metrics=unavailable first_index=%zu",
+      stage, path.points.size(), first_index);
+    return;
+  }
+
+  RCLCPP_INFO(
+    logger,
+    "[DEBUG-SA-STEER] stage=%s path_points=%zu first_index=%zu max_abs_curvature=%.6f "
+    "signed_curvature=%.6f equivalent_front_wheel_angle_rad=%.6f "
+    "equivalent_front_wheel_angle_deg=%.3f max_index=%zu path_arclength=%.3f "
+    "max_point=(%.3f,%.3f) wheel_base=%.3f",
+    stage, path.points.size(), first_index, details.maximum_abs_curvature,
+    details.signed_curvature, details.equivalent_steering_angle_rad,
+    details.equivalent_steering_angle_rad * 180.0 / M_PI, details.path_index,
+    details.path_arclength, details.path_x, details.path_y, wheel_base);
+}
+
+void logBoundaryClearanceDiagnostics(
+  const rclcpp::Logger & logger, const char * const stage, const InfeasibleReason result,
+  const double minimum_clearance, const double required_margin,
+  const SimpleAvoidanceBoundaryClearanceDetails & details)
+{
+  RCLCPP_INFO(
+    logger,
+    "[DEBUG-SA-STEER] stage=%s result=%s minimum_boundary_clearance=%.3f "
+    "required_margin=%.3f clearance_shortfall=%.3f boundary_side=%s path_index=%zu "
+    "nearest_footprint_vertex=(%.3f,%.3f) footprint_vertices=%zu",
+    stage, toString(result), minimum_clearance, required_margin,
+    std::max(0.0, required_margin - minimum_clearance), details.valid ? details.side.c_str() : "none",
+    details.valid ? details.path_index : 0U, details.nearest_footprint_vertex.x(),
+    details.nearest_footprint_vertex.y(), details.area_vertices.size());
+
+  if (!details.valid) {
+    return;
+  }
+  for (size_t i = 0; i < details.area_vertices.size(); ++i) {
+    const auto & vertex = details.area_vertices.at(i);
+    RCLCPP_INFO(
+      logger, "[DEBUG-SA-STEER] stage=%s footprint_vertex[%zu]=(%.3f,%.3f)", stage, i,
+      vertex.x(), vertex.y());
+  }
+}
+
 template <class Points>
 autoware_utils::LineString2d makeLineString(const Points & points)
 {
@@ -431,7 +702,8 @@ SimpleAvoidanceModule::SimpleAvoidanceModule(
     name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map,
     planning_factor_interface},
   parameters_{parameters},
-  trailer_configuration_store_{trailer_configuration_store}
+  trailer_configuration_store_{trailer_configuration_store},
+  boundary_validation_cache_{std::make_shared<SimpleAvoidanceBoundaryValidationCache>()}
 {
 }
 
@@ -447,6 +719,10 @@ void SimpleAvoidanceModule::initVariables()
   ego_aligned_return_active_ = false;
   path_generation_failure_started_.reset();
   route_id_.reset();
+  if (boundary_validation_cache_) {
+    boundary_validation_cache_->context_valid = false;
+    boundary_validation_cache_->path_result_valid = false;
+  }
   debug_data_ = SimpleAvoidanceDebugData{};
   resetPathCandidate();
   resetPathReference();
@@ -549,6 +825,12 @@ bool SimpleAvoidanceModule::canTransitSuccessState()
 
 void SimpleAvoidanceModule::updateData()
 {
+  if (boundary_validation_cache_) {
+    // planCandidate() and plan() may validate the same path in one BPP cycle. Keep the
+    // immutable geometry context, but never carry a result into a new cycle.
+    boundary_validation_cache_->path_result_valid = false;
+  }
+
   if (
     route_id_.has_value() && *route_id_ != planner_data_->route_handler->getRouteUuid() &&
     (lifecycle_state_ == AvoidanceLifecycleState::COMMITTED ||
@@ -584,6 +866,10 @@ void SimpleAvoidanceModule::updateData()
 
   const size_t nearest_idx = planner_data_->findEgoIndex(path_shifter_.getReferencePath().points);
   path_shifter_.removeBehindShiftLineAndSetBaseOffset(nearest_idx);
+
+  // Refresh the active target before plan() and before the framework evaluates the module state.
+  // This keeps target tracking alive while a committed maneuver is returning to the center line.
+  getActiveTargetOrHeldTarget();
 }
 
 std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
@@ -740,9 +1026,10 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::updateTargetMetrics(
 std::optional<AvoidanceTarget> SimpleAvoidanceModule::getActiveTargetOrHeldTarget()
 {
   const auto now = clock_->now();
-  if (!active_target_.has_value()) {
+  const auto acquire_next_target = [this]() -> std::optional<AvoidanceTarget> {
     if (auto target = detectTarget()) {
       active_target_ = target;
+      debug_data_.target = active_target_;
       RCLCPP_INFO_THROTTLE(
         getLogger(), *clock_, 1000,
         "[SIMPLE_AVOIDANCE] active target locked uuid=%s lon=%.2fm lat=%.2fm",
@@ -751,6 +1038,10 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::getActiveTargetOrHeldTarge
       return active_target_;
     }
     return std::nullopt;
+  };
+
+  if (!active_target_.has_value()) {
+    return acquire_next_target();
   }
 
   if (auto target = detectTarget(active_target_->uuid, true)) {
@@ -767,7 +1058,9 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::getActiveTargetOrHeldTarge
     RCLCPP_INFO_THROTTLE(
       getLogger(), *clock_, 2000, "[SIMPLE_AVOIDANCE] active target passed uuid=%s lon=%.2fm",
       active_target_->uuid.c_str(), active_target_->longitudinal_distance);
-    return std::nullopt;
+    active_target_.reset();
+    debug_data_.target.reset();
+    return acquire_next_target();
   }
 
   if (!isTargetHoldExpired(*active_target_, now, parameters_->target_lost_time_threshold)) {
@@ -788,7 +1081,7 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::getActiveTargetOrHeldTarge
     parameters_->target_lost_time_threshold);
   active_target_.reset();
   debug_data_.target.reset();
-  return std::nullopt;
+  return acquire_next_target();
 }
 
 bool SimpleAvoidanceModule::isEgoOnShiftLine() const
@@ -992,7 +1285,7 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   return {avoid_shift, return_shift};
 }
 
-InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
+InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundaryLegacy(
   const PathWithLaneId & path) const
 {
   if (path.points.empty()) {
@@ -1114,6 +1407,205 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
     boundaries->from_lanelets ? "lanelet" : "path", left_bound.size(), right_bound.size(),
     minimum_boundary_clearance, parameters_->road_boundary_margin);
   return InfeasibleReason::NONE;
+}
+
+InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
+  const PathWithLaneId & path) const
+{
+  if (path.points.empty()) {
+    return InfeasibleReason::PATH_GENERATION_FAILED;
+  }
+
+  // Keep the old implementation as a correctness oracle. The optimized path only falls back to
+  // it for malformed geometry or a boundary-near/intersecting swept area.
+  if (!planner_data_ || !parameters_ || !boundary_validation_cache_) {
+    return validateVehicleRoadBoundaryLegacy(path);
+  }
+
+  const auto boundary_source_path =
+    getPreviousModuleOutput().path.points.empty() ? path : getPreviousModuleOutput().path;
+  const auto boundaries = makeOriginalRoadBoundaries(current_lanelets_, boundary_source_path);
+  if (!boundaries.has_value()) {
+    return InfeasibleReason::BOUNDARY_UNAVAILABLE;
+  }
+
+  const auto vehicle_footprint = planner_data_->parameters.vehicle_info.createFootprint();
+  const size_t ego_index = planner_data_->findEgoIndex(path.points);
+  const double road_boundary_margin = std::max(0.0, parameters_->road_boundary_margin);
+  const double interpolation_distance = std::max(
+    0.05, parameters_->boundary_check_resample_interval);
+
+  double longitudinal_extension = 1.0;
+  double footprint_radius = 0.0;
+  for (const auto & point : vehicle_footprint) {
+    const double radius = std::hypot(point.x(), point.y());
+    longitudinal_extension = std::max(longitudinal_extension, radius);
+    footprint_radius = std::max(footprint_radius, radius);
+  }
+
+  auto & cache = *boundary_validation_cache_;
+  std::uint64_t context_hash = hashLineString(boundaries->left);
+  hashCombine(context_hash, hashLineString(boundaries->right));
+  hashCombine(context_hash, static_cast<std::uint64_t>(boundaries->from_lanelets ? 1U : 0U));
+  hashCombine(context_hash, road_boundary_margin);
+  hashCombine(context_hash, hashFootprint(vehicle_footprint));
+  hashCombine(context_hash, longitudinal_extension);
+  hashCombine(
+    context_hash, static_cast<std::uint64_t>(parameters_->publish_steering_diagnostics ? 1U : 0U));
+
+  double context_build_ms = 0.0;
+  if (!cache.context_valid || cache.context_hash != context_hash) {
+    const auto context_build_start = std::chrono::steady_clock::now();
+    const auto corridor = makeLaneCorridor(
+      boundaries->left, boundaries->right, longitudinal_extension);
+    if (!corridor.has_value()) {
+      return InfeasibleReason::BOUNDARY_UNAVAILABLE;
+    }
+
+    cache.left_bound = boundaries->left;
+    cache.right_bound = boundaries->right;
+    cache.corridor = *corridor;
+    cache.side_boundary_rtree.clear();
+    cache.corridor_boundary_rtree.clear();
+    insertLineSegments(cache.left_bound, cache.side_boundary_rtree);
+    insertLineSegments(cache.right_bound, cache.side_boundary_rtree);
+    insertLineSegments(cache.corridor.outer(), cache.corridor_boundary_rtree);
+    cache.context_hash = context_hash;
+    cache.context_valid = true;
+    cache.path_result_valid = false;
+    context_build_ms = std::chrono::duration<double, std::milli>(
+                         std::chrono::steady_clock::now() - context_build_start)
+                         .count();
+  }
+
+  const auto path_hash = hashPath(path, ego_index);
+  if (
+    cache.path_result_valid && cache.context_hash == context_hash && cache.path_hash == path_hash) {
+    RCLCPP_DEBUG_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE_BOUNDARY] cache hit path_pts=%zu result=%s",
+      path.points.size(), toString(cache.path_result));
+    if (parameters_->publish_steering_diagnostics) {
+      logBoundaryClearanceDiagnostics(
+        getLogger(), "boundary_validation_cache_hit", cache.path_result,
+        cache.minimum_boundary_clearance, road_boundary_margin,
+        cache.minimum_clearance_details);
+    }
+    return cache.path_result;
+  }
+
+  const auto validation_start = std::chrono::steady_clock::now();
+  const auto cache_result = [&](const InfeasibleReason result, const double minimum_clearance,
+                                const size_t sampled_areas, const size_t fallback_count,
+                                const SimpleAvoidanceBoundaryClearanceDetails & details) {
+    cache.path_hash = path_hash;
+    cache.path_result = result;
+    cache.minimum_boundary_clearance = minimum_clearance;
+    cache.minimum_clearance_details = details;
+    cache.path_result_valid = true;
+    const double run_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - validation_start)
+                            .count();
+    RCLCPP_DEBUG_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE_BOUNDARY] optimized path_pts=%zu sampled_areas=%zu "
+      "boundary_segments=%zu fallback=%zu min_clearance=%.3fm context_ms=%.3f run_ms=%.3f "
+      "result=%s",
+      path.points.size(), sampled_areas, cache.side_boundary_rtree.size(), fallback_count,
+      minimum_clearance, context_build_ms, run_ms, toString(result));
+    if (parameters_->publish_steering_diagnostics) {
+      logBoundaryClearanceDiagnostics(
+        getLogger(), "boundary_validation", result, minimum_clearance, road_boundary_margin,
+        details);
+    }
+    return result;
+  };
+
+  auto make_footprint = [&](const geometry_msgs::msg::Pose & pose) {
+    autoware_utils::Polygon2d footprint;
+    footprint.outer() =
+      autoware_utils::transform_vector(vehicle_footprint, autoware_utils::pose2transform(pose));
+    boost::geometry::correct(footprint);
+    return footprint;
+  };
+
+  double minimum_boundary_clearance = std::numeric_limits<double>::max();
+  SimpleAvoidanceBoundaryClearanceDetails minimum_clearance_details;
+  const auto first_footprint = make_footprint(path.points.at(ego_index).point.pose);
+  if (
+    !boost::geometry::covered_by(first_footprint, cache.corridor) ||
+    hasSideBoundaryViolation(
+      first_footprint, cache.side_boundary_rtree, road_boundary_margin,
+      minimum_boundary_clearance, ego_index, cache.left_bound, cache.right_bound,
+      parameters_->publish_steering_diagnostics ? &minimum_clearance_details : nullptr)) {
+    return cache_result(
+      InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY, minimum_boundary_clearance, 0, 0,
+      minimum_clearance_details);
+  }
+
+  const double rotation_error =
+    footprint_radius * (1.0 - std::cos((M_PI / 180.0) * 0.5));
+  const double refinement_band = std::max(0.05, rotation_error);
+  constexpr double interpolation_angle = M_PI / 180.0;
+  size_t sampled_areas = 0;
+  size_t exact_fallback_count = 0;
+  auto previous_footprint = first_footprint;
+
+  for (size_t i = ego_index + 1; i < path.points.size(); ++i) {
+    const auto & previous_pose = path.points.at(i - 1).point.pose;
+    const auto & current_pose = path.points.at(i).point.pose;
+    const double distance = autoware_utils::calc_distance2d(previous_pose, current_pose);
+    const auto & previous_orientation = previous_pose.orientation;
+    const auto & current_orientation = current_pose.orientation;
+    const double orientation_dot = std::abs(
+      previous_orientation.x * current_orientation.x +
+      previous_orientation.y * current_orientation.y +
+      previous_orientation.z * current_orientation.z +
+      previous_orientation.w * current_orientation.w);
+    const double angle = 2.0 * std::acos(std::clamp(orientation_dot, 0.0, 1.0));
+    const size_t interpolation_count = static_cast<size_t>(std::max(
+      1.0, std::ceil(std::max(distance / interpolation_distance, angle / interpolation_angle))));
+
+    for (size_t step = 1; step <= interpolation_count; ++step) {
+      const double ratio = static_cast<double>(step) / static_cast<double>(interpolation_count);
+      auto current_footprint = make_footprint(
+        autoware_utils::calc_interpolated_pose(previous_pose, current_pose, ratio, false));
+
+      autoware_utils::MultiPoint2d combined;
+      for (const auto & point : previous_footprint.outer()) {
+        combined.push_back(point);
+      }
+      for (const auto & point : current_footprint.outer()) {
+        combined.push_back(point);
+      }
+      autoware_utils::Polygon2d swept_area;
+      boost::geometry::convex_hull(combined, swept_area);
+      boost::geometry::correct(swept_area);
+      ++sampled_areas;
+
+      const bool side_violation = hasSideBoundaryViolation(
+        swept_area, cache.side_boundary_rtree, road_boundary_margin, minimum_boundary_clearance, i,
+        cache.left_bound, cache.right_bound,
+        parameters_->publish_steering_diagnostics ? &minimum_clearance_details : nullptr);
+      const bool corridor_intersection =
+        hasBoundaryIntersection(swept_area, cache.corridor_boundary_rtree);
+      if (
+        side_violation || corridor_intersection ||
+        minimum_boundary_clearance <= road_boundary_margin + refinement_band) {
+        ++exact_fallback_count;
+        const auto exact_result = validateVehicleRoadBoundaryLegacy(path);
+        return cache_result(
+          exact_result, minimum_boundary_clearance, sampled_areas, exact_fallback_count,
+          minimum_clearance_details);
+      }
+
+      previous_footprint = std::move(current_footprint);
+    }
+  }
+
+  return cache_result(
+    InfeasibleReason::NONE, minimum_boundary_clearance, sampled_areas, exact_fallback_count,
+    minimum_clearance_details);
 }
 
 InfeasibleReason SimpleAvoidanceModule::validateArticulatedPath(const PathWithLaneId & path) const
@@ -1317,8 +1809,13 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
       }
 
       const auto lines = buildShiftLines(target, direction * shift_magnitude, extra_return);
+      if (lines.empty()) {
+        failure_reason = InfeasibleReason::PATH_GENERATION_FAILED;
+        continue;
+      }
+      const auto merged_lines = mergeShiftLines(path_shifter_.getShiftLines(), lines);
       auto candidate_shifter = path_shifter_;
-      candidate_shifter.setShiftLines(lines);
+      candidate_shifter.setShiftLines(merged_lines);
       ShiftedPath candidate;
       if (!candidate_shifter.generate(&candidate) || candidate.path.points.empty()) {
         failure_reason = InfeasibleReason::PATH_GENERATION_FAILED;
@@ -1327,7 +1824,7 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
       setOrientation(&candidate.path);
       failure_reason = validateArticulatedPath(candidate.path);
       if (failure_reason == InfeasibleReason::NONE) {
-        selected_lines = lines;
+        selected_lines = merged_lines;
         return candidate;
       }
     }
@@ -1555,8 +2052,12 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateEgoAlignedAvoidancePat
   }
 
   const double actual_offset = getEgoLateralOffsetToReference();
-  selected_lines = buildShiftLines(target, shift_length);
-  selected_lines.front().start_shift_length = actual_offset;
+  auto proposed_lines = buildShiftLines(target, shift_length);
+  if (proposed_lines.empty()) {
+    return std::nullopt;
+  }
+  proposed_lines.front().start_shift_length = actual_offset;
+  selected_lines = mergeShiftLines(path_shifter_.getShiftLines(), proposed_lines);
 
   PathShifter ego_aligned_shifter;
   ego_aligned_shifter.setPath(reference_path_);
@@ -1568,6 +2069,14 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateEgoAlignedAvoidancePat
 
     // Reconstruct the already-travelled lateral offset so the new shift begins at the measured
     // vehicle pose instead of PathShifter's stale planned base offset.
+    // A registered line that crosses ego describes the stale planned offset. It must be replaced
+    // by the measured anchor below; future non-conflicting lines remain registered.
+    selected_lines.erase(
+      std::remove_if(selected_lines.begin(), selected_lines.end(), [ego_idx](const auto & line) {
+        return line.start_idx < ego_idx && ego_idx < line.end_idx;
+      }),
+      selected_lines.end());
+
     ShiftLine measured_offset;
     measured_offset.start_shift_length = 0.0;
     measured_offset.end_shift_length = actual_offset;
@@ -1874,9 +2383,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
     lifecycle_state_ = AvoidanceLifecycleState::COMMITTED;
   }
 
-  const auto target = lifecycle_state_ == AvoidanceLifecycleState::RETURNING
-                        ? std::optional<AvoidanceTarget>{}
-                        : getActiveTargetOrHeldTarget();
+  // updateData() refreshes the target every cycle, including during RETURNING. Keep the latest
+  // target here instead of suppressing it solely because the previous maneuver is returning.
+  const auto target = active_target_;
   if (!target.has_value()) {
     if (lifecycle_state_ == AvoidanceLifecycleState::CANDIDATE) {
       path_shifter_.setShiftLines({});
@@ -1949,11 +2458,15 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
         "base_offset=%.2fm actual_ego_offset=%.2fm",
         planned_base_offset, actual_ego_offset);
     } else {
-      shift_lines = buildShiftLines(*target, shift_result.shift_length);
+      const auto proposed_lines = buildShiftLines(*target, shift_result.shift_length);
+      if (proposed_lines.empty()) {
+        return handlePathGenerationFailure(debug_info);
+      }
+      shift_lines = mergeShiftLines(path_shifter_.getShiftLines(), proposed_lines);
       path_shifter_.setShiftLines(shift_lines);
       if (
-        !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty() ||
-        !isGeneratedPathContinuous(shifted_path)) {
+        !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
+        path_shifter_ = previous_path_shifter;
         return handlePathGenerationFailure(debug_info);
       }
       setOrientation(&shifted_path.path);
@@ -1968,6 +2481,33 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
     shifted_path = *trailer_path;
     path_shifter_.setShiftLines(shift_lines);
   }
+  if (parameters_->publish_steering_diagnostics) {
+    const size_t ego_index = planner_data_->findEgoIndex(shifted_path.path.points);
+    logPathSteeringDiagnostics(
+      getLogger(), "pre_boundary_candidate", shifted_path.path, ego_index,
+      planner_data_->parameters.wheel_base);
+    RCLCPP_INFO(
+      getLogger(),
+      "[DEBUG-SA-STEER] stage=pre_boundary_candidate target_uuid=%s shift_length=%.3f "
+      "required_shift=%.3f jerk_distance=%.3f transition_distance=%.3f "
+      "min_shifting_distance=%.3f ego_speed=%.3f shift_lines=%zu",
+      target->uuid.c_str(), shift_result.shift_length, shift_result.required_clearance,
+      feasibility_result.jerk_distance, feasibility_result.transition_distance,
+      feasibility_result.min_shifting_distance, feasibility_result.ego_speed, shift_lines.size());
+    for (size_t i = 0; i < shift_lines.size(); ++i) {
+      const auto & line = shift_lines.at(i);
+      RCLCPP_INFO(
+        getLogger(),
+        "[DEBUG-SA-STEER] stage=pre_boundary_candidate shift_line[%zu] start_idx=%zu "
+        "end_idx=%zu start_shift=%.3f end_shift=%.3f start=(%.3f,%.3f) end=(%.3f,%.3f)",
+        i, line.start_idx, line.end_idx, line.start_shift_length, line.end_shift_length,
+        line.start.position.x, line.start.position.y, line.end.position.x, line.end.position.y);
+    }
+  }
+  if (!isGeneratedPathContinuous(shifted_path)) {
+    path_shifter_ = previous_path_shifter;
+    return handlePathGenerationFailure(debug_info);
+  }
   const auto boundary_reason = validateVehicleRoadBoundary(shifted_path.path);
   if (boundary_reason != InfeasibleReason::NONE) {
     path_shifter_ = previous_path_shifter;
@@ -1977,7 +2517,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
 
   prev_output_ = shifted_path;
   ego_aligned_return_active_ = false;
-  lifecycle_state_ = isCommitmentDetected() ? AvoidanceLifecycleState::COMMITTED
+  const bool was_committed = isCommittedOrReturning();
+  lifecycle_state_ =
+    was_committed || isCommitmentDetected() ? AvoidanceLifecycleState::COMMITTED
                                             : AvoidanceLifecycleState::CANDIDATE;
   path_generation_failure_started_.reset();
   debug_data_.last_reason = InfeasibleReason::NONE;
@@ -2031,7 +2573,9 @@ CandidateOutput SimpleAvoidanceModule::planCandidate() const
   ShiftedPath shifted_path;
   if (active_trailer_configuration_.geometries.empty()) {
     auto path_shifter_local = path_shifter_;
-    path_shifter_local.setShiftLines(buildShiftLines(*active_target_, shift_result.shift_length));
+    const auto proposed_lines = buildShiftLines(*active_target_, shift_result.shift_length);
+    path_shifter_local.setShiftLines(
+      mergeShiftLines(path_shifter_local.getShiftLines(), proposed_lines));
     path_shifter_local.generate(&shifted_path);
     setOrientation(&shifted_path.path);
   } else {
@@ -2043,6 +2587,12 @@ CandidateOutput SimpleAvoidanceModule::planCandidate() const
       return CandidateOutput(getPreviousModuleOutput().path);
     }
     shifted_path = *trailer_path;
+  }
+  if (parameters_->publish_steering_diagnostics && !shifted_path.path.points.empty()) {
+    const size_t ego_index = planner_data_->findEgoIndex(shifted_path.path.points);
+    logPathSteeringDiagnostics(
+      getLogger(), "candidate_output", shifted_path.path, ego_index,
+      planner_data_->parameters.wheel_base);
   }
   return CandidateOutput(shifted_path.path);
 }

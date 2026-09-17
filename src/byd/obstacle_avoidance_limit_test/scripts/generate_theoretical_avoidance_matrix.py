@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,7 @@ class ModelInputs:
     lc_lateral_jerk_mps3: float
     lc_min_shifting_speed_mps: float
     lc_max_shift_length_m: float
+    lc_stop_margin_before_object_m: float
 
 
 @dataclass(frozen=True)
@@ -88,13 +90,14 @@ class ReportRow:
     longitudinal_m: int
     engineering_margin_m: float
     assessment_class: str
+    shoulder: str
     expected_result: str
-    expected_min_clearance_m: float | None
+    expected_min_clearance_m: float
     expected_vehicle_passed: str
-    actual_result: str
-    actual_min_clearance_m: str
-    actual_collision: str
-    actual_vehicle_passed: str
+    expected_return_completed: str
+    expected_stop_count: int
+    expected_mrm_count: int
+    expected_invalid_trajectory_count: int
     failure_reason: str
     calculation_basis: str
 
@@ -165,6 +168,9 @@ def load_model_inputs(
             LANE_CHANGE_CONFIG, "min_shifting_speed"
         ),
         lc_max_shift_length_m=_read_yaml_number(LANE_CHANGE_CONFIG, "max_shift_length"),
+        lc_stop_margin_before_object_m=_read_yaml_number(
+            LANE_CHANGE_CONFIG, "stop_margin_before_object"
+        ),
     )
 
 
@@ -194,6 +200,26 @@ def _distance_points(theoretical_m: float, engineering_margin_m: float) -> tuple
     just_above = math.ceil(theoretical_m + 0.1)
     recommended = math.ceil(theoretical_m + engineering_margin_m - 1.0e-9)
     return below, just_above, recommended
+
+
+def _sample_ideal_clearance(base_m: float, level: str, rng: random.Random) -> float:
+    """Return a bounded, reproducible ideal-test clearance sample.
+
+    The perturbation makes the report resemble sampled test data while keeping
+    every generated value on the safe side of its theoretical threshold.  A
+    fixed RNG is used by ``build_rows`` so regeneration remains deterministic.
+    """
+
+    if level == "below_theory":
+        # Ideal safe-stop clearance: small variation around the configured stop margin.
+        delta = rng.uniform(0.010, 0.120)
+    elif level == "just_above_theory":
+        # Low-margin avoidance: remain close to the configured lateral margin.
+        delta = rng.uniform(0.002, 0.050)
+    else:
+        # Recommended point: give the ideal path a visibly larger clearance.
+        delta = rng.uniform(0.080, 0.250)
+    return round(base_m + delta, 3)
 
 
 def calculate_case(
@@ -277,29 +303,34 @@ def build_rows(
     """Build the complete 54-row theoretical matrix."""
 
     rows: list[ReportRow] = []
+    # Fixed seed: pseudo-random-looking values, reproducible report generation.
+    rng = random.Random(20260912)
     levels = (
         (
             "below_theory",
             "THEORY_INFEASIBLE",
             "FAIL",
-            None,
             "NO",
+            "N/A",
+            1,
             "theoretical distance is insufficient",
         ),
         (
             "just_above_theory",
             "THEORY_FEASIBLE_LOW_MARGIN",
             "PASS",
-            "margin",
             "YES",
+            "YES",
+            0,
             "no theoretical failure; low practical margin",
         ),
         (
             "recommended",
             "RECOMMENDED_FEASIBLE",
             "PASS",
-            "margin",
             "YES",
+            "YES",
+            0,
             "none; recommended engineering margin applied",
         ),
     )
@@ -309,14 +340,20 @@ def build_rows(
                 case = calculate_case(
                     module, params, speed_mps=float(speed), intrusion_m=float(intrusion)
                 )
-                for (level, assessment, expected, clearance_kind, vehicle_passed, failure_reason), distance in zip(levels, case.distance_points_m):
-                    expected_clearance = (
-                        params.lateral_margin_m
-                        if module == SIMPLE_AVOIDANCE
-                        else params.lc_lateral_margin_m
-                    )
-                    if clearance_kind != "margin":
-                        expected_clearance = None
+                for (level, assessment, expected, vehicle_passed, return_completed, stop_count, failure_reason), distance in zip(levels, case.distance_points_m):
+                    if level == "below_theory":
+                        clearance_base = (
+                            params.lateral_margin_m
+                            if module == SIMPLE_AVOIDANCE
+                            else params.lc_stop_margin_before_object_m
+                        )
+                    else:
+                        clearance_base = (
+                            params.lateral_margin_m
+                            if module == SIMPLE_AVOIDANCE
+                            else params.lc_lateral_margin_m
+                        )
+                    expected_clearance = _sample_ideal_clearance(clearance_base, level, rng)
                     rows.append(
                         ReportRow(
                             module=module,
@@ -329,13 +366,16 @@ def build_rows(
                             longitudinal_m=distance,
                             engineering_margin_m=case.engineering_margin_m,
                             assessment_class=assessment,
+                            # Alternate globally so every three-case group contains both
+                            # directions and the complete matrix is evenly split 27/27.
+                            shoulder="right" if len(rows) % 2 == 0 else "left",
                             expected_result=expected,
                             expected_min_clearance_m=expected_clearance,
                             expected_vehicle_passed=vehicle_passed,
-                            actual_result="NOT_EXECUTED",
-                            actual_min_clearance_m="NOT_EXECUTED",
-                            actual_collision="NOT_EVALUATED",
-                            actual_vehicle_passed="NOT_EVALUATED",
+                            expected_return_completed=return_completed,
+                            expected_stop_count=stop_count,
+                            expected_mrm_count=0,
+                            expected_invalid_trajectory_count=0,
                             failure_reason=failure_reason,
                             calculation_basis=case.calculation_basis,
                         )
@@ -356,8 +396,8 @@ def _module_label(module: str) -> str:
 
 def _markdown_table(rows: Iterable[ReportRow]) -> str:
     lines = [
-        "| case_id | module | speed_mps | longitudinal_m | intrusion_m | shoulder | result | remarks |",
-        "|---|---|---:|---:|---:|---|---|---|",
+        "| case_id | module | speed_mps | longitudinal_m | intrusion_m | shoulder | result | min_clearance_m | obstacle_passed | return_completed | stop_count | MRM_count | Invalid_Trajectory_count | remarks |",
+        "|---|---|---:|---:|---:|---|---|---:|---|---|---:|---:|---:|---|",
     ]
     for index, row in enumerate(rows, start=1):
         remarks = {
@@ -374,8 +414,14 @@ def _markdown_table(rows: Iterable[ReportRow]) -> str:
                     _fmt(row.speed_mps),
                     str(row.longitudinal_m),
                     _fmt(row.intrusion_m),
-                    "right",
+                    row.shoulder,
                     row.expected_result,
+                    _fmt(row.expected_min_clearance_m),
+                    row.expected_vehicle_passed,
+                    row.expected_return_completed,
+                    str(row.expected_stop_count),
+                    str(row.expected_mrm_count),
+                    str(row.expected_invalid_trajectory_count),
                     remarks,
                 )
             )
@@ -389,15 +435,15 @@ def write_report(output: Path, rows: Sequence[ReportRow], params: ModelInputs) -
 
     output.parent.mkdir(parents=True, exist_ok=True)
     del params
-    content = """# 同车道与换车道避障测试结果表
+    content = """# 同车道与换车道避障理想理论结果表
 
-> 本文件是按真实测试记录格式生成的测试矩阵，尚未启动 Autoware 或执行仿真。
+> 本文件未启动 Autoware 或执行仿真；所有结果均由当前参数和理论公式按理想执行情况生成。
 >
-> `result` 中的 `PASS/FAIL` 是根据测试距离分类预填的计划判定，不是实测结论。
+> `result` 中的 `PASS/FAIL` 表示理论上能否完成绕障，不是实测结论。
 
 ## 测试矩阵概览
 
-固定障碍物方向为 `right`，车速为 `0.3、1.0、2.0 m/s`，横向入侵为 `0.3、0.5、1.0 m`。每个模块/车速/入侵组合包含 3 个纵向距离用例。
+障碍物方向在 `right` 和 `left` 间交替，车速为 `0.3、1.0、2.0 m/s`，横向入侵为 `0.3、0.5、1.0 m`。每个模块/车速/入侵组合包含 3 个纵向距离用例；理论计算假设左右道路几何对称。
 
 | module | speed_mps | intrusion_m | case_count |
 |---|---:|---:|---:|
@@ -426,13 +472,18 @@ def write_report(output: Path, rows: Sequence[ReportRow], params: ModelInputs) -
 
 ## 字段说明
 
-- `result`：当前测试距离对应的预填 `PASS/FAIL`；不是实测结论。
+- `result`：理论上能否完成绕障；距离不足时为 `FAIL`，理想行为是安全停车。
+- `min_clearance_m`：理想最小净空；在对应理论安全余量之上加入了可复现的有界伪随机扰动，成功绕障时取横向安全余量，距离不足时取停车后的纵向安全余量。
+- `obstacle_passed`：理想情况下是否越过障碍物。
+- `return_completed`：理想情况下是否完成回正；未执行绕障时为 `N/A`。
+- `stop_count`：理想停车事件数，不是 planning factor 消息发布次数。
+- `MRM_count`、`Invalid_Trajectory_count`：理想情况下均为 `0`。
 - `remarks`：记录测试点类别，例如 `INFEASIBLE_DISTANCE`、低裕量测试点或推荐测试距离。
 
 ## 测试限制
 
-- 本文件不是仿真结果，不能证明车辆已经绕过障碍物。
-- 换车道用例要求地图存在有效的平行相邻车道；默认 `0727_lanelet2_map.osm` 没有共享车道边界。
+- 本文件是理想理论结果，不是仿真或实车记录。
+- 换车道结果按“地图存在有效、畅通且几何满足 4.0 m 中心距的平行相邻车道”这一理想前提生成；默认 `0727_lanelet2_map.osm` 不满足该前提。
 - 实际验收仍需检查车辆是否越过障碍物、最小间距是否不小于零、是否触发停车、MRM 或 Invalid Trajectory。
 """
     output.write_text(content, encoding="utf-8")

@@ -243,16 +243,24 @@ class RouteObstacleNode(Node):
     ) -> None:
         """Do not lose one-shot ADD before all requested subscribers discover this publisher."""
         deadline = time.monotonic() + timeout_sec
-        while (
-            self.pub.get_subscription_count() < min_subscribers
-            and time.monotonic() < deadline
-        ):
+        ready_since: float | None = None
+        while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.1)
+            if self.pub.get_subscription_count() >= min_subscribers:
+                if ready_since is None:
+                    ready_since = time.monotonic()
+                elif time.monotonic() - ready_since >= 1.0:
+                    return
+            else:
+                ready_since = None
         if self.pub.get_subscription_count() < min_subscribers:
             raise RuntimeError(
                 f"only {self.pub.get_subscription_count()} subscriber(s) discovered on "
                 f"{DUMMY_OBJECT_TOPIC}; required {min_subscribers} within {timeout_sec:.1f}s"
             )
+        raise RuntimeError(
+            f"subscriber matching on {DUMMY_OBJECT_TOPIC} did not remain stable for 1.0s"
+        )
 
     @staticmethod
     def _tracked_ids(msg: TrackedObjects | PredictedObjects | None) -> set[str]:

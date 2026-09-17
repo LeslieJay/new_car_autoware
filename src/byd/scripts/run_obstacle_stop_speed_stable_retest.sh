@@ -75,6 +75,7 @@ run_matrix() {
     MAX_OBSERVE_SEC="${MAX_OBSERVE_SEC}" \
     BLOCKED_SEC="${BLOCKED_SEC}" \
     CONTROL_LABEL="${label}" \
+    OBSTACLE_STOP_PROTOCOL=steady_speed \
     TARGET_LOST_TIME_THRESHOLD="${lost}" \
     COMMITMENT_DISTANCE_BEFORE_SHIFT_START="${commitment}" \
     DISABLE_START_PLANNER_FREESPACE="${freespace}" \

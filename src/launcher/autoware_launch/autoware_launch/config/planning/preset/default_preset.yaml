@@ -41,7 +41,7 @@ launch:
       default: "true"
   - arg:
       name: launch_start_planner_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_side_shift_module
       default: "false"
@@ -112,13 +112,13 @@ launch:
   # motion velocity planner modules
   - arg:
       name: launch_obstacle_stop_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_obstacle_slow_down_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_obstacle_cruise_module
-      default: "true"
+      default: "false"
   - arg:
       name: launch_dynamic_obstacle_stop_module
       default: "false"

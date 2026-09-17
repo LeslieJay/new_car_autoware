@@ -137,7 +137,7 @@ def main() -> int:
     if not args.topics and not args.services and not args.tfs:
         parser.error("at least one of --topic, --service, or --tf is required")
 
-    rclpy.init()
+    rclpy.init(args=["--ros-args", "--disable-external-lib-logs"])
     waiter = RosReadinessWaiter()
     failures: list[str] = []
 

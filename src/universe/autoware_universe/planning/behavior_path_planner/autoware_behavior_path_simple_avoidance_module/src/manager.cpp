@@ -51,6 +51,10 @@ void SimpleAvoidanceModuleManager::init(rclcpp::Node * node)
   p.lateral_execution_threshold =
     node->declare_parameter<double>(ns + "lateral_execution_threshold", 0.05);
   p.road_boundary_margin = node->declare_parameter<double>(ns + "road_boundary_margin", 0.1);
+  p.boundary_check_resample_interval = std::max(
+    0.05, node->declare_parameter<double>(ns + "boundary_check_resample_interval", 0.3));
+  p.publish_steering_diagnostics =
+    node->declare_parameter<bool>(ns + "publish_steering_diagnostics", false);
   p.path_generation_failure_timeout =
     node->declare_parameter<double>(ns + "path_generation_failure_timeout", 0.5);
   p.completion_stable_count = static_cast<size_t>(
@@ -161,6 +165,10 @@ void SimpleAvoidanceModuleManager::updateModuleParams(
     std::max(0.0, p->commitment_distance_before_shift_start);
   update_param(parameters, ns + "lateral_execution_threshold", p->lateral_execution_threshold);
   update_param(parameters, ns + "road_boundary_margin", p->road_boundary_margin);
+  update_param(
+    parameters, ns + "boundary_check_resample_interval", p->boundary_check_resample_interval);
+  p->boundary_check_resample_interval = std::max(0.05, p->boundary_check_resample_interval);
+  update_param(parameters, ns + "publish_steering_diagnostics", p->publish_steering_diagnostics);
   update_param(
     parameters, ns + "path_generation_failure_timeout", p->path_generation_failure_timeout);
   int64_t completion_stable_count = static_cast<int64_t>(p->completion_stable_count);

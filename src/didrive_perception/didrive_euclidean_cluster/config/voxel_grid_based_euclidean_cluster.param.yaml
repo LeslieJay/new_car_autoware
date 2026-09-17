@@ -3,7 +3,7 @@
     tolerance: 2.0
     voxel_leaf_size: 0.2
     min_points_number_per_voxel: 3
-    min_cluster_size: 15
+    min_cluster_size: 3
     max_cluster_size: 50000
     use_height: true
     input_frame: "base_link"
@@ -14,5 +14,5 @@
     max_y: 2.5
     min_y: -2.5
     max_z: 3.5
-    min_z: 0.2
+    min_z: 0.15
     negative: false

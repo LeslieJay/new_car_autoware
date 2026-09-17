@@ -28,6 +28,10 @@ using autoware_internal_planning_msgs::msg::PathWithLaneId;
 
 void setOrientation(PathWithLaneId * path);
 
+// Keep the registered prefix and replace future lines that conflict with a new proposal.
+ShiftLineArray mergeShiftLines(
+  const ShiftLineArray & registered_lines, const ShiftLineArray & proposed_lines);
+
 PathWithLaneId extendBackwardPath(
   const PathWithLaneId & previous_path, const PathWithLaneId & current_path,
   const geometry_msgs::msg::Point & ego_position, double backward_length);

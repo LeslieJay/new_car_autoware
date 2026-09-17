@@ -62,6 +62,8 @@ private:
   bool canTransitFailureState() override { return false; }
 
   void initVariables();
+  bool isControlledByAutoware() const;
+  void reconcileAfterAutowareControlReengagement();
   std::optional<LCAvoidanceTarget> detectTarget() const;
   std::optional<LCAvoidanceTarget> detectAssociatedTargetByUuid() const;
   std::optional<LCAvoidanceTarget> getActiveTargetOrHeldTarget();
@@ -110,6 +112,7 @@ private:
   bool active_target_passed_{false};
   std::optional<rclcpp::Time> path_generation_failure_started_;
   std::optional<std::string> route_id_;
+  std::optional<bool> previous_autoware_controlled_;
   mutable SimpleLCAvoidanceDebugData debug_data_;
 };
 

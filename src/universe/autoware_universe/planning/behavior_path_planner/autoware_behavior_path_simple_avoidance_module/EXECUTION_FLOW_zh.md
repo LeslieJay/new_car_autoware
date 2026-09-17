@@ -236,15 +236,20 @@ plan()
 │
 ├─ [Step 0] 初始化 PassThroughDebugInfo
 │
-├─ [Step 1] reference_path_.points < 2
+├─ [Step 1] updateData() 已完成周期性目标刷新
+│    ├─ UUID/空间距离优先更新活动目标
+│    ├─ 短时丢失继续 held target
+│    └─ 目标通过或保持超时后，同周期选择下一可行目标
+│
+├─ [Step 2] reference_path_.points < 2
 │    └─ passThrough(NO_TARGET) ──────────────────────────► 退出①
 │
-├─ [Step 2] CANDIDATE 承诺判断
+├─ [Step 3] CANDIDATE 承诺判断
 │    ├─ 自车到第一条 shift line 起点的连续弧长 <= commitment_distance_before_shift_start
 │    ├─ 或 ego 已进入 shift line / 已有实际 shift / base offset 已非零
 │    └─ 任一成立 → lifecycle_state_ = COMMITTED
 │
-├─ [Step 3] target = getActiveTargetOrHeldTarget()
+├─ [Step 4] target = active_target_
 │    │
 │    ├─ 无 target：
 │    │    ├─ CANDIDATE：清除候选状态并透传 NO_TARGET ───────────────► 退出②
@@ -257,28 +262,28 @@ plan()
 │    │    │    ├─ lifecycle_state_ = RETURNING
 │    │    │    └─ return adjustDrivableArea(shifted_path) ────────────► 退出③（延续并回正）
 │    │
-│    └─ 有 target：继续 Step 4
+│    └─ 有 target：继续 Step 5
 │
-├─ [Step 4] active_target_ = target
+├─ [Step 5] active_target_ = target
 │
-├─ [Step 5] shift_result = calcShiftLength(target, params, ego_half_width)
+├─ [Step 6] shift_result = calcShiftLength(target, params, ego_half_width)
 │    └─ reason != NONE → passThrough(NO_ROOM) ────────────────────────► 退出⑤
 │
-├─ [Step 6] feasibility = checkFeasibility(target, shift_length, params, ego_speed)
+├─ [Step 7] feasibility = checkFeasibility(target, shift_length, params, ego_speed)
 │    └─ reason != NONE → passThrough(INSUFFICIENT_DISTANCE) ──────────► 退出⑥
 │
-├─ [Step 7] shift_lines = buildShiftLines(target, shift_length)
+├─ [Step 8] shift_lines = mergeShiftLines(registered_lines, buildShiftLines(target, shift_length))
 │    path_shifter_.setShiftLines(shift_lines)
 │
-├─ [Step 8] path_shifter_.generate(&shifted_path)
+├─ [Step 9] path_shifter_.generate(&shifted_path)
 │    └─ 失败或空路径 → passThrough(PATH_GENERATION_FAILED) ───────────► 退出⑦
 │
-├─ [Step 9] setOrientation(&shifted_path.path)
+├─ [Step 10] setOrientation(&shifted_path.path)
 │    prev_output_ = shifted_path
 │    记录 debug_data_
 │    LOG: "avoidance path generated ..."
 │
-└─ [Step 10] return adjustDrivableArea(shifted_path) ──────────────────► 退出⑧（成功）
+└─ [Step 11] return adjustDrivableArea(shifted_path) ──────────────────► 退出⑧（成功）
 ```
 
 ### 8.1 `passThrough()` — 失败 / 透传退出
@@ -434,10 +439,11 @@ canTransitSuccessState()
 └─ 以上均不满足 → true（已完成且回正，可退出）
 ```
 
-`plan()` 中目标一旦锁定，会优先按 UUID 刷新。若 perception 或 shifted path 导致短暂 no-overlap，
+`updateData()` 每周期刷新目标，目标一旦锁定会优先按 UUID 刷新。若 perception 或 shifted path 导致短暂 no-overlap，
 模块会在 `target_lost_time_threshold` 内继续使用 held target，避免 ego 尚未执行侧移时被框架删除。
 保持超时后，未开始执行的 `CANDIDATE` 会取消；已经执行的 `COMMITTED` 则进入 `RETURNING`，继续
-由 `PathShifter` 输出已承诺轨迹。清理多个已完成 shift line 时，以纵向最靠后的 line 终点更新
+由 `PathShifter` 输出已承诺轨迹。`RETURNING` 期间仍会刷新并接管新的可行目标，新目标的 shift line
+与已注册线进行冲突合成。清理多个已完成 shift line 时，以纵向最靠后的 line 终点更新
 `base_offset`，因此避让线和回正线在同一周期被清理后仍会得到 `base_offset = 0`，路径滚动不会
 重新带回避让偏移，也不会因为“无可用前向旧路径”触发 MRM。
 
@@ -473,14 +479,17 @@ sequenceDiagram
     participant CS as calcShiftLength
     participant CF as checkFeasibility
     participant BS as buildShiftLines
+    participant ML as mergeShiftLines
     participant PS as PathShifter
     participant AD as adjustDrivableArea
 
     BP->>UD: 每周期首先调用
     UD-->>BP: 更新 reference_path_, lanelets
 
-    BP->>DT: isExecutionRequested / plan
-    DT-->>BP: AvoidanceTarget
+    UD->>DT: 刷新活动目标（UUID/空间距离/短时保持）
+    DT-->>UD: active_target_（通过/超时后接管下一目标）
+    BP->>DT: 仅空闲模块请求执行时检测
+    DT-->>BP: 是否有可行目标
 
     BP->>CS: plan() 内调用
     CS-->>BP: shift_length OK
@@ -491,6 +500,8 @@ sequenceDiagram
     BP->>BS: 构造 avoid + return shift lines
     BS-->>BP: ShiftLineArray
 
+    BP->>ML: 与已注册 shift line 冲突感知合成
+    ML-->>BP: 保留前缀并替换冲突未来线
     BP->>PS: setShiftLines + generate
     PS-->>BP: ShiftedPath
 
@@ -518,11 +529,11 @@ sequenceDiagram
 
 | 环节 | 原版 | Simple Avoidance |
 |------|------|------------------|
-| 目标数量 | 多目标 + 复杂过滤 | 单目标（最近） |
+| 目标数量 | 多目标 + 复杂过滤 | 单活动目标（最近可行，连续接管） |
 | 偏移计算 | 路肩自适应 margin | 固定公式 `calcShiftLength` |
-| ShiftLine | ShiftLineGenerator 多阶段 | 直接 `buildShiftLines` 两条 |
+| ShiftLine | ShiftLineGenerator 多阶段 | 直接 `buildShiftLines` 两条，再与已注册线合成 |
 | 可行性 | 多种约束 + RTC | 仅纵向 jerk |
-| 失败处理 | 可能等待/停车 | 一律 `passThrough` 透传 |
+| 失败处理 | 可能等待/停车 | 按承诺阶段保持既有路径或安全停车 |
 | RTC | 有 | 无（`enable_rtc: false`） |
 
 ---

@@ -18,7 +18,9 @@
 #include <autoware/motion_utils/trajectory/trajectory.hpp>
 #include <tf2/utils.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace autoware::behavior_path_planner
@@ -44,6 +46,53 @@ void setOrientation(PathWithLaneId * path)
     yaw_quat.setRPY(0, 0, angle);
     pt.point.pose.orientation = tf2::toMsg(yaw_quat);
   }
+}
+
+ShiftLineArray mergeShiftLines(
+  const ShiftLineArray & registered_lines, const ShiftLineArray & proposed_lines)
+{
+  ShiftLineArray merged = proposed_lines.empty() ? registered_lines : proposed_lines;
+  if (!proposed_lines.empty() && !registered_lines.empty()) {
+    const auto front_new_line = std::min_element(
+      proposed_lines.begin(), proposed_lines.end(), [](const auto & lhs, const auto & rhs) {
+        return lhs.start_idx < rhs.start_idx;
+      });
+    const auto min_start_idx = front_new_line->start_idx;
+    const auto new_shift_length = front_new_line->end_shift_length;
+    const auto new_shift_end_idx = front_new_line->end_idx;
+
+    // Match static_obstacle_avoidance::addNewShiftLines(): keep the committed prefix, while
+    // discarding a future line that would be overwritten by the new proposal. PathShifter applies
+    // lines in start-index order, so retaining a later old line can otherwise alter the new shift.
+    for (const auto & registered_line : registered_lines) {
+      if (registered_line.start_idx >= min_start_idx) {
+        continue;
+      }
+
+      if (registered_line.end_idx > new_shift_end_idx) {
+        if (
+          registered_line.end_shift_length > -1e-3 && new_shift_length > -1e-3 &&
+          registered_line.end_shift_length < new_shift_length) {
+          continue;
+        }
+        if (
+          registered_line.end_shift_length < 1e-3 && new_shift_length < 1e-3 &&
+          registered_line.end_shift_length > new_shift_length) {
+          continue;
+        }
+      }
+
+      merged.push_back(registered_line);
+    }
+  }
+
+  std::stable_sort(merged.begin(), merged.end(), [](const auto & lhs, const auto & rhs) {
+    if (lhs.start_idx != rhs.start_idx) {
+      return lhs.start_idx < rhs.start_idx;
+    }
+    return lhs.end_idx < rhs.end_idx;
+  });
+  return merged;
 }
 
 PathWithLaneId extendBackwardPath(

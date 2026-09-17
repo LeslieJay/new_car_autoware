@@ -175,6 +175,7 @@ void SimpleLaneChangeAvoidanceModule::initVariables()
   active_target_passed_ = false;
   path_generation_failure_started_.reset();
   route_id_.reset();
+  previous_autoware_controlled_.reset();
   debug_data_ = SimpleLCAvoidanceDebugData{};
   resetPathCandidate();
   resetPathReference();
@@ -185,6 +186,7 @@ void SimpleLaneChangeAvoidanceModule::processOnEntry()
   lifecycle_state_ = LCAvoidanceLifecycleState::CANDIDATE;
   completion_stable_count_ = 0;
   active_target_passed_ = false;
+  previous_autoware_controlled_ = isControlledByAutoware();
   if (planner_data_ && planner_data_->prev_route_id.has_value()) {
     route_id_ = autoware_utils_uuid::to_hex_string(*planner_data_->prev_route_id);
   }
@@ -194,6 +196,54 @@ void SimpleLaneChangeAvoidanceModule::processOnEntry()
 }
 
 void SimpleLaneChangeAvoidanceModule::processOnExit() { initVariables(); }
+
+bool SimpleLaneChangeAvoidanceModule::isControlledByAutoware() const
+{
+  if (!planner_data_ || !planner_data_->operation_mode) {
+    return false;
+  }
+  return planner_data_->operation_mode->mode == OperationModeState::AUTONOMOUS &&
+         planner_data_->operation_mode->is_autoware_control_enabled;
+}
+
+void SimpleLaneChangeAvoidanceModule::reconcileAfterAutowareControlReengagement()
+{
+  // Manual driving may move the ego across the route or past the committed target while this
+  // module remains alive. The old shift geometry is no longer authoritative after re-engage;
+  // keep only the target context needed to validate a fresh recovery path.
+  path_shifter_ = PathShifter{};
+  if (reference_path_.points.size() >= 2) {
+    path_shifter_.setPath(reference_path_);
+  }
+  prev_output_ = ShiftedPath{};
+  completion_stable_count_ = 0;
+  path_generation_failure_started_.reset();
+  debug_data_.path_shifter.reset();
+  debug_data_.last_reason = InfeasibleReason::NONE;
+
+  if (active_target_.has_value()) {
+    active_target_passed_ = isActiveTargetPassed(*active_target_);
+  }
+
+  // Re-associate using the current perception and reference path. A target still ahead remains a
+  // valid stop/avoidance target; a target already passed is retained only as recovery context.
+  const auto target = getActiveTargetOrHeldTarget();
+  if (target.has_value()) {
+    active_target_passed_ = isActiveTargetPassed(*target);
+    lifecycle_state_ = active_target_passed_ ? LCAvoidanceLifecycleState::RETURNING
+                                              : LCAvoidanceLifecycleState::CANDIDATE;
+  } else {
+    active_target_passed_ = false;
+    active_adjacent_lane_.reset();
+    lifecycle_state_ = LCAvoidanceLifecycleState::IDLE;
+  }
+
+  RCLCPP_INFO(
+    getLogger(),
+    "[SIMPLE_LC_AVOIDANCE] re-engage reconciled: target=%s passed=%s lateral_offset=%.2fm",
+    active_target_.has_value() ? active_target_->uuid.c_str() : "none",
+    active_target_passed_ ? "true" : "false", getEgoLateralOffsetToReference());
+}
 
 bool SimpleLaneChangeAvoidanceModule::isExecutionRequested() const
 {
@@ -243,8 +293,12 @@ bool SimpleLaneChangeAvoidanceModule::canTransitSuccessState()
 
 void SimpleLaneChangeAvoidanceModule::updateData()
 {
+  const bool controlled_by_autoware = isControlledByAutoware();
   current_lanelets_.clear();
   if (getPreviousModuleOutput().path.points.size() < 2) {
+    // Remember the control state even when the upstream path is temporarily unavailable. The
+    // next valid path must still be treated as a fresh re-engagement after manual driving.
+    previous_autoware_controlled_ = controlled_by_autoware;
     return;
   }
 
@@ -280,6 +334,13 @@ void SimpleLaneChangeAvoidanceModule::updateData()
 
   const size_t nearest_idx = planner_data_->findEgoIndex(path_shifter_.getReferencePath().points);
   path_shifter_.removeBehindShiftLineAndSetBaseOffset(nearest_idx);
+
+  const bool reengaged = previous_autoware_controlled_.has_value() &&
+                         !previous_autoware_controlled_.value() && controlled_by_autoware;
+  if (reengaged) {
+    reconcileAfterAutowareControlReengagement();
+  }
+  previous_autoware_controlled_ = controlled_by_autoware;
 }
 
 std::optional<LCAvoidanceTarget> SimpleLaneChangeAvoidanceModule::detectTarget() const
@@ -430,9 +491,16 @@ std::optional<LCAvoidanceTarget> SimpleLaneChangeAvoidanceModule::getActiveTarge
     auto target = *detected;
     target.last_seen = clock_->now();
     const bool had_active_target = active_target_.has_value();
-    if (!active_target_.has_value() || active_target_->uuid == target.uuid || active_target_passed_) {
+    const bool same_active_target =
+      active_target_.has_value() && active_target_->uuid == target.uuid;
+    const bool passed_same_active_target =
+      same_active_target && active_target_passed_ && isActiveTargetPassed(target);
+    if (!active_target_.has_value() || same_active_target || active_target_passed_) {
       active_target_ = target;
-      active_target_passed_ = false;
+      // Keep the passed state when the tracker still reports the same target just behind the ego.
+      // A fresh target may replace a completed one, but a re-associated completed target must not
+      // be turned back into a forward stop target merely because its UUID is still visible.
+      active_target_passed_ = passed_same_active_target;
     } else {
       // Do not switch to a new obstacle while the committed obstacle has not been passed.
       const double association_distance = std::hypot(
@@ -679,6 +747,13 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::passThrough(const Infeasib
 BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::makeSafeStopOutput(
   const InfeasibleReason reason) const
 {
+  RCLCPP_WARN_THROTTLE(
+    getLogger(), *clock_, 1000,
+    "[SIMPLE_LC_AVOIDANCE] safe stop output reason=%s target=%s adjacent_lane=%s",
+    toString(reason), active_target_.has_value() ? active_target_->uuid.c_str() : "none",
+    active_adjacent_lane_.has_value() && !active_adjacent_lane_->lanelet_sequence.empty()
+      ? "available"
+      : "missing");
   auto output = getPreviousModuleOutput();
   if (output.path.points.empty() && !reference_path_.points.empty()) {
     output.path = reference_path_;
@@ -923,8 +998,8 @@ InfeasibleReason SimpleLaneChangeAvoidanceModule::validatePathSafety(
   const auto & source_lanelets = maneuver_base_lanelets_.empty()
                                    ? current_lanelets_
                                    : maneuver_base_lanelets_;
-  if (source_lanelets.empty() || adjacent_lanelets.empty()) {
-    return InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY;
+  if (source_lanelets.empty()) {
+    return InfeasibleReason::NO_ADJACENT_LANE;
   }
   if (isAdjacentLaneOccupied(target, adjacent_lanelets)) {
     return InfeasibleReason::ADJACENT_LANE_OCCUPIED;
@@ -953,17 +1028,27 @@ InfeasibleReason SimpleLaneChangeAvoidanceModule::validatePathSafety(
     accumulated_distance = 0.0;
     last_sample = i;
     const auto footprint = createVehicleFootprint(path.path.points.at(i).point.pose, *planner_data_);
-    if (!isFootprintInsideLanelets(
-          footprint, source_lanelets, parameters_->road_boundary_margin) &&
-        !isFootprintInsideLanelets(
-          footprint, adjacent_lanelets, parameters_->road_boundary_margin)) {
+    const bool inside_source_lane =
+      isFootprintInsideLanelets(footprint, source_lanelets, parameters_->road_boundary_margin);
+    const bool inside_adjacent_lane =
+      !adjacent_lanelets.empty() &&
+      isFootprintInsideLanelets(footprint, adjacent_lanelets, parameters_->road_boundary_margin);
+    if (!inside_source_lane && !inside_adjacent_lane) {
       // During the lane transition a footprint may straddle two lanelets. Check all lanelets as a
       // union rather than requiring it to fit inside one polygon.
       lanelet::ConstLanelets all_lanelets = source_lanelets;
       all_lanelets.insert(all_lanelets.end(), adjacent_lanelets.begin(), adjacent_lanelets.end());
       if (!isFootprintInsideLanelets(
             footprint, all_lanelets, parameters_->road_boundary_margin)) {
-        return InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY;
+        const auto & pose = path.path.points.at(i).point.pose;
+        RCLCPP_WARN_THROTTLE(
+          getLogger(), *clock_, 1000,
+          "[SIMPLE_LC_AVOIDANCE] footprint outside: sample=%zu pose=(%.2f, %.2f) "
+          "source_lanelets=%zu adjacent_lanelets=%zu margin=%.2f",
+          i, pose.position.x, pose.position.y, source_lanelets.size(), adjacent_lanelets.size(),
+          parameters_->road_boundary_margin);
+        return adjacent_lanelets.empty() ? InfeasibleReason::NO_ADJACENT_LANE
+                                         : InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY;
       }
     }
     for (const auto & object_polygon : object_polygons) {
@@ -978,7 +1063,15 @@ InfeasibleReason SimpleLaneChangeAvoidanceModule::validatePathSafety(
     all_lanelets.insert(all_lanelets.end(), adjacent_lanelets.begin(), adjacent_lanelets.end());
     if (!isFootprintInsideLanelets(
           footprint, all_lanelets, parameters_->road_boundary_margin)) {
-      return InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY;
+      const auto & pose = path.path.points.back().point.pose;
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_LC_AVOIDANCE] footprint outside at path end: pose=(%.2f, %.2f) "
+        "source_lanelets=%zu adjacent_lanelets=%zu margin=%.2f",
+        pose.position.x, pose.position.y, source_lanelets.size(), adjacent_lanelets.size(),
+        parameters_->road_boundary_margin);
+      return adjacent_lanelets.empty() ? InfeasibleReason::NO_ADJACENT_LANE
+                                       : InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY;
     }
   }
   lanelet::ConstLanelets drivable_lanelets = source_lanelets;
@@ -986,6 +1079,11 @@ InfeasibleReason SimpleLaneChangeAvoidanceModule::validatePathSafety(
     drivable_lanelets.end(), adjacent_lanelets.begin(), adjacent_lanelets.end());
   const auto articulated_reason = validateArticulatedPath(path.path, drivable_lanelets);
   if (articulated_reason != InfeasibleReason::NONE) {
+    if (
+      adjacent_lanelets.empty() &&
+      articulated_reason == InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY) {
+      return InfeasibleReason::NO_ADJACENT_LANE;
+    }
     return articulated_reason;
   }
   return InfeasibleReason::NONE;
@@ -1109,23 +1207,38 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::plan()
   }
 
   // PathShifter removes completed shift lines as the ego advances. A passed target therefore
-  // needs an explicit recovery pass before the module can be considered complete.
-  if (path_shifter_.getShiftLines().empty() && active_target_passed_) {
-    if (std::abs(getEgoLateralOffsetToReference()) > parameters_->lateral_execution_threshold) {
-      lifecycle_state_ = LCAvoidanceLifecycleState::RETURNING;
-      const auto recovery = generateEgoAlignedReturnPath();
-      if (!recovery.has_value()) {
-        return handlePathGenerationFailure(InfeasibleReason::PATH_GENERATION_FAILED);
-      }
-      const auto adjacent_lanelets = active_adjacent_lane_.has_value()
-                                       ? active_adjacent_lane_->lanelet_sequence
-                                       : lanelet::ConstLanelets{};
-      const auto safety_reason = validatePathSafety(*recovery, *active_target_, adjacent_lanelets);
-      if (safety_reason != InfeasibleReason::NONE) {
-        return makeSafeStopOutput(safety_reason);
-      }
-      return adjustDrivableArea(*recovery, adjacent_lanelets);
+  // needs an explicit recovery pass before the module can be considered complete. While a
+  // recovery is active, rebuild it from the current ego pose on every cycle so a failed old shift
+  // line cannot become a permanent parking result after a manual-control excursion.
+  const bool recovery_is_needed =
+    active_target_passed_ &&
+    std::abs(getEgoLateralOffsetToReference()) > parameters_->lateral_execution_threshold;
+  const bool recovery_is_active = lifecycle_state_ == LCAvoidanceLifecycleState::RETURNING;
+  if (recovery_is_needed &&
+      (path_shifter_.getShiftLines().empty() || recovery_is_active)) {
+    lifecycle_state_ = LCAvoidanceLifecycleState::RETURNING;
+    const auto recovery = generateEgoAlignedReturnPath();
+    if (!recovery.has_value()) {
+      return handlePathGenerationFailure(InfeasibleReason::PATH_GENERATION_FAILED);
     }
+    auto adjacent_lanelets = active_adjacent_lane_.has_value()
+                               ? active_adjacent_lane_->lanelet_sequence
+                               : lanelet::ConstLanelets{};
+    if (adjacent_lanelets.empty() && active_target_.has_value()) {
+      const auto adjacent_lane = findAdjacentLane(*active_target_);
+      if (adjacent_lane.found) {
+        active_adjacent_lane_ = adjacent_lane;
+        adjacent_lanelets = adjacent_lane.lanelet_sequence;
+      }
+    }
+    const auto safety_reason = validatePathSafety(*recovery, *active_target_, adjacent_lanelets);
+    if (safety_reason != InfeasibleReason::NONE) {
+      return makeSafeStopOutput(safety_reason);
+    }
+    return adjustDrivableArea(*recovery, adjacent_lanelets);
+  }
+
+  if (path_shifter_.getShiftLines().empty() && active_target_passed_) {
     // Keep the held target until canTransitSuccessState() has observed the required number of
     // stable centered cycles.
     return passThrough(InfeasibleReason::NO_TARGET);
@@ -1200,11 +1313,13 @@ BehaviorModuleOutput SimpleLaneChangeAvoidanceModule::plan()
   }
 
   const auto shift_result = calcLaneShift(*target);
+  active_adjacent_lane_ = shift_result.adjacent_lane.found
+                            ? std::optional<AdjacentLaneResult>{shift_result.adjacent_lane}
+                            : std::nullopt;
   if (shift_result.reason != InfeasibleReason::NONE) {
     lifecycle_state_ = LCAvoidanceLifecycleState::STOPPING;
     return stopBeforeTarget(*target, shift_result.reason);
   }
-  active_adjacent_lane_ = shift_result.adjacent_lane;
 
   if (isAdjacentLaneOccupied(*target, active_adjacent_lane_->lanelet_sequence)) {
     lifecycle_state_ = LCAvoidanceLifecycleState::STOPPING;

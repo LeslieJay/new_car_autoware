@@ -1,8 +1,4 @@
 <launch>
-  <arg name="launch_latency_checker" default="true"/>
-  <arg name="launch_trajectory_checker" default="true"/>
-  <arg name="launch_intersection_collision_checker" default="true"/>
-  <arg name="launch_rear_collision_checker" default="true"/>
   <arg name="launch_modules_list_end" default="&quot;&quot;]"/>
   <arg name="planning_validator_launch_modules" default="["/>
   <let

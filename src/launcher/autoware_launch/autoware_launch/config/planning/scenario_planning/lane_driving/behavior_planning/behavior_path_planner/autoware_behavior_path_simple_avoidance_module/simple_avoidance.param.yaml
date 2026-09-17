@@ -28,7 +28,7 @@
       # [m] 目标检测的最近纵向距离，相对自车沿参考路径计算。
       # 目标距离小于此值时不作为新避障目标。值过大可能漏掉近处障碍物；值过小
       # 虽能更早接纳近距离目标，但通常已经没有足够距离完成准备和侧移。
-      min_forward_distance: 3.0
+      min_forward_distance: 0.5
 
       # [m] 目标检测的最远纵向距离，相对自车沿参考路径计算。
       # 目标距离超过此值时暂不处理。调大可更早发现目标，但会增加远距离感知误差
@@ -39,33 +39,33 @@
       # 该值同时用于目标横向重叠判定、侧移量计算，以及障碍物前沿的纵向缓冲。
       # 调大更保守，但会增大所需侧移量和纵向空间；过大容易触发 NO_ROOM 或
       # INSUFFICIENT_DISTANCE。调小可减少侧移，但会压缩实际安全间距。
-      lateral_margin: 0.5
+      lateral_margin: 0.1
 
       # [m] 允许生成的最大横向侧移量（取绝对值）。
       # 当满足安全余量所需的侧移量超过此值时，模块判定 NO_ROOM，不生成避障路径。
       # 调大前必须确认车道宽度、道路边界及车辆可行驶区域确实允许该偏移。
-      max_shift_length: 3.0
+      max_shift_length: 5.0
 
       # [m] 理想的绕障起点到障碍物前缘的距离。
       # 实际起点还会满足 lateral_margin + max(jerk_distance, min_shifting_distance)，
       # 因此侧移空间不足时会自动提前，而不会晚于该距离开始横移。
-      avoidance_start_distance_before_object_front: 5.0
+      avoidance_start_distance_before_object_front: 2.0
 
       # [m] 完成一次侧移所使用的最小纵向距离。
       # 实际侧移距离为 max(横向 jerk 计算距离, min_shifting_distance)。增大后路径
       # 更平缓但需要更早发现障碍物；减小会使横向变化更集中，并可能因路径点不足
       # 导致 PathShifter 无法生成有效侧移段。
-      min_shifting_distance: 5.0
+      min_shifting_distance: 2.0
 
       # [m/s^3] 计算侧移所需纵向距离时使用的横向 jerk 限制。
       # 值越小，允许的横向变化越平缓，计算出的 jerk_distance 通常越长；值越大，
       # 侧移可在更短距离内完成，但横向动作更激烈，应结合底盘跟踪能力调节。
-      shifting_lateral_jerk: 0.8
+      shifting_lateral_jerk: 1.5
 
       # [m/s] 计算 jerk_distance 时使用的最低假设车速。
       # 计算速度取 max(|ego_speed|, min_shifting_speed)，用于避免车辆静止或极低速时
       # 得到异常的侧移距离。该值不是最低行驶速度，也不会直接修改规划速度。
-      min_shifting_speed: 1.2
+      min_shifting_speed: 0.1
 
       # [m] 自车越过障碍物后，继续保持侧移并延后开始回正的距离。
       # 回正起点位于“目标中心纵向位置 + 目标半长 + 此距离”。调大可确保车尾充分
@@ -89,7 +89,11 @@
 
       # [m] 车辆 footprint 与原始 lanelet 边界的最小净空。该边界在模块内部校验，
       # 不使用后续 drivable area 扩展后的边界替代。
-      road_boundary_margin: 0.10
+      road_boundary_margin: 0.00
+
+      # 是否输出候选路径曲率、等效前轮角和边界最小净空诊断日志。仅用于离线诊断，
+      # 不改变路径生成、边界检查或控制限幅逻辑。
+      publish_steering_diagnostics: false
 
       # [m] 判断侧移状态已回零、允许模块结束的横向误差阈值。
       # active target 已通过、shift line 已清空，并且 base offset 与 ego shift 的绝对值

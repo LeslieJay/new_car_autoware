@@ -10,17 +10,13 @@
   <!-- launch module preset -->
   <arg name="planning_module_preset" default="default" description="planning module preset"/>
   <arg name="control_module_preset" default="default" description="control module preset"/>
-  <arg name="launch_simple_avoidance" default="true" description="enable Simple Avoidance"/>
-  <arg name="launch_simple_lc_avoidance" default="false" description="enable Simple Lane Change Avoidance"/>
-  <arg name="launch_obstacle_stop_module" default="false" description="enable Obstacle Stop"/>
-  <arg name="launch_dynamic_obstacle_stop_module" default="false" description="enable Dynamic Obstacle Stop"/>
   <arg name="lateral_controller_mode" default="pure_pursuit" description="lateral controller: mpc or pure_pursuit"/>
 
   <!-- Optional parameters -->
   <!-- Map -->
   <!-- Keep this default aligned with autoware.launch.xml. The old two_lanelet2_map.osm
        has empty lat/lon fields and cannot be projected by the LocalCartesian map loader. -->
-  <arg name="lanelet2_map_file" default="0727_lanelet2_map.osm" description="lanelet2 map file name"/>
+  <arg name="lanelet2_map_file" default="turn_lanelet2_map_with_latlon.osm" description="lanelet2 map file name"/>
   <arg name="pointcloud_map_file" default="pointcloud_map.pcd" description="pointcloud map file name"/>
   <let name="rviz_initial_pose_auto_fix_target" value="vector_map"/>
   <let name="gnss_initial_pose_auto_fix_target" value="vector_map"/>
@@ -72,10 +68,6 @@
       <!-- launch module preset -->
       <arg name="planning_module_preset" value="$(var planning_module_preset)"/>
       <arg name="control_module_preset" value="$(var control_module_preset)"/>
-      <arg name="launch_simple_avoidance" value="$(var launch_simple_avoidance)"/>
-      <arg name="launch_simple_lc_avoidance" value="$(var launch_simple_lc_avoidance)"/>
-      <arg name="launch_obstacle_stop_module" value="$(var launch_obstacle_stop_module)"/>
-      <arg name="launch_dynamic_obstacle_stop_module" value="$(var launch_dynamic_obstacle_stop_module)"/>
       <arg name="lateral_controller_mode" value="$(var lateral_controller_mode)"/>
       <!-- Modules to be launched -->
       <arg name="launch_sensing" value="false"/>

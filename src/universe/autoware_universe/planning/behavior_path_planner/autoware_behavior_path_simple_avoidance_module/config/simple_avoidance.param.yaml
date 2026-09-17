@@ -18,6 +18,8 @@
       commitment_distance_before_shift_start: 2.0
       lateral_execution_threshold: 0.05
       road_boundary_margin: 0.10
+      boundary_check_resample_interval: 0.30
+      publish_steering_diagnostics: false
       path_generation_failure_timeout: 0.5
       completion_stable_count: 3
       trailer:
