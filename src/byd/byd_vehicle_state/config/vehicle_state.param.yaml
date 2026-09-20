@@ -5,3 +5,6 @@
     arrived_to_unset_timeout: 2.0    # 宣布到达后多久清 goal，回到 WaitingForRoute [s]
     # 前进模式是否额外采纳 /api/routing/state == ARRIVED
     use_route_state_for_forward: true
+    # BYD 快速验证：前进到达后清除 Autoware route，避免倒车结束恢复自动时回到旧目标。
+    clear_route_on_arrival: true
+    clear_route_retry_interval: 0.5

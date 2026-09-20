@@ -154,6 +154,21 @@ struct FeasibilityResult
 
 enum class LCAvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING, STOPPING };
 
+enum class LCAvoidanceTargetState { NONE, AHEAD, PASSING, PASSED };
+
+struct LCAvoidanceCycleState
+{
+  LCAvoidanceTargetState target_state{LCAvoidanceTargetState::NONE};
+  std::string target_uuid{};
+  bool has_active_target{false};
+  bool has_shift_lines{false};
+  bool is_ego_on_shift_line{false};
+  double base_offset{0.0};
+  double planned_shift{0.0};
+  double actual_lateral_offset{0.0};
+  LCAvoidanceLifecycleState lifecycle_state{LCAvoidanceLifecycleState::IDLE};
+};
+
 struct LCAvoidanceCompletionStatus
 {
   bool has_active_target{false};

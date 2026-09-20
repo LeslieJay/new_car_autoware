@@ -19,9 +19,15 @@ rclcpp_components_register_node(${PROJECT_NAME}_node
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+  find_package(ament_cmake_pytest REQUIRED)
 
   ament_auto_add_gtest(test_route_arrival_gate
     test/test_route_arrival_gate.cpp
+  )
+
+  ament_add_pytest_test(test_arrival_clears_route
+    test/test_arrival_clears_route.py
+    TIMEOUT 30
   )
 endif()
 

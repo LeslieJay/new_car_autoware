@@ -1,10 +1,16 @@
-// Copyright 2026 BYD. All rights reserved.
+// Copyright 2026 BYD.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "byd_vehicle_state/vehicle_state_node.hpp"
 
@@ -48,6 +54,8 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
   arrival_check_duration_ = declare_parameter<double>("arrival_check_duration");
   arrived_to_unset_timeout_ = declare_parameter<double>("arrived_to_unset_timeout", 2.0);
   use_route_state_for_forward_ = declare_parameter<bool>("use_route_state_for_forward", true);
+  clear_route_on_arrival_ = declare_parameter<bool>("clear_route_on_arrival", true);
+  clear_route_retry_interval_ = declare_parameter<double>("clear_route_retry_interval", 0.5);
   vehicle_stop_checker_ =
     std::make_unique<autoware::motion_utils::VehicleStopChecker>(this);
 
@@ -83,6 +91,8 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
     "~/input/lanelet_route", rclcpp::QoS(1).transient_local(),
     std::bind(&VehicleStateNode::onLaneletRoute, this, std::placeholders::_1));
 
+  clear_route_client_ =
+    create_client<autoware_adapi_v1_msgs::srv::ClearRoute>("/api/routing/clear_route");
   state_pub_ = create_publisher<autoware_system_msgs::msg::AutowareState>("~/output/state", 1);
   state_name_pub_ = create_publisher<std_msgs::msg::String>("~/output/state_name", 1);
 
@@ -98,6 +108,9 @@ VehicleStateNode::VehicleStateNode(const rclcpp::NodeOptions & options)
     arrival_check_longitudinal_undershoot_distance_,
     arrival_check_longitudinal_overshoot_distance_, arrival_check_lateral_distance_,
     arrival_check_angle_rad_, arrival_check_duration_);
+  RCLCPP_INFO(
+    get_logger(), "clear_route_on_arrival=%s retry_interval=%.2fs",
+    clear_route_on_arrival_ ? "true" : "false", clear_route_retry_interval_);
 }
 
 void VehicleStateNode::onForwardGoal(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
@@ -181,6 +194,29 @@ void VehicleStateNode::onLaneletRoute(
   }
 }
 
+void VehicleStateNode::onClearRouteResponse(
+  rclcpp::Client<autoware_adapi_v1_msgs::srv::ClearRoute>::SharedFuture future)
+{
+  clear_route_request_in_flight_ = false;
+  const auto response = future.get();
+  if (
+    response->status.success ||
+    response->status.code == autoware_adapi_v1_msgs::msg::ResponseStatus::NO_EFFECT)
+  {
+    clear_route_pending_ = false;
+    clear_route_retry_after_ = {};
+    RCLCPP_INFO(get_logger(), "Forward route cleared after arrival");
+    return;
+  }
+
+  clear_route_retry_after_ = std::chrono::steady_clock::now() +
+    std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+    std::chrono::duration<double>(std::max(0.1, clear_route_retry_interval_)));
+  RCLCPP_WARN(
+    get_logger(), "Failed to clear forward route after arrival: %s; retrying",
+    response->status.message.c_str());
+}
+
 void VehicleStateNode::setActiveGoal(
   const geometry_msgs::msg::PoseStamped & goal, GoalMode mode)
 {
@@ -254,6 +290,18 @@ bool VehicleStateNode::isArrivedAtGoal() const
          std::abs(lateral_error) <= arrival_check_lateral_distance_ &&
          yaw_diff <= arrival_check_angle_rad_ &&
          vehicle_stop_checker_->isVehicleStopped(arrival_check_duration_);
+}
+
+void VehicleStateNode::requestClearRouteOnArrival()
+{
+  if (!clear_route_on_arrival_ || goal_mode_ != GoalMode::Forward) {
+    return;
+  }
+  if (!clear_route_pending_ && !clear_route_request_in_flight_) {
+    RCLCPP_INFO(get_logger(), "Forward route arrived; scheduling route clear");
+  }
+  clear_route_pending_ = true;
+  clear_route_retry_after_ = {};
 }
 
 void VehicleStateNode::logGoalError(const char * event) const
@@ -341,6 +389,7 @@ void VehicleStateNode::onTimer()
       arrived_published_since_ = now_t;
       logGoalError("Goal arrived");
       RCLCPP_INFO(get_logger(), "Goal arrived (mode=%u)", static_cast<unsigned>(goal_mode_));
+      requestClearRouteOnArrival();
     }
   } else if (hasActiveMission() && !arrived_published_since_.has_value()) {
     // 到达条件丢失且尚未对外宣布到达，重置保持计时
@@ -364,6 +413,31 @@ void VehicleStateNode::onTimer()
     arrived_condition_met_ = false;
     arrived_since_.reset();
     arrived_published_since_.reset();
+  }
+
+  if (clear_route_pending_ && route_state_ == autoware_adapi_v1_msgs::msg::RouteState::UNSET) {
+    // Another component may have cleared the route while our request was pending.
+    clear_route_pending_ = false;
+  }
+  const auto steady_now = std::chrono::steady_clock::now();
+  if (
+    clear_route_pending_ && !clear_route_request_in_flight_ &&
+    steady_now >= clear_route_retry_after_ &&
+    route_state_ == autoware_adapi_v1_msgs::msg::RouteState::ARRIVED)
+  {
+    const bool vehicle_stopped =
+      current_odom_ && vehicle_stop_checker_->isVehicleStopped(arrival_check_duration_);
+    if (!vehicle_stopped || !clear_route_client_->service_is_ready()) {
+      clear_route_retry_after_ = steady_now +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(std::max(0.1, clear_route_retry_interval_)));
+    } else {
+      clear_route_request_in_flight_ = true;
+      clear_route_client_->async_send_request(
+        std::make_shared<autoware_adapi_v1_msgs::srv::ClearRoute::Request>(),
+        std::bind(&VehicleStateNode::onClearRouteResponse, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Clearing forward route after arrival");
+    }
   }
 
   const uint8_t state = computeState();

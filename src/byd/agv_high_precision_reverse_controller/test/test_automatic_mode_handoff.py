@@ -184,9 +184,9 @@ def test_completed_reverse_automatically_returns_to_autonomous(running_system):
 
     expected = [
         'pause:true', 'clear_route', 'local', 'enable', 'engage', 'pause:false',
-        'pause:true', 'autonomous', 'pause:false']
+        'pause:true', 'clear_route', 'autonomous', 'pause:false']
     assert wait_until(
-        lambda: harness.events[:9] == expected,
+        lambda: harness.events[:10] == expected,
         harness,
         timeout=5.0,
         odom_x=-1.0)

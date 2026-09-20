@@ -1,10 +1,16 @@
-// Copyright 2026 BYD. All rights reserved.
+// Copyright 2026 BYD.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #ifndef BYD_VEHICLE_STATE__VEHICLE_STATE_NODE_HPP_
 #define BYD_VEHICLE_STATE__VEHICLE_STATE_NODE_HPP_
@@ -14,6 +20,7 @@
 #include <autoware/motion_utils/vehicle/vehicle_state_checker.hpp>
 #include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
 #include <autoware_adapi_v1_msgs/msg/route_state.hpp>
+#include <autoware_adapi_v1_msgs/srv/clear_route.hpp>
 #include <autoware_planning_msgs/msg/lanelet_route.hpp>
 #include <autoware_system_msgs/msg/autoware_state.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -21,6 +28,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -61,12 +69,15 @@ private:
   void onRouteState(const autoware_adapi_v1_msgs::msg::RouteState::ConstSharedPtr msg);
   void onOperationMode(const autoware_adapi_v1_msgs::msg::OperationModeState::ConstSharedPtr msg);
   void onLaneletRoute(const autoware_planning_msgs::msg::LaneletRoute::ConstSharedPtr msg);
+  void onClearRouteResponse(
+    rclcpp::Client<autoware_adapi_v1_msgs::srv::ClearRoute>::SharedFuture future);
   void onTimer();
 
   void setActiveGoal(const geometry_msgs::msg::PoseStamped & goal, GoalMode mode);
   bool hasActiveMission() const;
   bool isDrivingEngaged() const;
   bool isArrivedAtGoal() const;
+  void requestClearRouteOnArrival();
   void logGoalError(const char * event) const;
   uint8_t computeState() const;
   static std::string stateToString(uint8_t state);
@@ -79,6 +90,7 @@ private:
     operation_mode_sub_;
   rclcpp::Subscription<autoware_planning_msgs::msg::LaneletRoute>::SharedPtr lanelet_route_sub_;
 
+  rclcpp::Client<autoware_adapi_v1_msgs::srv::ClearRoute>::SharedPtr clear_route_client_;
   rclcpp::Publisher<autoware_system_msgs::msg::AutowareState>::SharedPtr state_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_name_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -89,6 +101,10 @@ private:
   bool has_valid_goal_pose_{false};
   GoalMode goal_mode_{GoalMode::None};
   bool use_route_state_for_forward_{true};
+  bool clear_route_on_arrival_{true};
+  bool clear_route_pending_{false};
+  bool clear_route_request_in_flight_{false};
+  std::chrono::steady_clock::time_point clear_route_retry_after_{};
   uint8_t route_state_{autoware_adapi_v1_msgs::msg::RouteState::UNKNOWN};
   RouteArrivalGate route_arrival_gate_;
   uint8_t operation_mode_{autoware_adapi_v1_msgs::msg::OperationModeState::UNKNOWN};
@@ -101,6 +117,7 @@ private:
   double arrival_check_angle_rad_{0.0174533};
   double arrival_check_duration_{1.0};
   double arrived_to_unset_timeout_{2.0};
+  double clear_route_retry_interval_{0.5};
   double update_rate_{10.0};
 
   bool arrived_condition_met_{false};

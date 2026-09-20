@@ -55,6 +55,13 @@ double calcStopDistance(
   const Pose & current_pose, const Trajectory & traj, const double max_dist, const double max_yaw);
 
 /**
+ * @brief Return true when a previously triggered overshoot emergency is cleared by a new
+ * trajectory that has a non-zero target velocity and is safely ahead of its stop point.
+ */
+bool shouldRecoverFromClearedStop(
+  bool emergency_condition, bool departure_condition, bool has_nonzero_target_velocity);
+
+/**
  * @brief calculate pitch angle from estimated current pose
  */
 double getPitchByPose(const Quaternion & quaternion);

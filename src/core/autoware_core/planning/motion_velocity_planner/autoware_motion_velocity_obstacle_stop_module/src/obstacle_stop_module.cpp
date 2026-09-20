@@ -167,8 +167,14 @@ double calc_braking_dist_along_trajectory(
     }
     return rss_params.vehicle_objects_deceleration;
   }();
+  // RSS parameters are used to place the stop point, but must not request a braking profile
+  // beyond the common hard trajectory limit. The velocity smoother enforces the same limit;
+  // keeping the stop point calculation bounded prevents a too-short stop distance from creating
+  // a discrete acceleration jump before smoothing.
+  constexpr double hard_deceleration_limit = -2.5;
+  const double bounded_braking_acc = std::max(braking_acc, hard_deceleration_limit);
   const double error_considered_vel = std::max(lon_vel + rss_params.velocity_offset, 0.0);
-  return error_considered_vel * error_considered_vel * 0.5 / -braking_acc;
+  return error_considered_vel * error_considered_vel * 0.5 / -bounded_braking_acc;
 }
 
 PolygonParam create_polygon_param(

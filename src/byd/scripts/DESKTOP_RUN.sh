@@ -10,3 +10,5 @@ gnome-terminal --tab -- bash -c "cd /home/nvidia/autoware && source install/setu
 # gnome-terminal --tab -- bash -c "ros2 run byd_auto_engage auto_engage_node; exec bash"
 #gnome-terminal --tab -- bash -c "ros2 launch reverse_parking_planner reverse_parking_planner.launch.py; exec bash"
 gnome-terminal --tab -- bash -c "cd /home/nvidia/autoware && source install/setup.bash && ros2 launch rosbridge_server rosbridge_websocket_launch.xml address:=0.0.0.0 port:=9090"
+gnome-terminal --tab -- bash -c "cd /home/nvidia/autoware && source install/setup.bash && ros2 launch agv_high_precision_reverse_controller \
+  agv_high_precision_reverse_controller.launch.py; exec bash"

@@ -183,6 +183,11 @@ struct NoRoomReengagementScenario
   void moveManualToAdjacent(const size_t index, const double offset)
   {
     operation_mode->is_autoware_control_enabled = false;
+    moveToAdjacent(index, offset);
+  }
+
+  void moveToAdjacent(const size_t index, const double offset)
+  {
     const auto source_pose = upstream.path.points.at(index).point.pose;
     const auto adjacent_pose = adjacent_path.points.at(index).point.pose;
     const double center_distance = std::hypot(
@@ -392,6 +397,72 @@ TEST_F(
     scenario.module->updateCurrentState();
   }
   EXPECT_EQ(scenario.module->getCurrentStatus(), ModuleStatus::SUCCESS);
+}
+
+TEST_F(
+  SimpleLaneChangeAvoidanceSceneTest,
+  PassingTargetReconcilesStateWithoutOperationModeTransition)
+{
+  NoRoomReengagementScenario scenario{"simple_lane_change_avoidance_periodic_state_test"};
+  scenario.parameters->max_shift_length = 4.5;
+  scenario.parameters->min_prepare_distance = 1.0;
+  scenario.parameters->min_shifting_distance = 2.0;
+  scenario.parameters->shifting_lateral_jerk = 2.0;
+  scenario.parameters->return_distance_after_object = 2.0;
+  scenario.parameters->road_boundary_margin = 0.0;
+  scenario.planner_data->parameters.vehicle_info =
+    autoware::vehicle_info_utils::createVehicleInfo(
+      0.1, 0.1, 1.0, 0.2, 0.1, 0.1, 0.1, 0.1, 0.5, 0.2);
+  scenario.planner_data->parameters.vehicle_width =
+    scenario.planner_data->parameters.vehicle_info.vehicle_width_m;
+  scenario.self_odometry->pose.pose = scenario.upstream.path.points.at(3).point.pose;
+  scenario.planner_data->dynamic_object = makeObstacleAt(scenario.upstream.path.points.at(21));
+
+  const auto avoidance_output = scenario.module->run();
+  ASSERT_FALSE(avoidance_output.path.points.empty());
+  ASSERT_GT(avoidance_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
+  scenario.module->updateCurrentState();
+
+  scenario.moveToAdjacent(26, 1.43);
+  const auto recovery_output = scenario.module->run();
+
+  ASSERT_FALSE(recovery_output.path.points.empty());
+  EXPECT_GT(recovery_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
+  const auto recovery_ego_index = autoware::motion_utils::findNearestIndex(
+    recovery_output.path.points, scenario.self_odometry->pose.pose.position);
+  EXPECT_LT(
+    autoware_utils::calc_distance2d(
+      recovery_output.path.points.at(recovery_ego_index).point.pose,
+      scenario.self_odometry->pose.pose),
+    0.6);
+  EXPECT_LT(
+    std::abs(autoware::motion_utils::calcLateralOffset(
+      recovery_output.path.points, scenario.self_odometry->pose.pose.position)),
+    0.1);
+  EXPECT_EQ(
+    scenario.operation_mode->mode,
+    autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS);
+  EXPECT_TRUE(scenario.operation_mode->is_autoware_control_enabled);
+}
+
+TEST_F(
+  SimpleLaneChangeAvoidanceSceneTest,
+  LostTargetIsMarkedPassedFromHeldPoseWithoutOperationModeTransition)
+{
+  NoRoomReengagementScenario scenario{"simple_lane_change_avoidance_lost_passed_target_test"};
+  const auto stopped_output = scenario.module->run();
+  ASSERT_FALSE(stopped_output.path.points.empty());
+  EXPECT_DOUBLE_EQ(stopped_output.path.points.back().point.longitudinal_velocity_mps, 0.0);
+  scenario.module->updateCurrentState();
+
+  scenario.planner_data->dynamic_object =
+    std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
+  scenario.moveToAdjacent(20, 0.79);
+  const auto recovery_output = scenario.module->run();
+
+  ASSERT_FALSE(recovery_output.path.points.empty());
+  EXPECT_GT(recovery_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
+  EXPECT_TRUE(scenario.operation_mode->is_autoware_control_enabled);
 }
 
 TEST_F(SimpleLaneChangeAvoidanceSceneTest, ReengageBeforeTargetKeepsSafetyStop)

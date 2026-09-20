@@ -14,6 +14,7 @@
 
 #include "autoware/behavior_path_simple_avoidance_module/scene.hpp"
 
+#include "autoware/behavior_path_lane_change_module/utils/utils.hpp"
 #include "autoware/behavior_path_planner_common/marker_utils/utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/drivable_area_expansion/static_drivable_area.hpp"
 #include "autoware/behavior_path_planner_common/utils/path_safety_checker/objects_filtering.hpp"
@@ -29,6 +30,7 @@
 #include <boost/geometry/algorithms/convex_hull.hpp>
 #include <boost/geometry/algorithms/correct.hpp>
 #include <boost/geometry/algorithms/covered_by.hpp>
+#include <boost/geometry/algorithms/disjoint.hpp>
 #include <boost/geometry/algorithms/distance.hpp>
 #include <boost/geometry/algorithms/envelope.hpp>
 #include <boost/geometry/algorithms/intersects.hpp>
@@ -61,8 +63,8 @@ struct SimpleAvoidanceBoundaryClearanceDetails
 
 struct SimpleAvoidanceBoundaryValidationCache
 {
-  using BoundaryRTree = boost::geometry::index::rtree<
-    autoware_utils::Segment2d, boost::geometry::index::rstar<16>>;
+  using BoundaryRTree =
+    boost::geometry::index::rtree<autoware_utils::Segment2d, boost::geometry::index::rstar<16>>;
 
   autoware_utils::LineString2d left_bound;
   autoware_utils::LineString2d right_bound;
@@ -174,34 +176,33 @@ bool hasSideBoundaryViolation(
   const autoware_utils::Polygon2d & area,
   const SimpleAvoidanceBoundaryValidationCache::BoundaryRTree & rtree, const double margin,
   double & minimum_clearance, const size_t path_index,
-  const autoware_utils::LineString2d & left_bound,
-  const autoware_utils::LineString2d & right_bound,
+  const autoware_utils::LineString2d & left_bound, const autoware_utils::LineString2d & right_bound,
   SimpleAvoidanceBoundaryClearanceDetails * details)
 {
   if (details != nullptr) {
-    const auto update_details = [&](const autoware_utils::LineString2d & bound,
-                                    const char * const side) {
-      const double clearance = boost::geometry::distance(area, bound);
-      if (clearance >= details->minimum_clearance) {
-        return;
-      }
-
-      minimum_clearance = std::min(minimum_clearance, clearance);
-      details->minimum_clearance = clearance;
-      details->path_index = path_index;
-      details->side = side;
-      details->area_vertices.assign(area.outer().begin(), area.outer().end());
-      details->valid = true;
-
-      double nearest_vertex_distance = std::numeric_limits<double>::max();
-      for (const auto & vertex : area.outer()) {
-        const double vertex_distance = boost::geometry::distance(vertex, bound);
-        if (vertex_distance < nearest_vertex_distance) {
-          nearest_vertex_distance = vertex_distance;
-          details->nearest_footprint_vertex = vertex;
+    const auto update_details =
+      [&](const autoware_utils::LineString2d & bound, const char * const side) {
+        const double clearance = boost::geometry::distance(area, bound);
+        if (clearance >= details->minimum_clearance) {
+          return;
         }
-      }
-    };
+
+        minimum_clearance = std::min(minimum_clearance, clearance);
+        details->minimum_clearance = clearance;
+        details->path_index = path_index;
+        details->side = side;
+        details->area_vertices.assign(area.outer().begin(), area.outer().end());
+        details->valid = true;
+
+        double nearest_vertex_distance = std::numeric_limits<double>::max();
+        for (const auto & vertex : area.outer()) {
+          const double vertex_distance = boost::geometry::distance(vertex, bound);
+          if (vertex_distance < nearest_vertex_distance) {
+            nearest_vertex_distance = vertex_distance;
+            details->nearest_footprint_vertex = vertex;
+          }
+        }
+      };
     update_details(left_bound, "left");
     update_details(right_bound, "right");
   }
@@ -284,10 +285,9 @@ void logPathSteeringDiagnostics(
     "signed_curvature=%.6f equivalent_front_wheel_angle_rad=%.6f "
     "equivalent_front_wheel_angle_deg=%.3f max_index=%zu path_arclength=%.3f "
     "max_point=(%.3f,%.3f) wheel_base=%.3f",
-    stage, path.points.size(), first_index, details.maximum_abs_curvature,
-    details.signed_curvature, details.equivalent_steering_angle_rad,
-    details.equivalent_steering_angle_rad * 180.0 / M_PI, details.path_index,
-    details.path_arclength, details.path_x, details.path_y, wheel_base);
+    stage, path.points.size(), first_index, details.maximum_abs_curvature, details.signed_curvature,
+    details.equivalent_steering_angle_rad, details.equivalent_steering_angle_rad * 180.0 / M_PI,
+    details.path_index, details.path_arclength, details.path_x, details.path_y, wheel_base);
 }
 
 void logBoundaryClearanceDiagnostics(
@@ -301,9 +301,10 @@ void logBoundaryClearanceDiagnostics(
     "required_margin=%.3f clearance_shortfall=%.3f boundary_side=%s path_index=%zu "
     "nearest_footprint_vertex=(%.3f,%.3f) footprint_vertices=%zu",
     stage, toString(result), minimum_clearance, required_margin,
-    std::max(0.0, required_margin - minimum_clearance), details.valid ? details.side.c_str() : "none",
-    details.valid ? details.path_index : 0U, details.nearest_footprint_vertex.x(),
-    details.nearest_footprint_vertex.y(), details.area_vertices.size());
+    std::max(0.0, required_margin - minimum_clearance),
+    details.valid ? details.side.c_str() : "none", details.valid ? details.path_index : 0U,
+    details.nearest_footprint_vertex.x(), details.nearest_footprint_vertex.y(),
+    details.area_vertices.size());
 
   if (!details.valid) {
     return;
@@ -311,8 +312,8 @@ void logBoundaryClearanceDiagnostics(
   for (size_t i = 0; i < details.area_vertices.size(); ++i) {
     const auto & vertex = details.area_vertices.at(i);
     RCLCPP_INFO(
-      logger, "[DEBUG-SA-STEER] stage=%s footprint_vertex[%zu]=(%.3f,%.3f)", stage, i,
-      vertex.x(), vertex.y());
+      logger, "[DEBUG-SA-STEER] stage=%s footprint_vertex[%zu]=(%.3f,%.3f)", stage, i, vertex.x(),
+      vertex.y());
   }
 }
 
@@ -349,13 +350,24 @@ void appendLaneletBoundary(
 }
 
 std::optional<OriginalRoadBoundaries> makeOriginalRoadBoundaries(
-  const lanelet::ConstLanelets & lanelets, const PathWithLaneId & path)
+  const lanelet::ConstLanelets & lanelets, const lanelet::ConstLanelets & adjacent_lanelets,
+  const std::optional<bool> adjacent_lane_is_left, const PathWithLaneId & path)
 {
   OriginalRoadBoundaries boundaries;
   if (!lanelets.empty()) {
-    for (const auto & lanelet : lanelets) {
-      appendLaneletBoundary(boundaries.left, lanelet.leftBound());
-      appendLaneletBoundary(boundaries.right, lanelet.rightBound());
+    const auto append_side = [](
+                               autoware_utils::LineString2d & output,
+                               const lanelet::ConstLanelets & sequence, const bool use_left) {
+      for (const auto & lanelet : sequence) {
+        appendLaneletBoundary(output, use_left ? lanelet.leftBound() : lanelet.rightBound());
+      }
+    };
+    if (!adjacent_lanelets.empty() && adjacent_lane_is_left.has_value()) {
+      append_side(boundaries.left, *adjacent_lane_is_left ? adjacent_lanelets : lanelets, true);
+      append_side(boundaries.right, *adjacent_lane_is_left ? lanelets : adjacent_lanelets, false);
+    } else {
+      append_side(boundaries.left, lanelets, true);
+      append_side(boundaries.right, lanelets, false);
     }
     boundaries.from_lanelets = true;
   } else {
@@ -603,9 +615,8 @@ void logNoTargetDiagnosisDetails(
         "(target excluded; obstacle_stop remains responsible for stopping)",
         prefix, d.total_objects, d.rejected_no_room, d.rejected_insufficient_distance,
         d.nearest_uuid.c_str(), toString(d.nearest_reject_reason), d.nearest_lon,
-        d.nearest_object_half_length, d.nearest_threshold,
-        d.nearest_transition_distance, d.nearest_dist_to_avoid_start,
-        d.nearest_dist_to_shift_end, d.nearest_dist_to_obstacle);
+        d.nearest_object_half_length, d.nearest_threshold, d.nearest_transition_distance,
+        d.nearest_dist_to_avoid_start, d.nearest_dist_to_shift_end, d.nearest_dist_to_obstacle);
       return;
     default:
       return;
@@ -688,6 +699,24 @@ void logPassThroughDetails(
       return;
   }
 }
+
+bool isConditionalStopReason(const InfeasibleReason reason)
+{
+  switch (reason) {
+    case InfeasibleReason::NO_ROOM:
+    case InfeasibleReason::INSUFFICIENT_DISTANCE:
+    case InfeasibleReason::TRAILER_COLLISION:
+    case InfeasibleReason::ROAD_BOUNDARY:
+    case InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY:
+    case InfeasibleReason::NO_ADJACENT_LANE:
+    case InfeasibleReason::ADJACENT_LANE_OCCUPIED:
+    case InfeasibleReason::VEHICLE_COLLISION:
+    case InfeasibleReason::ARTICULATION_LIMIT:
+      return true;
+    default:
+      return false;
+  }
+}
 }  // namespace
 
 SimpleAvoidanceModule::SimpleAvoidanceModule(
@@ -711,12 +740,15 @@ void SimpleAvoidanceModule::initVariables()
 {
   reference_path_ = PathWithLaneId();
   current_lanelets_.clear();
+  adjacent_lanelets_.clear();
+  adjacent_lane_is_left_.reset();
   path_shifter_ = PathShifter{};
   prev_output_ = ShiftedPath{};
   active_target_.reset();
   lifecycle_state_ = AvoidanceLifecycleState::IDLE;
   completion_stable_count_ = 0;
   ego_aligned_return_active_ = false;
+  lateral_lag_started_.reset();
   path_generation_failure_started_.reset();
   route_id_.reset();
   if (boundary_validation_cache_) {
@@ -726,6 +758,24 @@ void SimpleAvoidanceModule::initVariables()
   debug_data_ = SimpleAvoidanceDebugData{};
   resetPathCandidate();
   resetPathReference();
+}
+
+void SimpleAvoidanceModule::clearAvoidanceStateForPassThrough()
+{
+  // A no-target result must not fall through to continueCommittedPath() or allow passThrough()
+  // to reuse the previous shifted output. Keep reference_path_ intact because it belongs to the
+  // current planning cycle and is still needed by the immediate upstream pass-through.
+  path_shifter_ = PathShifter{};
+  prev_output_ = ShiftedPath{};
+  active_target_.reset();
+  lifecycle_state_ = AvoidanceLifecycleState::IDLE;
+  completion_stable_count_ = 0;
+  ego_aligned_return_active_ = false;
+  lateral_lag_started_.reset();
+  path_generation_failure_started_.reset();
+  debug_data_.path_shifter.reset();
+  debug_data_.target.reset();
+  debug_data_.last_reason = InfeasibleReason::NO_TARGET;
 }
 
 void SimpleAvoidanceModule::processOnEntry()
@@ -762,10 +812,6 @@ bool SimpleAvoidanceModule::isExecutionRequested() const
 
 bool SimpleAvoidanceModule::canTransitSuccessState()
 {
-  if (lifecycle_state_ == AvoidanceLifecycleState::STOPPING) {
-    const double speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
-    return speed <= parameters_->trailer_stationary_speed_threshold;
-  }
   if (active_target_.has_value()) {
     if (const auto updated = updateTargetMetrics(*active_target_)) {
       active_target_ = updated;
@@ -786,6 +832,15 @@ bool SimpleAvoidanceModule::canTransitSuccessState()
         "[SIMPLE_AVOIDANCE] success blocked: active_target uuid=%s lon=%.2fm",
         active_target_->uuid.c_str(), active_target_->longitudinal_distance);
     }
+  }
+
+  // Once the target has passed or its existing hold has expired, do not wait for the physical
+  // vehicle to return to the centerline. plan() has already (or will) publish the upstream path;
+  // make the module leave RUNNING in the same cycle instead of retaining RETURNING state.
+  if (
+    !active_target_.has_value() && lifecycle_state_ != AvoidanceLifecycleState::CANDIDATE) {
+    clearAvoidanceStateForPassThrough();
+    return true;
   }
 
   const AvoidanceCompletionStatus status{
@@ -825,6 +880,8 @@ bool SimpleAvoidanceModule::canTransitSuccessState()
 
 void SimpleAvoidanceModule::updateData()
 {
+  adjacent_lanelets_.clear();
+  adjacent_lane_is_left_.reset();
   if (boundary_validation_cache_) {
     // planCandidate() and plan() may validate the same path in one BPP cycle. Keep the
     // immutable geometry context, but never carry a result into a new cycle.
@@ -835,20 +892,16 @@ void SimpleAvoidanceModule::updateData()
     route_id_.has_value() && *route_id_ != planner_data_->route_handler->getRouteUuid() &&
     (lifecycle_state_ == AvoidanceLifecycleState::COMMITTED ||
      lifecycle_state_ == AvoidanceLifecycleState::RETURNING)) {
-    lifecycle_state_ = AvoidanceLifecycleState::STOPPING;
-    path_generation_failure_started_ =
-      clock_->now() - rclcpp::Duration::from_seconds(parameters_->path_generation_failure_timeout);
+    lifecycle_state_ = AvoidanceLifecycleState::IDLE;
+    path_shifter_ = PathShifter{};
+    prev_output_ = ShiftedPath{};
+    active_target_.reset();
     return;
   }
 
   if (getPreviousModuleOutput().path.points.size() < 2) {
     return;
   }
-
-  constexpr double resample_interval = 1.0;
-  const auto backward_extended_path = extendBackwardLength(getPreviousModuleOutput().path);
-  reference_path_ = utils::resamplePathWithSpline(backward_extended_path, resample_interval);
-  path_shifter_.setPath(reference_path_);
 
   const auto & route_handler = planner_data_->route_handler;
   const auto & p = planner_data_->parameters;
@@ -864,12 +917,59 @@ void SimpleAvoidanceModule::updateData()
       current_lane, reference_pose, p.backward_path_length, p.forward_path_length);
   }
 
+  constexpr double resample_interval = 1.0;
+  const auto backward_extended_path = extendBackwardLength(getPreviousModuleOutput().path);
+  reference_path_ = utils::resamplePathWithSpline(backward_extended_path, resample_interval);
+
+  // A short upstream trajectory cannot contain both shift lines and the post-obstacle return
+  // line. Refresh only the geometric reference from the route when its forward coverage is
+  // shorter than the maneuver requires; perception/object selection is unchanged.
+  const double required_avoidance_length =
+    parameters_->avoidance_start_distance_before_object_front +
+    2.0 * parameters_->min_shifting_distance + parameters_->return_distance_after_object +
+    parameters_->longitudinal_margin_before_object_front;
+  const double current_forward_coverage = reference_path_.points.size() >= 2
+                                             ? autoware::motion_utils::calcSignedArcLength(
+                                                 reference_path_.points, reference_pose.position,
+                                                 reference_path_.points.back().point.pose.position)
+                                             : 0.0;
+  if (
+    current_forward_coverage < required_avoidance_length && !current_lanelets_.empty() &&
+    route_handler) {
+    const auto route_reference = utils::getCenterLinePath(
+      *route_handler, current_lanelets_, reference_pose, p.backward_path_length,
+      p.forward_path_length, p);
+    const double route_forward_coverage = route_reference.points.size() >= 2
+                                             ? autoware::motion_utils::calcSignedArcLength(
+                                                 route_reference.points, reference_pose.position,
+                                                 route_reference.points.back().point.pose.position)
+                                             : 0.0;
+    if (route_forward_coverage > current_forward_coverage) {
+      reference_path_ = utils::resamplePathWithSpline(route_reference, resample_interval);
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_AVOIDANCE] short reference path extended from %.2fm to %.2fm required=%.2fm",
+        current_forward_coverage, route_forward_coverage, required_avoidance_length);
+    }
+  }
+  path_shifter_.setPath(reference_path_);
+
   const size_t nearest_idx = planner_data_->findEgoIndex(path_shifter_.getReferencePath().points);
   path_shifter_.removeBehindShiftLineAndSetBaseOffset(nearest_idx);
 
-  // Refresh the active target before plan() and before the framework evaluates the module state.
-  // This keeps target tracking alive while a committed maneuver is returning to the center line.
-  getActiveTargetOrHeldTarget();
+  // Refresh the active target and the matching drivable corridor before planCandidate()/plan().
+  // This keeps candidate preview and final output on the same lanelet context.
+  const auto target = getActiveTargetOrHeldTarget();
+  if (target.has_value()) {
+    const double ego_half_width = planner_data_->parameters.vehicle_width * 0.5;
+    updateAdjacentLaneContext(calcShiftLength(*target, *parameters_, ego_half_width).shift_length);
+  } else if (isCommittedOrReturning()) {
+    double current_shift = getClosestShiftLength(prev_output_, getEgoPose().position);
+    if (std::abs(current_shift) < parameters_->lateral_execution_threshold) {
+      current_shift = path_shifter_.getBaseOffset();
+    }
+    updateAdjacentLaneContext(current_shift);
+  }
 }
 
 std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
@@ -951,23 +1051,6 @@ std::optional<AvoidanceTarget> SimpleAvoidanceModule::detectTarget(
     target.object_half_length = object_half_length;
     target.uuid = uuid;
     target.last_seen = clock_->now();
-
-    // New targets are admitted only when both the lateral shift and the longitudinal
-    // transition can be completed before the obstacle. An already associated target is
-    // allowed through this filter so that COMMITTED/RETURNING lifecycle handling remains
-    // stable across a transient re-detection failure.
-    if (!preferred_uuid.has_value()) {
-      const auto shift_result = calcShiftLength(target, *parameters_, ego_half_width);
-      if (shift_result.reason != InfeasibleReason::NONE) {
-        continue;
-      }
-      const double ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
-      const auto feasibility_result =
-        checkFeasibility(target, shift_result.shift_length, *parameters_, ego_speed);
-      if (feasibility_result.reason != InfeasibleReason::NONE) {
-        continue;
-      }
-    }
 
     if (preferred_uuid.has_value()) {
       // Keep the same association order as static_obstacle_avoidance::updateStoredObjects():
@@ -1245,6 +1328,13 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   const AvoidanceTarget & target, const double shift_length,
   const double extra_return_distance) const
 {
+  if (reference_path_.points.size() < 2) {
+    RCLCPP_WARN_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE] path_generation_failed stage=reference_path_insufficient points=%zu",
+      reference_path_.points.size());
+    return {};
+  }
   const auto ego_idx = planner_data_->findEgoIndex(reference_path_.points);
   const auto ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
 
@@ -1258,13 +1348,11 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   }
 
   const double dist_to_avoid_start = feasibility.dist_to_avoid_start;
-  const double dist_to_avoid_end =
-    dist_to_avoid_start + feasibility.transition_distance;
+  const double dist_to_avoid_end = dist_to_avoid_start + feasibility.transition_distance;
   const double dist_to_return_start = target.longitudinal_distance + target.object_half_length +
                                       parameters_->return_distance_after_object +
                                       extra_return_distance;
-  const double dist_to_return_end =
-    dist_to_return_start + feasibility.transition_distance;
+  const double dist_to_return_end = dist_to_return_start + feasibility.transition_distance;
 
   ShiftLine avoid_shift;
   avoid_shift.start_shift_length = getClosestShiftLength(prev_output_, getEgoPose().position);
@@ -1279,6 +1367,20 @@ ShiftLineArray SimpleAvoidanceModule::buildShiftLines(
   return_shift.end_shift_length = 0.0;
   return_shift.start_idx = utils::getIdxByArclength(reference_path_, ego_idx, dist_to_return_start);
   return_shift.end_idx = utils::getIdxByArclength(reference_path_, ego_idx, dist_to_return_end);
+
+  if (
+    avoid_shift.start_idx >= avoid_shift.end_idx ||
+    return_shift.start_idx >= return_shift.end_idx ||
+    avoid_shift.end_idx > return_shift.start_idx ||
+    return_shift.end_idx >= reference_path_.points.size()) {
+    RCLCPP_WARN_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE] path_generation_failed stage=shift_line_index_conflict "
+      "avoid=[%zu,%zu] return=[%zu,%zu] points=%zu",
+      avoid_shift.start_idx, avoid_shift.end_idx, return_shift.start_idx,
+      return_shift.end_idx, reference_path_.points.size());
+    return {};
+  }
   return_shift.start = reference_path_.points.at(return_shift.start_idx).point.pose;
   return_shift.end = reference_path_.points.at(return_shift.end_idx).point.pose;
 
@@ -1297,7 +1399,8 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundaryLegacy(
   // geometry, not the generated path, as the explicit fallback boundary source.
   const auto & boundary_source_path =
     getPreviousModuleOutput().path.points.empty() ? path : getPreviousModuleOutput().path;
-  const auto boundaries = makeOriginalRoadBoundaries(current_lanelets_, boundary_source_path);
+  const auto boundaries = makeOriginalRoadBoundaries(
+    current_lanelets_, adjacent_lanelets_, adjacent_lane_is_left_, boundary_source_path);
   if (!boundaries.has_value()) {
     RCLCPP_ERROR_THROTTLE(
       getLogger(), *clock_, 1000,
@@ -1424,7 +1527,8 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
 
   const auto boundary_source_path =
     getPreviousModuleOutput().path.points.empty() ? path : getPreviousModuleOutput().path;
-  const auto boundaries = makeOriginalRoadBoundaries(current_lanelets_, boundary_source_path);
+  const auto boundaries = makeOriginalRoadBoundaries(
+    current_lanelets_, adjacent_lanelets_, adjacent_lane_is_left_, boundary_source_path);
   if (!boundaries.has_value()) {
     return InfeasibleReason::BOUNDARY_UNAVAILABLE;
   }
@@ -1432,8 +1536,8 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
   const auto vehicle_footprint = planner_data_->parameters.vehicle_info.createFootprint();
   const size_t ego_index = planner_data_->findEgoIndex(path.points);
   const double road_boundary_margin = std::max(0.0, parameters_->road_boundary_margin);
-  const double interpolation_distance = std::max(
-    0.05, parameters_->boundary_check_resample_interval);
+  const double interpolation_distance =
+    std::max(0.05, parameters_->boundary_check_resample_interval);
 
   double longitudinal_extension = 1.0;
   double footprint_radius = 0.0;
@@ -1456,8 +1560,8 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
   double context_build_ms = 0.0;
   if (!cache.context_valid || cache.context_hash != context_hash) {
     const auto context_build_start = std::chrono::steady_clock::now();
-    const auto corridor = makeLaneCorridor(
-      boundaries->left, boundaries->right, longitudinal_extension);
+    const auto corridor =
+      makeLaneCorridor(boundaries->left, boundaries->right, longitudinal_extension);
     if (!corridor.has_value()) {
       return InfeasibleReason::BOUNDARY_UNAVAILABLE;
     }
@@ -1482,30 +1586,29 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
   if (
     cache.path_result_valid && cache.context_hash == context_hash && cache.path_hash == path_hash) {
     RCLCPP_DEBUG_THROTTLE(
-      getLogger(), *clock_, 1000,
-      "[SIMPLE_AVOIDANCE_BOUNDARY] cache hit path_pts=%zu result=%s",
+      getLogger(), *clock_, 1000, "[SIMPLE_AVOIDANCE_BOUNDARY] cache hit path_pts=%zu result=%s",
       path.points.size(), toString(cache.path_result));
     if (parameters_->publish_steering_diagnostics) {
       logBoundaryClearanceDiagnostics(
         getLogger(), "boundary_validation_cache_hit", cache.path_result,
-        cache.minimum_boundary_clearance, road_boundary_margin,
-        cache.minimum_clearance_details);
+        cache.minimum_boundary_clearance, road_boundary_margin, cache.minimum_clearance_details);
     }
     return cache.path_result;
   }
 
   const auto validation_start = std::chrono::steady_clock::now();
-  const auto cache_result = [&](const InfeasibleReason result, const double minimum_clearance,
-                                const size_t sampled_areas, const size_t fallback_count,
-                                const SimpleAvoidanceBoundaryClearanceDetails & details) {
+  const auto cache_result = [&](
+                              const InfeasibleReason result, const double minimum_clearance,
+                              const size_t sampled_areas, const size_t fallback_count,
+                              const SimpleAvoidanceBoundaryClearanceDetails & details) {
     cache.path_hash = path_hash;
     cache.path_result = result;
     cache.minimum_boundary_clearance = minimum_clearance;
     cache.minimum_clearance_details = details;
     cache.path_result_valid = true;
-    const double run_ms = std::chrono::duration<double, std::milli>(
-                            std::chrono::steady_clock::now() - validation_start)
-                            .count();
+    const double run_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - validation_start)
+        .count();
     RCLCPP_DEBUG_THROTTLE(
       getLogger(), *clock_, 1000,
       "[SIMPLE_AVOIDANCE_BOUNDARY] optimized path_pts=%zu sampled_areas=%zu "
@@ -1535,16 +1638,15 @@ InfeasibleReason SimpleAvoidanceModule::validateVehicleRoadBoundary(
   if (
     !boost::geometry::covered_by(first_footprint, cache.corridor) ||
     hasSideBoundaryViolation(
-      first_footprint, cache.side_boundary_rtree, road_boundary_margin,
-      minimum_boundary_clearance, ego_index, cache.left_bound, cache.right_bound,
+      first_footprint, cache.side_boundary_rtree, road_boundary_margin, minimum_boundary_clearance,
+      ego_index, cache.left_bound, cache.right_bound,
       parameters_->publish_steering_diagnostics ? &minimum_clearance_details : nullptr)) {
     return cache_result(
       InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY, minimum_boundary_clearance, 0, 0,
       minimum_clearance_details);
   }
 
-  const double rotation_error =
-    footprint_radius * (1.0 - std::cos((M_PI / 180.0) * 0.5));
+  const double rotation_error = footprint_radius * (1.0 - std::cos((M_PI / 180.0) * 0.5));
   const double refinement_band = std::max(0.05, rotation_error);
   constexpr double interpolation_angle = M_PI / 180.0;
   size_t sampled_areas = 0;
@@ -1655,7 +1757,8 @@ InfeasibleReason SimpleAvoidanceModule::validateArticulatedPath(const PathWithLa
 
   const auto & boundary_source_path =
     getPreviousModuleOutput().path.points.empty() ? path : getPreviousModuleOutput().path;
-  const auto boundaries = makeOriginalRoadBoundaries(current_lanelets_, boundary_source_path);
+  const auto boundaries = makeOriginalRoadBoundaries(
+    current_lanelets_, adjacent_lanelets_, adjacent_lane_is_left_, boundary_source_path);
   if (!boundaries.has_value()) {
     return InfeasibleReason::BOUNDARY_UNAVAILABLE;
   }
@@ -1799,8 +1902,8 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
       }
 
       const double ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
-      const auto longitudinal_feasibility = checkFeasibility(
-        target, direction * shift_magnitude, *parameters_, ego_speed);
+      const auto longitudinal_feasibility =
+        checkFeasibility(target, direction * shift_magnitude, *parameters_, ego_speed);
       if (longitudinal_feasibility.reason != InfeasibleReason::NONE) {
         // A larger lateral candidate can require a longer jerk transition. Do not
         // evaluate or select a trailer path whose shift ends at/after the obstacle.
@@ -1835,21 +1938,17 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateTrailerAwarePath(
 BehaviorModuleOutput SimpleAvoidanceModule::stopForInfeasiblePath(
   const InfeasibleReason reason, const PassThroughDebugInfo & debug_info) const
 {
-  auto output = make_safe_stop_output();
-  if (
-    reason == InfeasibleReason::ROAD_BOUNDARY || reason == InfeasibleReason::BOUNDARY_UNAVAILABLE ||
-    reason == InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY) {
-    output = getPreviousModuleOutput();
-    const auto fallback_path = output.path.points.empty() ? reference_path_ : output.path;
-    output.path =
-      make_safe_stop_path(PathWithLaneId{}, fallback_path, *planner_data_->self_odometry);
-    output.reference_path = reference_path_.points.empty() ? output.path : reference_path_;
+  if (reason == InfeasibleReason::PATH_GENERATION_FAILED) {
+    debug_data_.last_reason = reason;
+    logPassThroughDetails(
+      getLogger(), *clock_, reason, debug_info, *parameters_,
+      planner_data_->parameters.vehicle_width / 2.0);
+    return make_safe_stop_output();
   }
-  debug_data_.last_reason = reason;
-  logPassThroughDetails(
-    getLogger(), *clock_, reason, debug_info, *parameters_,
-    planner_data_->parameters.vehicle_width * 0.5);
-  return output;
+  if (active_target_.has_value() && isConditionalStopReason(reason)) {
+    return stopBeforeTarget(*active_target_, reason, debug_info);
+  }
+  return passThrough(reason, debug_info);
 }
 
 bool SimpleAvoidanceModule::isLateralExecutionIncomplete() const
@@ -1873,17 +1972,16 @@ bool SimpleAvoidanceModule::isLateralExecutionIncomplete() const
     return true;
   }
 
-  const double expected_current_shift =
-    getClosestShiftLength(prev_output_, getEgoPose().position);
+  const double expected_current_shift = getClosestShiftLength(prev_output_, getEgoPose().position);
   const double actual_lateral_offset = getEgoLateralOffsetToReference();
   const double lateral_tracking_error =
     calcLateralTrackingError(expected_current_shift, actual_lateral_offset);
   const auto shift_lines = path_shifter_.getShiftLines();
-  const double distance_to_shift_start = shift_lines.empty()
-                                           ? std::numeric_limits<double>::quiet_NaN()
-                                           : autoware::motion_utils::calcSignedArcLength(
-                                               reference_path_.points, getEgoPose().position,
-                                               shift_lines.front().start.position);
+  const double distance_to_shift_start =
+    shift_lines.empty()
+      ? std::numeric_limits<double>::quiet_NaN()
+      : autoware::motion_utils::calcSignedArcLength(
+          reference_path_.points, getEgoPose().position, shift_lines.front().start.position);
   RCLCPP_INFO_THROTTLE(
     getLogger(), *clock_, 1000,
     "[SIMPLE_AVOIDANCE] lateral tracking diagnostics: distance_to_shift_start=%.2fm "
@@ -1892,70 +1990,96 @@ bool SimpleAvoidanceModule::isLateralExecutionIncomplete() const
     distance_to_shift_start, parameters_->commitment_distance_before_shift_start,
     expected_current_shift, actual_lateral_offset, lateral_tracking_error,
     toString(lifecycle_state_));
-  return isLateralExecutionLagging(
-    expected_current_shift, actual_lateral_offset, parameters_->lateral_execution_threshold);
+  const bool lagging = isLateralExecutionLagging(
+    expected_current_shift, actual_lateral_offset, parameters_->lateral_tracking_error_threshold);
+  if (!lagging) {
+    lateral_lag_started_.reset();
+    return false;
+  }
+  if (!lateral_lag_started_.has_value()) {
+    lateral_lag_started_ = clock_->now();
+  }
+  return (clock_->now() - *lateral_lag_started_).seconds() >=
+         parameters_->lateral_tracking_grace_time;
 }
 
 BehaviorModuleOutput SimpleAvoidanceModule::stopBeforeTarget(
   const AvoidanceTarget & target, const InfeasibleReason reason,
   const PassThroughDebugInfo & debug_info) const
 {
-  auto output = getPreviousModuleOutput();
-  if (hasReusablePreviousPath()) {
-    const auto previous_path_reason = validateVehicleRoadBoundary(prev_output_.path);
-    if (previous_path_reason != InfeasibleReason::NONE) {
-      return stopForInfeasiblePath(previous_path_reason, debug_info);
-    }
-    output.path = prev_output_.path;
+  const double ego_half_width = planner_data_->parameters.vehicle_width * 0.5;
+  const auto pass_through = [&]() {
+    debug_data_.last_reason = reason;
+    return passThrough(reason, debug_info);
+  };
+
+  if (
+    !isConditionalStopReason(reason) || isCommittedOrReturning() || isEgoOnShiftLine() ||
+    std::abs(getEgoLateralOffsetToReference()) > parameters_->lateral_execution_threshold ||
+    isTargetHoldExpired(target, clock_->now(), parameters_->target_lost_time_threshold)) {
+    return pass_through();
   }
+
+  auto output = getPreviousModuleOutput();
   if (output.path.points.empty()) {
     output.path = reference_path_;
   }
   if (output.path.points.empty()) {
-    output = make_safe_stop_output();
+    return make_safe_stop_output();
   }
 
-  if (!output.path.points.empty()) {
-    const auto & vehicle_parameters = planner_data_->parameters;
-    const double base_link_to_front = std::max(
-      {0.0, vehicle_parameters.base_link2front,
-       vehicle_parameters.wheel_base + vehicle_parameters.front_overhang,
-       vehicle_parameters.vehicle_info.max_longitudinal_offset_m});
-    const double stop_distance = target.longitudinal_distance - target.object_half_length -
-                                 base_link_to_front - parameters_->lateral_margin;
-
-    std::optional<size_t> stop_index;
-    if (stop_distance > 0.0) {
-      stop_index = autoware::motion_utils::insertStopPoint(
-        planner_data_->self_odometry->pose.pose, stop_distance, output.path.points);
-    }
-    const size_t ego_index = planner_data_->findEgoIndex(output.path.points);
-    const size_t first_stop_index = stop_index.value_or(ego_index);
-    for (size_t i = std::min(first_stop_index, output.path.points.size());
-         i < output.path.points.size(); ++i) {
-      output.path.points.at(i).point.longitudinal_velocity_mps = 0.0;
-    }
-    if (output.path.points.size() == 1) {
-      output.path.points.front().point.longitudinal_velocity_mps = 0.0;
-    }
+  const auto & vehicle_parameters = planner_data_->parameters;
+  const double base_link_to_front = std::max(
+    {0.0, vehicle_parameters.base_link2front,
+     vehicle_parameters.wheel_base + vehicle_parameters.front_overhang,
+     vehicle_parameters.vehicle_info.max_longitudinal_offset_m});
+  const double stop_distance = target.longitudinal_distance - target.object_half_length -
+                               base_link_to_front -
+                               parameters_->longitudinal_margin_before_object_front;
+  if (stop_distance <= 0.0) {
+    return pass_through();
   }
+
+  const double ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+  const bool is_low_speed = ego_speed <= parameters_->stop_low_speed_threshold;
+  std::optional<double> feasible_stop_distance;
+  if (
+    planner_data_->self_acceleration && vehicle_parameters.min_acc < 0.0 &&
+    parameters_->stop_max_jerk > 0.0) {
+    feasible_stop_distance = utils::calc_feasible_decel_distance(
+      planner_data_, vehicle_parameters.min_acc, parameters_->stop_max_jerk, 0.0);
+  }
+  const bool has_valid_stop_distance = feasible_stop_distance.has_value() &&
+                                       std::isfinite(*feasible_stop_distance) &&
+                                       *feasible_stop_distance >= 0.0;
+  if (!is_low_speed && (!has_valid_stop_distance || *feasible_stop_distance > stop_distance)) {
+    return pass_through();
+  }
+
+  const auto stop_index = autoware::motion_utils::insertStopPoint(
+    planner_data_->self_odometry->pose.pose, stop_distance, output.path.points);
+  if (!stop_index.has_value()) {
+    return pass_through();
+  }
+  // Keep a kinematically bounded approach to the inserted stop point. A hard zeroing loop here
+  // creates a discrete acceleration spike that the velocity smoother/validator can reject.
+  output.path = make_safe_stop_path(output.path, output.path, *planner_data_->self_odometry);
 
   if (!reference_path_.points.empty()) {
     output.reference_path = reference_path_;
   }
-  const double ego_half_width = planner_data_->parameters.vehicle_width * 0.5;
   const auto shift = calcShiftLength(target, *parameters_, ego_half_width);
   const double actual_lateral_offset = getEgoLateralOffsetToReference();
   const bool has_valid_previous_shifted_path =
     prev_output_.path.points.size() >= 2 &&
     prev_output_.shift_length.size() == prev_output_.path.points.size();
-  const double expected_current_shift = has_valid_previous_shifted_path
-                                          ? getClosestShiftLength(prev_output_, getEgoPose().position)
-                                          : std::numeric_limits<double>::quiet_NaN();
-  const double lateral_tracking_error = has_valid_previous_shifted_path
-                                          ? calcLateralTrackingError(
-                                              expected_current_shift, actual_lateral_offset)
-                                          : std::numeric_limits<double>::quiet_NaN();
+  const double expected_current_shift =
+    has_valid_previous_shifted_path ? getClosestShiftLength(prev_output_, getEgoPose().position)
+                                    : std::numeric_limits<double>::quiet_NaN();
+  const double lateral_tracking_error =
+    has_valid_previous_shifted_path
+      ? calcLateralTrackingError(expected_current_shift, actual_lateral_offset)
+      : std::numeric_limits<double>::quiet_NaN();
   debug_data_.last_reason = reason;
   logPassThroughDetails(getLogger(), *clock_, reason, debug_info, *parameters_, ego_half_width);
   RCLCPP_WARN_THROTTLE(
@@ -2072,9 +2196,11 @@ std::optional<ShiftedPath> SimpleAvoidanceModule::generateEgoAlignedAvoidancePat
     // A registered line that crosses ego describes the stale planned offset. It must be replaced
     // by the measured anchor below; future non-conflicting lines remain registered.
     selected_lines.erase(
-      std::remove_if(selected_lines.begin(), selected_lines.end(), [ego_idx](const auto & line) {
-        return line.start_idx < ego_idx && ego_idx < line.end_idx;
-      }),
+      std::remove_if(
+        selected_lines.begin(), selected_lines.end(),
+        [ego_idx](const auto & line) {
+          return line.start_idx < ego_idx && ego_idx < line.end_idx;
+        }),
       selected_lines.end());
 
     ShiftLine measured_offset;
@@ -2201,6 +2327,109 @@ bool SimpleAvoidanceModule::hasReusablePreviousPath() const
            prev_output_.path.points.back().point.pose.position) >= minimum_forward_coverage;
 }
 
+void SimpleAvoidanceModule::updateAdjacentLaneContext(const double shift_length)
+{
+  adjacent_lanelets_.clear();
+  adjacent_lane_is_left_.reset();
+  if (
+    std::abs(shift_length) < 1.0e-3 || current_lanelets_.empty() || !planner_data_->route_handler) {
+    return;
+  }
+
+  lanelet::ConstLanelet current_lane;
+  const auto & ego_pose = planner_data_->self_odometry->pose.pose;
+  if (!planner_data_->route_handler->getClosestLaneletWithinRoute(ego_pose, &current_lane)) {
+    return;
+  }
+
+  const bool borrow_left = shift_length > 0.0;
+  const auto adjacent_lane =
+    borrow_left ? planner_data_->route_handler->getLeftLanelet(current_lane, false, false)
+                : planner_data_->route_handler->getRightLanelet(current_lane, false, false);
+  if (!adjacent_lane.has_value()) {
+    return;
+  }
+
+  adjacent_lanelets_ = planner_data_->route_handler->getLaneletSequence(
+    *adjacent_lane, ego_pose, planner_data_->parameters.backward_path_length,
+    planner_data_->parameters.forward_path_length);
+  if (!adjacent_lanelets_.empty()) {
+    adjacent_lane_is_left_ = borrow_left;
+  }
+}
+
+bool SimpleAvoidanceModule::isAdjacentLaneOccupied(
+  const AvoidanceTarget & target, const double shift_length) const
+{
+  if (!planner_data_->dynamic_object || adjacent_lanelets_.empty()) {
+    return false;
+  }
+
+  const double ego_speed = std::abs(planner_data_->self_odometry->twist.twist.linear.x);
+  const double transition_distance = std::max(
+    autoware::motion_utils::calc_longitudinal_dist_from_jerk(
+      std::abs(shift_length), parameters_->shifting_lateral_jerk,
+      std::max(ego_speed, parameters_->min_shifting_speed)),
+    parameters_->min_shifting_distance);
+  const double corridor_end = target.longitudinal_distance + target.object_half_length +
+                              parameters_->return_distance_after_object + transition_distance;
+  const double corridor_start = -planner_data_->parameters.backward_path_length;
+
+  for (const auto & object : planner_data_->dynamic_object->objects) {
+    const auto uuid = autoware_utils_uuid::to_hex_string(object.object_id);
+    if (uuid == target.uuid || !isObjectOverlappingLanelets(object, adjacent_lanelets_)) {
+      continue;
+    }
+    const auto & position = object.kinematics.initial_pose_with_covariance.pose.position;
+    const double longitudinal = autoware::motion_utils::calcSignedArcLength(
+      reference_path_.points, planner_data_->self_odometry->pose.pose.position, position);
+    if (longitudinal >= corridor_start && longitudinal <= corridor_end) {
+      return true;
+    }
+  }
+  return false;
+}
+
+InfeasibleReason SimpleAvoidanceModule::validateCandidateObjectSafety(
+  const PathWithLaneId & path) const
+{
+  if (!planner_data_->dynamic_object || path.points.empty()) {
+    return InfeasibleReason::NONE;
+  }
+
+  std::vector<autoware_utils::Polygon2d> object_polygons;
+  object_polygons.reserve(planner_data_->dynamic_object->objects.size());
+  for (const auto & object : planner_data_->dynamic_object->objects) {
+    object_polygons.push_back(autoware_utils::to_polygon2d(object));
+  }
+
+  const auto local_footprint = planner_data_->parameters.vehicle_info.createFootprint();
+  const size_t ego_index = planner_data_->findEgoIndex(path.points);
+  const double sample_interval = std::max(0.05, parameters_->boundary_check_resample_interval);
+  double accumulated_distance = sample_interval;
+  for (size_t i = ego_index; i < path.points.size(); ++i) {
+    if (i > ego_index) {
+      accumulated_distance += autoware_utils::calc_distance2d(
+        path.points.at(i - 1).point.pose, path.points.at(i).point.pose);
+    }
+    if (i + 1 < path.points.size() && accumulated_distance < sample_interval) {
+      continue;
+    }
+    accumulated_distance = 0.0;
+    autoware_utils::Polygon2d footprint;
+    footprint.outer() = autoware_utils::transform_vector(
+      local_footprint, autoware_utils::pose2transform(path.points.at(i).point.pose));
+    boost::geometry::correct(footprint);
+    if (
+      std::any_of(object_polygons.begin(), object_polygons.end(), [&](const auto & object_polygon) {
+        return !boost::geometry::disjoint(footprint, object_polygon);
+      })) {
+      return InfeasibleReason::VEHICLE_COLLISION;
+    }
+  }
+  return InfeasibleReason::NONE;
+}
+
 BehaviorModuleOutput SimpleAvoidanceModule::make_safe_stop_output() const
 {
   auto output = getPreviousModuleOutput();
@@ -2218,6 +2447,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::make_safe_stop_output() const
 BehaviorModuleOutput SimpleAvoidanceModule::handlePathGenerationFailure(
   const PassThroughDebugInfo & debug_info)
 {
+  logPassThroughDetails(
+    getLogger(), *clock_, InfeasibleReason::PATH_GENERATION_FAILED, debug_info, *parameters_,
+    planner_data_->parameters.vehicle_width / 2.0);
   const auto now = clock_->now();
   if (!path_generation_failure_started_.has_value()) {
     path_generation_failure_started_ = now;
@@ -2236,57 +2468,18 @@ BehaviorModuleOutput SimpleAvoidanceModule::handlePathGenerationFailure(
   if (decision.action == AvoidanceLifecycleAction::CANCEL_CANDIDATE) {
     path_shifter_.setShiftLines({});
     prev_output_ = ShiftedPath{};
-    active_target_.reset();
     path_generation_failure_started_.reset();
-    // A candidate generation failure means the module cannot prove a safe trajectory. Keep the
-    // geometry valid for downstream consumers, but remove the previous forward command instead of
-    // passing through the obstacle at the upstream speed.
-    auto output = make_safe_stop_output();
     debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
-    logPassThroughDetails(
-      getLogger(), *clock_, InfeasibleReason::PATH_GENERATION_FAILED, debug_info, *parameters_,
-      planner_data_->parameters.vehicle_width * 0.5);
-    return output;
+    return make_safe_stop_output();
   }
   if (decision.action == AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH) {
+    // A previously valid path is not safe to reuse after the current candidate failed: its
+    // obstacle clearance and longitudinal stop point may already be stale. Fail closed with a
+    // deterministic stop instead of silently publishing stale avoidance geometry.
     debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
-    return adjustDrivableArea(prev_output_);
-  }
-  if (decision.action == AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP) {
-    auto output = adjustDrivableArea(prev_output_);
-    // Conservative fixed fallback because the common planner data exposes acceleration but no
-    // longitudinal jerk limit. Keep this local rather than adding another lifecycle parameter.
-    constexpr double conservative_longitudinal_jerk = 1.0;
-    const auto stop_pose = utils::insert_feasible_stop_point(
-      output.path, planner_data_, planner_data_->parameters.min_acc, conservative_longitudinal_jerk,
-      "simple avoidance path generation failure");
-    if (!stop_pose.has_value()) {
-      const size_t ego_index = planner_data_->findEgoIndex(output.path.points);
-      for (size_t i = ego_index; i < output.path.points.size(); ++i) {
-        output.path.points.at(i).point.longitudinal_velocity_mps = 0.0;
-      }
-    }
-    debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
-    return output;
-  }
-  if (decision.action == AvoidanceLifecycleAction::PublishSafeStop) {
-    auto output = make_safe_stop_output();
-    debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
-    logPassThroughDetails(
-      getLogger(), *clock_, InfeasibleReason::PATH_GENERATION_FAILED, debug_info, *parameters_,
-      planner_data_->parameters.vehicle_width * 0.5);
-    RCLCPP_ERROR_THROTTLE(
-      getLogger(), *clock_, 1000,
-      "[SIMPLE_AVOIDANCE] publishing non-empty safe-stop fallback: points=%zu",
-      output.path.points.size());
-    return output;
+    return make_safe_stop_output();
   }
   debug_data_.last_reason = InfeasibleReason::PATH_GENERATION_FAILED;
-  logPassThroughDetails(
-    getLogger(), *clock_, InfeasibleReason::PATH_GENERATION_FAILED, debug_info, *parameters_,
-    planner_data_->parameters.vehicle_width * 0.5);
-  // Defensive fallback for future lifecycle actions: this module must never violate the common
-  // SceneModuleInterface contract by publishing an empty path.
   return make_safe_stop_output();
 }
 
@@ -2298,6 +2491,11 @@ BehaviorModuleOutput SimpleAvoidanceModule::passThrough(
   logPassThroughDetails(getLogger(), *clock_, reason, debug_info, *parameters_, ego_half_width);
 
   auto output = getPreviousModuleOutput();
+  if (
+    hasReusablePreviousPath() &&
+    validateVehicleRoadBoundary(prev_output_.path) == InfeasibleReason::NONE) {
+    return adjustDrivableArea(prev_output_);
+  }
   if (output.path.points.empty() && !reference_path_.points.empty()) {
     output.path = reference_path_;
     output.reference_path = reference_path_;
@@ -2314,15 +2512,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::adjustDrivableArea(const ShiftedPath
     return make_safe_stop_output();
   }
 
-  BehaviorModuleOutput out;
+  auto out = getPreviousModuleOutput();
   const auto & p = planner_data_->parameters;
   const auto & dp = planner_data_->drivable_area_expansion_parameters;
-
-  // A simple-avoidance shift is required to stay inside the original lanelet. Expanding the
-  // drivable area by the shift length would make the later path optimizer treat an adjacent lane
-  // or shoulder as valid, reintroducing the exact boundary violation checked above.
-  const double left_offset = 0.0;
-  const double right_offset = 0.0;
 
   auto output_path = path.path;
   const size_t current_seg_idx = planner_data_->findEgoSegmentIndex(output_path.points);
@@ -2334,17 +2526,27 @@ BehaviorModuleOutput SimpleAvoidanceModule::adjustDrivableArea(const ShiftedPath
     return make_safe_stop_output();
   }
 
-  const auto drivable_lanes = utils::generateDrivableLanes(current_lanelets_);
+  const auto drivable_lanes =
+    adjacent_lanelets_.empty()
+      ? utils::generateDrivableLanes(current_lanelets_)
+      : utils::lane_change::generateDrivableLanes(
+          *planner_data_->route_handler, current_lanelets_, adjacent_lanelets_);
   const auto shorten_lanes = utils::cutOverlappedLanes(output_path, drivable_lanes);
   if (output_path.points.empty()) {
     return make_safe_stop_output();
   }
   const auto expanded_lanes =
-    utils::expandLanelets(shorten_lanes, left_offset, right_offset, dp.drivable_area_types_to_skip);
+    utils::expandLanelets(shorten_lanes, 0.0, 0.0, dp.drivable_area_types_to_skip);
 
   out.path = output_path;
-  out.reference_path = getPreviousModuleOutput().reference_path;
-  out.drivable_area_info.drivable_lanes = expanded_lanes;
+  if (!reference_path_.points.empty()) {
+    out.reference_path = reference_path_;
+  }
+  DrivableAreaInfo new_drivable_area;
+  new_drivable_area.drivable_lanes = expanded_lanes;
+  new_drivable_area.is_already_expanded = true;
+  out.drivable_area_info =
+    utils::combineDrivableAreaInfo(getPreviousModuleOutput().drivable_area_info, new_drivable_area);
   out.drivable_area_info.is_already_expanded = true;
   return out;
 }
@@ -2358,9 +2560,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   const auto timing_now = std::chrono::steady_clock::now();
   static auto previous_plan_entry = timing_now;
   static uint64_t plan_cycle = 0;
-  const auto entry_gap_ms = std::chrono::duration<double, std::milli>(
-                              timing_now - previous_plan_entry)
-                              .count();
+  const auto entry_gap_ms =
+    std::chrono::duration<double, std::milli>(timing_now - previous_plan_entry).count();
   previous_plan_entry = timing_now;
   ++plan_cycle;
   RCLCPP_INFO(
@@ -2370,11 +2571,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   PassThroughDebugInfo debug_info;
   debug_info.reference_path_points = reference_path_.points.size();
 
-  if (lifecycle_state_ == AvoidanceLifecycleState::STOPPING) {
-    return handlePathGenerationFailure(debug_info);
-  }
-
   if (reference_path_.points.size() < 2) {
+    clearAvoidanceStateForPassThrough();
     debug_info.no_target = diagnoseNoTarget();
     return passThrough(InfeasibleReason::NO_TARGET, debug_info);
   }
@@ -2387,23 +2585,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   // target here instead of suppressing it solely because the previous maneuver is returning.
   const auto target = active_target_;
   if (!target.has_value()) {
-    if (lifecycle_state_ == AvoidanceLifecycleState::CANDIDATE) {
-      path_shifter_.setShiftLines({});
-      prev_output_ = ShiftedPath{};
-      lifecycle_state_ = AvoidanceLifecycleState::IDLE;
-      debug_info.no_target = diagnoseNoTarget();
-      return passThrough(InfeasibleReason::NO_TARGET, debug_info);
-    }
-    if (isCommittedOrReturning()) {
-      lifecycle_state_ = AvoidanceLifecycleState::RETURNING;
-      auto output = continueCommittedPath(debug_info);
-      if (parameters_->publish_debug_marker) {
-        setDebugMarkersVisualization();
-      }
-      return output;
-    }
     debug_info.no_target = diagnoseNoTarget();
-    lifecycle_state_ = AvoidanceLifecycleState::IDLE;
+    clearAvoidanceStateForPassThrough();
     return passThrough(InfeasibleReason::NO_TARGET, debug_info);
   }
 
@@ -2413,6 +2596,7 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
 
   const double ego_half_width = planner_data_->parameters.vehicle_width / 2.0;
   const auto shift_result = calcShiftLength(*target, *parameters_, ego_half_width);
+  updateAdjacentLaneContext(shift_result.shift_length);
   debug_info.shift = shift_result;
   if (shift_result.reason != InfeasibleReason::NONE) {
     if (isCommittedOrReturning()) {
@@ -2436,6 +2620,9 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
       return continueCommittedPath(debug_info);
     }
     return stopBeforeTarget(*target, feasibility_result.reason, debug_info);
+  }
+  if (isAdjacentLaneOccupied(*target, shift_result.shift_length)) {
+    return stopBeforeTarget(*target, InfeasibleReason::ADJACENT_LANE_OCCUPIED, debug_info);
   }
 
   ShiftedPath shifted_path;
@@ -2464,8 +2651,12 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
       }
       shift_lines = mergeShiftLines(path_shifter_.getShiftLines(), proposed_lines);
       path_shifter_.setShiftLines(shift_lines);
-      if (
-        !path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
+      if (!path_shifter_.generate(&shifted_path) || shifted_path.path.points.empty()) {
+        RCLCPP_WARN_THROTTLE(
+          getLogger(), *clock_, 1000,
+          "[SIMPLE_AVOIDANCE] path_generation_failed stage=path_shifter_failure "
+          "shift_lines=%zu reference_points=%zu",
+          shift_lines.size(), reference_path_.points.size());
         path_shifter_ = previous_path_shifter;
         return handlePathGenerationFailure(debug_info);
       }
@@ -2505,10 +2696,26 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
     }
   }
   if (!isGeneratedPathContinuous(shifted_path)) {
+    RCLCPP_WARN_THROTTLE(
+      getLogger(), *clock_, 1000,
+      "[SIMPLE_AVOIDANCE] path_generation_failed stage=path_continuity_failure "
+      "path_points=%zu reference_points=%zu",
+      shifted_path.path.points.size(), reference_path_.points.size());
     path_shifter_ = previous_path_shifter;
     return handlePathGenerationFailure(debug_info);
   }
-  const auto boundary_reason = validateVehicleRoadBoundary(shifted_path.path);
+  const auto object_safety_reason = validateCandidateObjectSafety(shifted_path.path);
+  if (object_safety_reason != InfeasibleReason::NONE) {
+    path_shifter_ = previous_path_shifter;
+    return stopBeforeTarget(*target, object_safety_reason, debug_info);
+  }
+  auto boundary_reason = validateVehicleRoadBoundary(shifted_path.path);
+  if (
+    adjacent_lanelets_.empty() &&
+    (boundary_reason == InfeasibleReason::ROAD_BOUNDARY ||
+     boundary_reason == InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY)) {
+    boundary_reason = InfeasibleReason::NO_ADJACENT_LANE;
+  }
   if (boundary_reason != InfeasibleReason::NONE) {
     path_shifter_ = previous_path_shifter;
     return stopForInfeasiblePath(boundary_reason, debug_info);
@@ -2518,9 +2725,8 @@ BehaviorModuleOutput SimpleAvoidanceModule::plan()
   prev_output_ = shifted_path;
   ego_aligned_return_active_ = false;
   const bool was_committed = isCommittedOrReturning();
-  lifecycle_state_ =
-    was_committed || isCommitmentDetected() ? AvoidanceLifecycleState::COMMITTED
-                                            : AvoidanceLifecycleState::CANDIDATE;
+  lifecycle_state_ = was_committed || isCommitmentDetected() ? AvoidanceLifecycleState::COMMITTED
+                                                             : AvoidanceLifecycleState::CANDIDATE;
   path_generation_failure_started_.reset();
   debug_data_.last_reason = InfeasibleReason::NONE;
   debug_data_.path_shifter = std::make_shared<PathShifter>(path_shifter_);
@@ -2574,9 +2780,22 @@ CandidateOutput SimpleAvoidanceModule::planCandidate() const
   if (active_trailer_configuration_.geometries.empty()) {
     auto path_shifter_local = path_shifter_;
     const auto proposed_lines = buildShiftLines(*active_target_, shift_result.shift_length);
+    if (proposed_lines.empty()) {
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_AVOIDANCE] path_generation_failed stage=candidate_shift_line_generation");
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
     path_shifter_local.setShiftLines(
       mergeShiftLines(path_shifter_local.getShiftLines(), proposed_lines));
-    path_shifter_local.generate(&shifted_path);
+    if (!path_shifter_local.generate(&shifted_path) || shifted_path.path.points.empty()) {
+      RCLCPP_WARN_THROTTLE(
+        getLogger(), *clock_, 1000,
+        "[SIMPLE_AVOIDANCE] path_generation_failed stage=candidate_path_shifter_failure "
+        "shift_lines=%zu reference_points=%zu",
+        proposed_lines.size(), reference_path_.points.size());
+      return CandidateOutput(getPreviousModuleOutput().path);
+    }
     setOrientation(&shifted_path.path);
   } else {
     ShiftLineArray selected_lines;

@@ -12,14 +12,15 @@
         threshold: 2.0 # (= 115 degree)
       lateral_accel:
         enable: true
-        threshold: 1.5
+        threshold: 0.8
       min_lon_accel:
         enable: true
-        # 2 m/s 园区 AGV 正常减速度约 -1.0 m/s^2；保留 0.5 m/s^2 瞬态余量。
-        threshold: -1.5
+        # 与 planning limit.min_acc=-2.4 m/s^2 对齐，并为离散轨迹计算保留
+        # 0.3 m/s^2 瞬态余量。
+        threshold: -2.7
       max_lon_accel:
         enable: true
-        threshold: 1.5
+        threshold: 1.2
       lateral_jerk:
         enable: true
         threshold: 2.0
@@ -55,5 +56,5 @@
         lat_shift_th: 0.5
         forward_shift_th: 1.0
         backward_shift_th: 0.1
-        handling_type: 2  # handling types are defined in common planning validator parameters
+        handling_type: 0  # always publish the current trajectory, even when invalid
         override_error_diag: false

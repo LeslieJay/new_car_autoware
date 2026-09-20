@@ -9,7 +9,7 @@
 
     thresholds:
       max_distance_deviation: 1.0
-      lateral_jerk: 10.0
+      lateral_jerk: 2.0
       acc_error_offset: 0.8
       acc_error_scale: 0.2
       rolling_back_velocity: 0.5
@@ -17,8 +17,9 @@
       over_velocity_ratio: 0.2
       overrun_stop_point_dist: 0.8
       will_overrun_stop_point_dist: 1.0
-      assumed_limit_acc: 5.0
-      assumed_delay_time: 0.2
+      assumed_limit_acc: 1.5
+      # Conservatively cover longitudinal PID delay_compensation_time=0.33 s.
+      assumed_delay_time: 0.4
       nominal_latency: 0.01
       yaw_deviation_error: 1.0
       yaw_deviation_warn: 0.5

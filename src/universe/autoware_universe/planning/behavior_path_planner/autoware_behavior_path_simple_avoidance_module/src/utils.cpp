@@ -54,9 +54,8 @@ ShiftLineArray mergeShiftLines(
   ShiftLineArray merged = proposed_lines.empty() ? registered_lines : proposed_lines;
   if (!proposed_lines.empty() && !registered_lines.empty()) {
     const auto front_new_line = std::min_element(
-      proposed_lines.begin(), proposed_lines.end(), [](const auto & lhs, const auto & rhs) {
-        return lhs.start_idx < rhs.start_idx;
-      });
+      proposed_lines.begin(), proposed_lines.end(),
+      [](const auto & lhs, const auto & rhs) { return lhs.start_idx < rhs.start_idx; });
     const auto min_start_idx = front_new_line->start_idx;
     const auto new_shift_length = front_new_line->end_shift_length;
     const auto new_shift_end_idx = front_new_line->end_idx;
@@ -151,6 +150,7 @@ PathWithLaneId make_safe_stop_path(
   const PathWithLaneId & preferred_path, const PathWithLaneId & fallback_path,
   const nav_msgs::msg::Odometry & odometry)
 {
+  constexpr double max_safe_stop_deceleration = 2.5;
   constexpr double minimum_forward_coverage = 0.1;
   const auto has_forward_coverage = [&](const auto & path) {
     return path.points.size() >= 2 &&
@@ -181,8 +181,25 @@ PathWithLaneId make_safe_stop_path(
     stopped_path.points.push_back(forward_stop_point);
   }
 
-  for (auto & point : stopped_path.points) {
-    point.point.longitudinal_velocity_mps = 0.0;
+  const auto ego_index = autoware::motion_utils::findNearestIndex(
+    stopped_path.points, odometry.pose.pose.position);
+  const double initial_speed = std::abs(odometry.twist.twist.linear.x);
+  double previous_speed = initial_speed;
+  for (size_t i = ego_index; i < stopped_path.points.size(); ++i) {
+    const double distance_from_ego = std::max(
+      0.0, autoware::motion_utils::calcSignedArcLength(
+             stopped_path.points, odometry.pose.pose.position,
+             stopped_path.points.at(i).point.pose.position));
+    const double kinematic_speed = std::sqrt(std::max(
+      0.0, initial_speed * initial_speed - 2.0 * max_safe_stop_deceleration * distance_from_ego));
+    const double requested_speed = std::max(
+      0.0, static_cast<double>(std::abs(stopped_path.points.at(i).point.longitudinal_velocity_mps)));
+    const double safe_speed = std::min({previous_speed, requested_speed, kinematic_speed});
+    stopped_path.points.at(i).point.longitudinal_velocity_mps = safe_speed;
+    previous_speed = safe_speed;
+  }
+  for (size_t i = 0; i < ego_index && i < stopped_path.points.size(); ++i) {
+    stopped_path.points.at(i).point.longitudinal_velocity_mps = 0.0;
   }
   return stopped_path;
 }
@@ -207,9 +224,18 @@ double calcLateralTrackingError(
 bool isLateralExecutionLagging(
   const double expected_current_shift, const double actual_lateral_offset, const double threshold)
 {
-  return !std::isfinite(expected_current_shift) || !std::isfinite(actual_lateral_offset) ||
-         calcLateralTrackingError(expected_current_shift, actual_lateral_offset) >
-           std::max(0.0, threshold);
+  if (!std::isfinite(expected_current_shift) || !std::isfinite(actual_lateral_offset)) {
+    return true;
+  }
+  // A vehicle that is already ahead of the planned shift is not lagging. Only measure error
+  // toward the requested shift direction; this avoids turning overshoot into a false lag stop.
+  if (std::abs(expected_current_shift) <= std::numeric_limits<double>::epsilon()) {
+    return false;
+  }
+  const double signed_error = expected_current_shift - actual_lateral_offset;
+  const double error_toward_target =
+    signed_error * (expected_current_shift > 0.0 ? 1.0 : -1.0);
+  return error_toward_target > std::max(0.0, threshold);
 }
 
 bool isWithinCommitmentWindow(
@@ -263,18 +289,15 @@ FeasibilityResult checkFeasibility(
   result.jerk_distance = autoware::motion_utils::calc_longitudinal_dist_from_jerk(
     std::abs(shift_length), parameters.shifting_lateral_jerk,
     std::max(ego_speed, parameters.min_shifting_speed));
-  result.transition_distance =
-    std::max(result.jerk_distance, result.min_shifting_distance);
+  result.transition_distance = std::max(result.jerk_distance, result.min_shifting_distance);
   result.required_start_distance_before_front = std::max(
     parameters.avoidance_start_distance_before_object_front,
-    parameters.lateral_margin + result.transition_distance);
-  result.dist_to_avoid_start =
-    target.longitudinal_distance - target.object_half_length -
-    result.required_start_distance_before_front;
+    parameters.longitudinal_margin_before_object_front + result.transition_distance);
+  result.dist_to_avoid_start = target.longitudinal_distance - target.object_half_length -
+                               result.required_start_distance_before_front;
   result.dist_to_shift_end = result.dist_to_avoid_start + result.transition_distance;
-  // lateral_margin is reused as the longitudinal buffer before the obstacle front edge
-  result.dist_to_obstacle =
-    target.longitudinal_distance - target.object_half_length - parameters.lateral_margin;
+  result.dist_to_obstacle = target.longitudinal_distance - target.object_half_length -
+                            parameters.longitudinal_margin_before_object_front;
 
   if (result.dist_to_avoid_start <= 0.0 || result.dist_to_shift_end > result.dist_to_obstacle) {
     result.reason = InfeasibleReason::INSUFFICIENT_DISTANCE;
@@ -343,20 +366,13 @@ AvoidanceLifecycleDecision decideAvoidanceLifecycle(
       decision.action = AvoidanceLifecycleAction::CANCEL_CANDIDATE;
       return decision;
     }
-    if (
-      observation.has_continuous_previous_path &&
-      observation.failure_duration < path_generation_failure_timeout) {
+    if (observation.has_continuous_previous_path) {
       decision.action = AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH;
       return decision;
     }
-    decision.next_state = AvoidanceLifecycleState::STOPPING;
-    if (observation.has_continuous_previous_path) {
-      decision.action = AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP;
-    } else {
-      // SceneModuleInterface rejects empty paths. Keep the last available geometry and stop on it
-      // instead of relying on a downstream timeout that can never be reached with an empty output.
-      decision.action = AvoidanceLifecycleAction::PublishSafeStop;
-    }
+    static_cast<void>(path_generation_failure_timeout);
+    decision.next_state = AvoidanceLifecycleState::IDLE;
+    decision.action = AvoidanceLifecycleAction::CANCEL_CANDIDATE;
     return decision;
   }
 

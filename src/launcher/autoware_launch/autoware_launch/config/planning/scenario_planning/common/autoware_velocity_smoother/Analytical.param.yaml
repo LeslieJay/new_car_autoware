@@ -10,7 +10,7 @@
       constant_velocity_dist_threshold: 2.0
 
     forward:
-      max_acc: 1.0
+      max_acc: 0.5
       min_acc: -1.0
       max_jerk: 0.3
       min_jerk: -0.3
@@ -21,5 +21,5 @@
       min_jerk_mild_stop: -0.3
       min_jerk: -1.5
       min_acc_mild_stop: -1.0
-      min_acc: -2.5
+      min_acc: -2.4
       span_jerk: -0.01

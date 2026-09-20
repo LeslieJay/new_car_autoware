@@ -41,6 +41,9 @@ enum class InfeasibleReason {
   ROAD_BOUNDARY,
   BOUNDARY_UNAVAILABLE,
   FOOTPRINT_OUT_OF_BOUNDARY,
+  NO_ADJACENT_LANE,
+  ADJACENT_LANE_OCCUPIED,
+  VEHICLE_COLLISION,
   LATERAL_EXECUTION_LAG,
   TARGET_UNCERTAIN_STOP,
   ARTICULATION_LIMIT,
@@ -68,6 +71,12 @@ inline const char * toString(const InfeasibleReason reason)
       return "boundary_unavailable";
     case InfeasibleReason::FOOTPRINT_OUT_OF_BOUNDARY:
       return "footprint_out_of_boundary";
+    case InfeasibleReason::NO_ADJACENT_LANE:
+      return "no_adjacent_lane";
+    case InfeasibleReason::ADJACENT_LANE_OCCUPIED:
+      return "adjacent_lane_occupied";
+    case InfeasibleReason::VEHICLE_COLLISION:
+      return "vehicle_collision";
     case InfeasibleReason::LATERAL_EXECUTION_LAG:
       return "lateral_execution_lag";
     case InfeasibleReason::TARGET_UNCERTAIN_STOP:
@@ -86,6 +95,7 @@ struct SimpleAvoidanceParameters
   double min_forward_distance{0.5};
   double max_forward_distance{60.0};
   double lateral_margin{0.4};
+  double longitudinal_margin_before_object_front{0.4};
   double max_shift_length{4.0};
   double avoidance_start_distance_before_object_front{10.0};
   double min_shifting_distance{1.0};
@@ -98,10 +108,14 @@ struct SimpleAvoidanceParameters
   // selected maneuver into a late safety stop.
   double commitment_distance_before_shift_start{2.0};
   double lateral_execution_threshold{0.05};
+  double lateral_tracking_error_threshold{0.4};
+  double lateral_tracking_grace_time{0.5};
   double road_boundary_margin{0.1};
   double boundary_check_resample_interval{0.3};
   bool publish_steering_diagnostics{false};
   double path_generation_failure_timeout{0.5};
+  double stop_max_jerk{1.0};
+  double stop_low_speed_threshold{1.38};
   size_t completion_stable_count{3};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
   double tractor_rear_axle_to_hitch{0.6};
@@ -138,7 +152,7 @@ struct AvoidanceCompletionStatus
   double lateral_execution_threshold{0.05};
 };
 
-enum class AvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING, STOPPING };
+enum class AvoidanceLifecycleState { IDLE, CANDIDATE, COMMITTED, RETURNING };
 
 inline const char * toString(const AvoidanceLifecycleState state)
 {
@@ -151,8 +165,6 @@ inline const char * toString(const AvoidanceLifecycleState state)
       return "COMMITTED";
     case AvoidanceLifecycleState::RETURNING:
       return "RETURNING";
-    case AvoidanceLifecycleState::STOPPING:
-      return "STOPPING";
   }
   return "UNKNOWN";
 }
@@ -162,8 +174,6 @@ enum class AvoidanceLifecycleAction {
   CANCEL_CANDIDATE,
   KEEP_COMMITTED_PATH,
   KEEP_LAST_VALID_PATH,
-  INSERT_FEASIBLE_STOP,
-  PublishSafeStop,
   COMPLETE_MANEUVER,
 };
 

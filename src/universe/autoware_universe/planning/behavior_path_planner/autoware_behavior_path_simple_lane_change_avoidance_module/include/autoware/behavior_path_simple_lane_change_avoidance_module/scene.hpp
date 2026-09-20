@@ -62,12 +62,12 @@ private:
   bool canTransitFailureState() override { return false; }
 
   void initVariables();
-  bool isControlledByAutoware() const;
-  void reconcileAfterAutowareControlReengagement();
   std::optional<LCAvoidanceTarget> detectTarget() const;
   std::optional<LCAvoidanceTarget> detectAssociatedTargetByUuid() const;
   std::optional<LCAvoidanceTarget> getActiveTargetOrHeldTarget();
-  bool isActiveTargetPassed(const LCAvoidanceTarget & target) const;
+  LCAvoidanceTargetState classifyTargetState(const LCAvoidanceTarget & target) const;
+  void reconcileShiftGeometry();
+  void updateCycleState();
   bool isEgoOnShiftLine() const;
   AdjacentLaneResult findAdjacentLane(const LCAvoidanceTarget & target) const;
   LaneShiftResult calcLaneShift(const LCAvoidanceTarget & target) const;
@@ -96,10 +96,6 @@ private:
 
   PathWithLaneId reference_path_{};
   lanelet::ConstLanelets current_lanelets_{};
-  // The lane from which the maneuver was committed. The geometric closest lanelet can become
-  // the borrowed lane while the vehicle is shifting; keep this route-scoped source lane so the
-  // safety union remains {source lane, adjacent lane} throughout the maneuver.
-  lanelet::ConstLanelets maneuver_base_lanelets_{};
   std::shared_ptr<SimpleLCAvoidanceParameters> parameters_;
   std::shared_ptr<TrailerConfigurationStore> trailer_configuration_store_;
   ResolvedTrailerConfiguration active_trailer_configuration_;
@@ -107,12 +103,10 @@ private:
   ShiftedPath prev_output_{};
   std::optional<LCAvoidanceTarget> active_target_;
   std::optional<AdjacentLaneResult> active_adjacent_lane_;
-  LCAvoidanceLifecycleState lifecycle_state_{LCAvoidanceLifecycleState::IDLE};
+  LCAvoidanceCycleState cycle_state_{};
   size_t completion_stable_count_{0};
-  bool active_target_passed_{false};
   std::optional<rclcpp::Time> path_generation_failure_started_;
   std::optional<std::string> route_id_;
-  std::optional<bool> previous_autoware_controlled_;
   mutable SimpleLCAvoidanceDebugData debug_data_;
 };
 

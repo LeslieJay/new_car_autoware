@@ -23,14 +23,14 @@ launch_simple_avoidance: "true"
 |------|--------------------------|----------------------------|
 | 代码规模 | ~8000 行（scene + utils + shift_line_generator + debug） | ~600 行（scene + utils + manager） |
 | 参数数量 | 300+ 项（按对象类型、策略分组） | 少量核心参数与拖车参数 |
-| 目标处理 | 多目标，复杂过滤链 | **单活动目标，按最近可行目标顺序接管** |
+| 目标处理 | 多目标，复杂过滤链 | **单活动目标，锁定最近有效目标，可绕性后判定** |
 | 对象类型 | 按 PEDESTRIAN / CAR / TRUCK 等分别配置 | 不区分类型，统一处理 |
 | 偏移线生成 | AvoidOutline → merge/trim/combine 多阶段 | 直接生成 avoid + return，两者与已注册线冲突合成 |
 | RTC 审批 | 支持左右侧 RTC，ambiguous 车辆需人工批准 | **无 RTC**，`isExecutionReady()` 恒为 true |
-| 安全检查 | 相邻车道来车、对向车、hysteresis | **无** |
-| 速度规划 | insertPrepareVelocity / insertWaitPoint / insertStopPoint 等 | 正常绕障不修改速度；连续生成失败时例外停车 |
-| 状态机 | avoid / yield / stop / wait-and-see | IDLE / CANDIDATE / COMMITTED / RETURNING / STOPPING |
-| 不可行时行为 | 插入等待点或停车点 | 承诺前透传；承诺后短时复用连续路径，超时停车 |
+| 安全检查 | 相邻车道来车、对向车、hysteresis | 借用侧同向邻道的当前占用和候选 footprint 碰撞检查 |
+| 速度规划 | insertPrepareVelocity / insertWaitPoint / insertStopPoint 等 | 正常绕障不改速度；承诺前仅对障碍物相关且制动可行的失败插入停车点 |
+| 状态机 | avoid / yield / stop / wait-and-see | IDLE / CANDIDATE / COMMITTED / RETURNING |
+| 不可行时行为 | 插入等待点或停车点 | 条件停车，否则复用仍有效的连续路径或透传上游路径 |
 | 感知丢失补偿 | 有（compensateLostTargetObjects） | 锁定目标短时保持；回正期间仍刷新并接管后续目标 |
 | 适用场景 | 开放道路、多类型障碍物、需人机协同 | 封闭道路、低速 AGV、环境可预期 |
 
@@ -65,23 +65,25 @@ flowchart TD
     D -->|否| E[透传上游路径]
     D -->|是| F[calcShiftLength<br/>计算偏移量]
     F --> G[checkFeasibility<br/>jerk 距离 vs 障碍物距离]
-    G --> H{可行?}
-    H -->|否| E
+    G --> H{可行且邻道安全?}
+    H -->|否| N{满足条件停车矩阵?}
+    N -->|是| O[在目标前插入停车点]
+    N -->|否| E
     H -->|是| I[buildShiftLines<br/>avoid + return 两条线]
     I --> J[mergeShiftLines<br/>保留前缀/裁剪冲突尾段]
     J --> K[PathShifter 生成路径]
-    K --> L[扩展可行驶区域]
+    K --> L[当前车道 + 绕障侧同向邻道<br/>统一边界与可行驶区域]
     L --> M[输出路径]
 ```
 
 核心差异：**Simple Avoidance 保持轻量状态机**，单周期只规划一个目标；不可行时不覆盖已承诺轨迹，
-按当前失败状态机保持安全路径或停车，不引入 RTC 和复杂多目标生成器。
+按条件停车矩阵处理失败，不引入 RTC 和完整 lane-change/RSS 状态机。
 
 ---
 
 ## 4. 逐项改动说明
 
-### 4.1 目标检测：从多目标复杂过滤到单活动目标按可行性顺序接管
+### 4.1 目标检测：从多目标复杂过滤到最近有效单活动目标
 
 **原版**（`filterTargetObjects` 等）检查：
 
@@ -98,8 +100,10 @@ flowchart TD
 2. 对象在当前 route lanelet 内
 3. 纵向距离在 `[min_forward_distance, max_forward_distance]` 内
 4. 横向与自车有重叠（`overlap < ego_half_width + lateral_margin` 才需要绕）
-5. 横向偏移不超过 `max_shift_length`，且纵向起点/侧移终点可行
-6. 多个满足条件时取**纵向最近**的一个；不可行的近目标会被跳过，继续寻找更远目标
+5. 多个满足条件时取**纵向最近**的一个
+
+偏移空间、纵向距离、邻道存在性和候选碰撞在目标锁定后检查。即使当前不可绕，最近障碍物仍
+保持为活动目标，以便模块对它执行条件停车，而不是跳过它去绕更远目标。
 
 **为什么这样改：**
 
@@ -180,8 +184,7 @@ shift_length = -required_clearance  // 障碍物在右侧
 候选路径在第一条 shift line 起点前 `commitment_distance_before_shift_start` 米进入
 `COMMITTED`。承诺距离使用自车到 shift line 起点的连续弧长计算，不依赖离散的 ego index。
 进入 `COMMITTED` 后，如果重新计算出的目标距离已经不足以生成新的侧移线，只要上一周期路径
-仍连续、道路边界有效且车辆跟踪当前路径正常，就继续上一条已承诺路径；只有当前期望横向偏移
-与实际偏移的误差超过 `lateral_execution_threshold`，或旧路径无效时才安全停车。
+仍连续且道路边界有效，就继续上一条已承诺路径；旧路径失效时透传上游路径，不再新插停车点。
 
 ### 4.5 可行性检查：只保留纵向 jerk 约束
 
@@ -193,18 +196,19 @@ shift_length = -required_clearance  // 障碍物在右侧
 transition_distance = max(jerk_distance, min_shifting_distance)
 required_start_distance_before_front = max(
   avoidance_start_distance_before_object_front,
-  lateral_margin + transition_distance)
+  longitudinal_margin_before_object_front + transition_distance)
 dist_to_avoid_start = target.longitudinal - object_half_length
                         - required_start_distance_before_front
 dist_to_shift_end = dist_to_avoid_start + transition_distance
-dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
+dist_to_obstacle  = target.longitudinal - object_half_length
+                    - longitudinal_margin_before_object_front
 
 若 dist_to_avoid_start <= 0 或 dist_to_shift_end > dist_to_obstacle
   → INSUFFICIENT_DISTANCE
 ```
 
-新目标在 `detectTarget()` 阶段同时经过 `calcShiftLength()` 和上述纵向检查；不可行目标被跳过，
-继续寻找检测范围内更远的可行目标。已进入 `COMMITTED/RETURNING` 的目标仍按原生命周期继续执行。
+目标识别与可绕性检查解耦；最近有效目标即使暂时不可绕也会保持为活动目标。已进入
+`COMMITTED/RETURNING` 的目标仍按原生命周期继续执行，且不再主动插入停车点。
 
 **为什么这样改：**
 
@@ -231,7 +235,7 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 - 封闭道路 AGV 无需人机协同审批
 - 消除仿真/实车调试中 RTC 未批准导致的不动问题
 
-### 4.7 去掉安全检查和复杂状态机
+### 4.7 简化安全检查和状态机
 
 **原版** `fillEgoStatus()` / `updateEgoBehavior()` 状态机：
 
@@ -247,15 +251,16 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 
 **本模块：**
 
-- 无安全检查
-- 承诺前不可行时 `passThrough()` 返回上游路径并记录 WARN
-- 承诺后禁止瞬间切回基准路径：短时复用最后一条连续轨迹，持续失败则在该轨迹停车
+- 只检查绕障方向的正常同向邻道，不使用路肩、对向车道或另一侧车道
+- 静止和运动对象都视为邻道占用；候选车辆 footprint 与当前对象 polygon 相交也会拒绝候选
+- 承诺前仅在目标有效、失败与障碍物相关、停车点在车前且 jerk/减速度制动可行（或已低速）时停车
+- 地图/边界缺失、纯生成异常、超时、目标关联不确定以及已进入横移/回正时不主动停车
+- 不停车时依次选用仍连续且边界有效的上一条绕障路径、上游路径、参考路径
 
 **为什么这样改：**
 
-- 封闭道路无对向/相邻车道来车，安全检查收益低
 - 原版 yield/stop 与下游 `obstacle_stop` 叠加，难以区分停车原因
-- 停车逻辑交给 behavior velocity planner（如 obstacle_stop）统一处理，绕障模块只负责"能不能绕、怎么绕"
+- 本模块只做保守当前占用检查，不引入 RSS、RTC 或完整换道状态机
 
 ### 4.8 正常绕障不修改路径速度
 
@@ -266,10 +271,9 @@ dist_to_obstacle  = target.longitudinal - object_half_length - lateral_margin
 - `insertReturnDeadLine()` — 回正截止点前减速
 
 **本模块** 正常运行时只输出偏移后的几何路径，速度来自上游 lane following / motion
-planning。目标消失不属于路径生成失败：已承诺轨迹会继续执行并回正。只有参考路径无效、路径
-生成持续失败等真正异常才进入 `STOPPING`；此时优先沿最后一条连续轨迹发布全零速度安全停车
-路径，即使历史与上游路径均为空也会在 ego 前方合成非空停车段，避免空路径触发 command-timeout
-或 MRM。
+planning。只有承诺前的障碍物相关不可行且满足纵向制动条件时，才在障碍物前插入零速点；纯路径
+生成异常或边界数据缺失直接按路径优先级透传。只有所有输入路径都为空时，才在 ego 前方合成
+非空零速应急路径，满足输出接口约束并避免 command-timeout 或 MRM。
 
 **为什么这样改：**
 
@@ -287,8 +291,9 @@ planning。目标消失不属于路径生成失败：已承诺轨迹会继续执
 | `min_forward_distance` | 0.5 | 最近检测距离 [m] |
 | `max_forward_distance` | 60.0 | 最远检测距离 [m] |
 | `lateral_margin` | 0.4 | 自车与障碍物之间的横向安全距离 [m] |
+| `longitudinal_margin_before_object_front` | 0.4 | 侧移完成点与障碍物前缘之间的纵向安全余量 [m] |
 | `max_shift_length` | 4.0 | 最大横向偏移 [m] |
-| `avoidance_start_distance_before_object_front` | 10.0 | 理想到障碍物前缘的绕障起点距离 [m]；实际值还会受侧移距离和 lateral_margin 约束 |
+| `avoidance_start_distance_before_object_front` | 10.0 | 理想到障碍物前缘的绕障起点距离 [m]；实际值还会受侧移距离和纵向安全余量约束 |
 | `min_shifting_distance` | 10.0 | 侧移阶段最小纵向距离 [m] |
 | `shifting_lateral_jerk` | 0.5 | 侧移横向 jerk 限制 [m/s³] |
 | `min_shifting_speed` | 1.0 | 计算 jerk 距离时的最低假设速度 [m/s] |
@@ -299,6 +304,8 @@ planning。目标消失不属于路径生成失败：已承诺轨迹会继续执
 | `lateral_execution_threshold` | 0.05 | 判断 base offset / ego shift 已回零的阈值 [m] |
 | `road_boundary_margin` | 0.10 | 车辆 footprint 与原始道路边界的最小安全间距 [m] |
 | `boundary_check_resample_interval` | 0.30 | 道路边界检查的粗采样间距 [m]；临界区域仍使用精确检查 |
+| `stop_max_jerk` | 1.0 | 条件停车纵向制动距离计算使用的最大 jerk [m/s³] |
+| `stop_low_speed_threshold` | 1.38 | 制动距离不足时仍允许低速车辆在目标前停车的速度阈值 [m/s] |
 | `publish_steering_diagnostics` | false | 输出候选路径曲率、等效前轮角和边界净空诊断日志，不改变决策 |
 | `path_generation_failure_timeout` | 0.5 | 生成失败时复用最后连续轨迹的最长时间 [s] |
 | `completion_stable_count` | 3 | 回正条件连续满足多少个周期后才退出 |
@@ -383,20 +390,20 @@ colcon build --packages-select autoware_behavior_path_simple_avoidance_module \
 
 ### 6.2 不适用（应切回 Static Avoidance）
 
-- 开放道路，需检查相邻车道来车、对向车
-- 需要对多个障碍物做全局联合优化（本模块只按可行性顺序逐个接管）
+- 开放道路，需预测相邻车道来车、对向车并执行 RSS 等时域安全判断
+- 需要对多个障碍物做全局联合优化（本模块只锁定最近有效目标并逐个接管）
 - 需区分对象类型（行人 vs 车辆不同策略）
 - 需 wait-and-see（观察 merging/deviating 车辆）
 - 需 RTC 人工确认后再绕障
-- 需绕障模块自身插入减速/停车点
+- 需完整的减速、等待、让行和停车策略
 
 ### 6.3 已知局限
 
-1. **单活动目标**：每周期只规划一个最近可行目标；连续障碍物可在同一 RUNNING 生命周期内依次接管，
+1. **单活动目标**：每周期只规划一个最近有效目标；连续障碍物可在同一 RUNNING 生命周期内依次接管，
    但不做多目标全局联合优化
-2. **无安全兜底**：不检查侧方来车，依赖封闭场景假设
-3. **新目标不可行时保持安全**：不覆盖既有承诺/回正轨迹，按当前失败状态机继续安全路径或停车
-4. **不重新预测长期消失目标**：短时丢失使用 held target；保持超时后释放旧目标并尝试接管下一可行目标，
+2. **邻道安全为当前占用语义**：静止和运动对象都会阻止借道，但不做未来轨迹/RSS 时域预测
+3. **新目标不可行时条件停车**：承诺前仅在障碍物相关失败且纵向制动可行时停车；其余情况复用有效路径或透传
+4. **不重新预测长期消失目标**：短时丢失使用 held target；保持超时后释放旧目标并尝试接管下一有效目标，
    不对长期消失目标重新估计位置
 5. **无对象类型过滤**：动态行人/车辆若速度低于阈值可能被误当作绕障目标
 

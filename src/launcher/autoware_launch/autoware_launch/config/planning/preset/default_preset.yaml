@@ -8,15 +8,17 @@ launch:
   # behavior path modules
   - arg:
       name: launch_static_obstacle_avoidance
-      default: "false"
-  - arg:
-      name: launch_simple_avoidance
       default: "true"
   - arg:
-      name: launch_avoidance_by_lane_change_module
+      name: launch_simple_avoidance
       default: "false"
   - arg:
+      name: launch_avoidance_by_lane_change_module
+      default: "true"
+  - arg:
       name: launch_simple_lc_avoidance
+      # The production preset uses avoidance_by_lane_change plus static_obstacle_avoidance;
+      # keep the experimental simple lane-change module disabled to avoid slot2 competition.
       default: "false"
   - arg:
       name: launch_dynamic_obstacle_avoidance
@@ -115,13 +117,13 @@ launch:
       default: "true"
   - arg:
       name: launch_obstacle_slow_down_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_obstacle_cruise_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_dynamic_obstacle_stop_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_out_of_lane_module
       default: "true"

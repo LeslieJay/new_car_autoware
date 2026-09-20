@@ -45,7 +45,7 @@
     smooth_stop_min_strong_acc: -0.8
     smooth_stop_weak_acc: -0.2
     smooth_stop_weak_stop_acc: -0.8
-    smooth_stop_strong_stop_acc: -3.4
+    smooth_stop_strong_stop_acc: -1.5
     smooth_stop_max_fast_vel: 0.5
     smooth_stop_min_running_vel: 0.01
     smooth_stop_min_running_acc: 0.01
@@ -55,11 +55,11 @@
 
     # stopped state
     stopped_vel: 0.0
-    stopped_acc: -3.4 # denotes pedal position
+    stopped_acc: -1.5 # denotes pedal position
 
     # emergency state
     emergency_vel: 0.0
-    emergency_acc: -5.0 # denotes acceleration
+    emergency_acc: -2.4 # denotes acceleration
     emergency_jerk: -3.0
 
     # acceleration feedback
@@ -67,13 +67,13 @@
     acc_feedback_gain: 0.0
 
     # acceleration limit
-    max_acc: 3.0
-    min_acc: -5.0
+    max_acc: 1.0
+    min_acc: -2.4
 
     # jerk limit
-    max_jerk: 2.0
-    min_jerk: -5.0
-    max_acc_cmd_diff: 50.0 # [m/s^2 * s^-1]
+    max_jerk: 1.5
+    min_jerk: -1.5
+    max_acc_cmd_diff: 3.0 # [m/s^2 * s^-1]
 
     # slope compensation
     lpf_pitch_gain: 0.95

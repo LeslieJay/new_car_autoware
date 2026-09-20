@@ -71,6 +71,13 @@ double calcStopDistance(
   return signed_length_on_traj;
 }
 
+bool shouldRecoverFromClearedStop(
+  const bool emergency_condition, const bool departure_condition,
+  const bool has_nonzero_target_velocity)
+{
+  return !emergency_condition && departure_condition && has_nonzero_target_velocity;
+}
+
 double getPitchByPose(const Quaternion & quaternion_msg)
 {
   double roll, pitch, yaw;

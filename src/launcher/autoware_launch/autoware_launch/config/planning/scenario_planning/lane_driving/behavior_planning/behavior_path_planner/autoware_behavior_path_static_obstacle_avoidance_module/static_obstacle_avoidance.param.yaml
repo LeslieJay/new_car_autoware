@@ -10,7 +10,7 @@
       # "current_lane"           : use only current lane. this module doesn't use adjacent lane to avoid object.
       # "same_direction_lane"    : this module uses same direction lane to avoid object if need.
       # "opposite_direction_lane": this module uses both same direction and opposite direction lane.
-      use_lane_type: "opposite_direction_lane"
+      use_lane_type: "same_direction_lane"
       # drivable area setting
       use_intersection_areas: true
       use_hatched_road_markings: true
@@ -19,57 +19,57 @@
       # avoidance is performed for the object type with true
       target_object:
         car:
-          th_moving_speed: 1.0                          # [m/s]
-          th_moving_time: 2.0                           # [s]
+          th_moving_speed: 0.4                          # [m/s]
+          th_moving_time: 1.0                           # [s]
           longitudinal_margin: 0.0                      # [m]
           lateral_margin:
-            soft_margin: 0.5                            # [m]
+            soft_margin: 0.3                            # [m]
             hard_margin: 0.2                            # [m]
             hard_margin_for_parked_vehicle: 0.2         # [m]
           max_expand_ratio: 0.0                         # [-] FOR DEVELOPER
           envelope_buffer_margin: 0.1                   # [m] FOR DEVELOPER
           th_error_eclipse_long_radius : 0.6            # [m]
         truck:
-          th_moving_speed: 1.0
-          th_moving_time: 2.0
+          th_moving_speed: 0.4
+          th_moving_time: 1.0
           longitudinal_margin: 0.0
           lateral_margin:
-            soft_margin: 0.5
+            soft_margin: 0.3
             hard_margin: 0.2
             hard_margin_for_parked_vehicle: 0.2
           max_expand_ratio: 0.0
           envelope_buffer_margin: 0.1
           th_error_eclipse_long_radius : 0.6
         bus:
-          th_moving_speed: 1.0
-          th_moving_time: 2.0
+          th_moving_speed: 0.4
+          th_moving_time: 1.0
           longitudinal_margin: 0.0
           lateral_margin:
-            soft_margin: 0.5
+            soft_margin: 0.3
             hard_margin: 0.2
             hard_margin_for_parked_vehicle: 0.2
           max_expand_ratio: 0.0
           envelope_buffer_margin: 0.1
           th_error_eclipse_long_radius : 0.6
         trailer:
-          th_moving_speed: 1.0
-          th_moving_time: 2.0
+          th_moving_speed: 0.4
+          th_moving_time: 1.0
           longitudinal_margin: 0.0
           lateral_margin:
-            soft_margin: 0.5
+            soft_margin: 0.3
             hard_margin: 0.2
             hard_margin_for_parked_vehicle: 0.2
           max_expand_ratio: 0.0
           envelope_buffer_margin: 0.1
           th_error_eclipse_long_radius : 0.6
         unknown:
-          th_moving_speed: 0.28
+          th_moving_speed: 0.4
           th_moving_time: 1.0
           longitudinal_margin: 0.0
           lateral_margin:
-            soft_margin: 0.5
-            hard_margin: -0.2
-            hard_margin_for_parked_vehicle: -0.2
+            soft_margin: 0.3
+            hard_margin: 0.2
+            hard_margin_for_parked_vehicle: 0.2
           max_expand_ratio: 0.0
           envelope_buffer_margin: 0.1
           th_error_eclipse_long_radius : 0.6
@@ -118,9 +118,9 @@
           bus: true                                     # [-]
           trailer: true                                 # [-]
           unknown: true                                 # [-]
-          bicycle: true                                 # [-]
-          motorcycle: true                              # [-]
-          pedestrian: true                              # [-]
+          bicycle: false                                # [-]
+          motorcycle: false                             # [-]
+          pedestrian: false                             # [-]
         # detection range
         object_check_goal_distance: 20.0                # [m]
         object_check_return_pose_distance: 20.0         # [m]
@@ -129,10 +129,10 @@
 
         # detection area generation parameters
         detection_area:
-          static: false                                 # [-]
-          min_forward_distance: 50.0                    # [m]
-          max_forward_distance: 150.0                   # [m]
-          backward_distance: 10.0                       # [m]
+          static: true                                  # [-]
+          min_forward_distance: 15.0                    # [m]
+          max_forward_distance: 40.0                    # [m]
+          backward_distance: 5.0                        # [m]
 
         # filtering parking objects
         parked_vehicle:
@@ -144,7 +144,7 @@
         merging_vehicle:
           th_overhang_distance: 0.0                     # [m]
 
-        unstable_classification_time: 2.0                # [s] If the object is classified as UNKNOWN for less than unstable_classification_time seconds, we cannot be confident that it truly does not belong to any known class..
+        unstable_classification_time: 1.0                # [s] If the object is classified as UNKNOWN for less than unstable_classification_time seconds, we cannot be confident that it truly does not belong to any known class..
 
         # params for avoidance of vehicle type objects that are ambiguous as to whether they are parked.
         avoidance_for_ambiguous_vehicle:
@@ -154,7 +154,7 @@
           # "ignore" : never avoid it.
           policy: "auto"                              # [-]
           condition:
-            th_stopped_time: 3.0                        # [s]
+            th_stopped_time: 1.5                        # [s]
             th_moving_distance: 1.0                     # [m]
           ignore_area:
             traffic_light:
@@ -171,7 +171,7 @@
           # "auto"   : generate candidate path. if RTC is running as AUTO mode, the ego avoids it automatically.
           # "manual" : generate candidate path and wait operator approval even if RTC is running as AUTO mode.
           # "ignore" : never avoid it.
-          policy: "ignore"                                # [-]
+          policy: "auto"                                  # [-]
           condition:
             th_road_border_distance: 0.8                  # [m] threshold distance from road border to parking vehicle side
 
@@ -188,7 +188,7 @@
 
         freespace:
           condition:
-            th_stopped_time: 5.0                        # [-]
+            th_stopped_time: 2.0                        # [-]
 
       # For safety check
       safety_check:
@@ -198,12 +198,12 @@
           truck: true                                   # [-]
           bus: true                                     # [-]
           trailer: true                                 # [-]
-          unknown: false                                # [-]
+          unknown: true                                 # [-]
           bicycle: true                                 # [-]
           motorcycle: true                              # [-]
           pedestrian: true                              # [-]
         # safety check configuration
-        enable: false                                    # [-]
+        enable: true                                     # [-]
         check_current_lane: false                       # [-]
         check_shift_side_lane: true                     # [-]
         check_other_side_lane: false                    # [-]
@@ -211,16 +211,16 @@
         check_other_object: true                        # [-]
         # collision check parameters
         check_all_predicted_path: false                 # [-]
-        safety_check_backward_distance: 100.0           # [m]
+        safety_check_backward_distance: 30.0            # [m]
         hysteresis_factor_expand_rate: 1.5              # [-]
         hysteresis_factor_safe_count: 3                 # [-]
         collision_check_yaw_diff_threshold: 3.1416      # [rad]
         # predicted path parameters
-        min_velocity: 1.38                              # [m/s]
-        max_velocity: 50.0                              # [m/s]
+        min_velocity: 0.5                               # [m/s]
+        max_velocity: 3.0                               # [m/s]
         time_resolution: 0.5                            # [s]
-        time_horizon_for_front_object: 3.0              # [s]
-        time_horizon_for_rear_object: 10.0              # [s]
+        time_horizon_for_front_object: 4.0              # [s]
+        time_horizon_for_rear_object: 6.0               # [s]
         delay_until_departure: 0.0                      # [s]
         # rss parameters
         extended_polygon_policy: "along_path"           # [-] select "rectangle" or "along_path"
@@ -239,22 +239,22 @@
           th_avoid_execution: 0.09                      # [m] FOR DEVELOPER
           th_small_shift_length: 0.101                  # [m] FOR DEVELOPER
           soft_drivable_bound_margin: 0.3               # [m]
-          hard_drivable_bound_margin: 0.3               # [m]
+          hard_drivable_bound_margin: 0.1               # [m]
           max_right_shift_length: 5.0                   # [m] FOR DEVELOPER
           max_left_shift_length: 5.0                    # [m] FOR DEVELOPER
           max_deviation_from_lane: 0.2                  # [m]
           # approve the next shift line after reaching this percentage of the current shift line length.
           # this parameter is added to allow waiting for the return of shift approval until the occlusion behind the avoid target is clear.
           # this feature can be disabled by setting this parameter to 0.0.
-          ratio_for_return_shift_approval: 0.5          # [-]
+          ratio_for_return_shift_approval: 0.0          # [-]
         # avoidance distance parameters
         longitudinal:
-          min_prepare_time: 1.0                         # [s]
-          max_prepare_time: 2.0                         # [s]
+          min_prepare_time: 0.5                         # [s]
+          max_prepare_time: 1.5                         # [s]
           min_prepare_distance: 1.0                     # [m]
-          min_slow_down_speed: 1.38                     # [m/s]
-          buf_slow_down_speed: 0.56                     # [m/s] FOR DEVELOPER
-          nominal_avoidance_speed: 8.33                 # [m/s] FOR DEVELOPER
+          min_slow_down_speed: 0.5                      # [m/s]
+          buf_slow_down_speed: 0.3                      # [m/s] FOR DEVELOPER
+          nominal_avoidance_speed: 2.0                  # [m/s] FOR DEVELOPER
           consider_front_overhang: true                 # [-]
           consider_rear_overhang: true                  # [-]
         # return dead line
@@ -291,7 +291,7 @@
         # policy for rtc request. select "per_shift_line" or "per_avoidance_maneuver".
         # "per_shift_line": request approval for each shift line.
         # "per_avoidance_maneuver": request approval for avoidance maneuver (avoid + return).
-        make_approval_request: "per_shift_line"
+        make_approval_request: "per_avoidance_maneuver"
         # policy for vehicle slow down behavior. select "best_effort" or "reliable".
         # "best_effort": slow down deceleration & jerk are limited by constraints.
         #                but there is a possibility that the vehicle can't stop in front of the vehicle.
@@ -314,12 +314,12 @@
       constraints:
         # lateral constraints
         lateral:
-          velocity: [1.39, 4.17, 11.1]                  # [m/s]
-          max_accel_values: [0.5, 0.5, 0.5]             # [m/ss]
+          velocity: [0.5, 1.0, 2.0]                     # [m/s]
+          max_accel_values: [0.4, 0.4, 0.4]             # [m/ss]
           min_jerk_values:
-            avoid: [0.2, 0.2, 0.2]                      # [m/sss]
-            return: [0.2, 0.2, 0.2]                     # [m/sss]
-          max_jerk_values: [3.0, 3.0, 3.0]              # [m/sss]
+            avoid: [0.5, 0.5, 0.5]                      # [m/sss]
+            return: [0.4, 0.4, 0.4]                     # [m/sss]
+          max_jerk_values: [1.5, 1.5, 1.5]              # [m/sss]
 
         # longitudinal constraints
         longitudinal:
@@ -328,7 +328,7 @@
           max_deceleration: -1.5                        # [m/ss]
           max_jerk: 1.0                                 # [m/sss]
           max_acceleration: 0.5                         # [m/ss]
-          min_velocity_to_limit_max_acceleration: 2.78  # [m/ss]
+          min_velocity_to_limit_max_acceleration: 2.0   # [m/ss]
 
       # path generation method. select "shift_line_base" or "optimization_base" or "both".
       # "shift_line_base"  : Create avoidance path based on shift line.
@@ -352,8 +352,8 @@
 
       # for debug
       debug:
-        enable_other_objects_marker: true
-        enable_other_objects_info: true
+        enable_other_objects_marker: false
+        enable_other_objects_info: false
         enable_detection_area_marker: false
         enable_drivable_bound_marker: false
         enable_safety_check_marker: false

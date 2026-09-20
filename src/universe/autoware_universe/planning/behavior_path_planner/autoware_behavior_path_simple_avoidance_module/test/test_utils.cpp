@@ -26,6 +26,7 @@ protected:
   {
     SimpleAvoidanceParameters p;
     p.lateral_margin = 0.8;
+    p.longitudinal_margin_before_object_front = 0.6;
     p.max_shift_length = 3.0;
     p.avoidance_start_distance_before_object_front = 10.0;
     p.min_shifting_distance = 2.0;
@@ -137,10 +138,14 @@ TEST_F(SimpleAvoidanceUtilsTest, LateralExecutionLagUsesCurrentExpectedShift)
   EXPECT_DOUBLE_EQ(calcLateralTrackingError(0.0, 0.0), 0.0);
   EXPECT_FALSE(isLateralExecutionLagging(0.0, 0.0, 0.2));
 
-  // A 1.5m final maneuver target is irrelevant while the vehicle is still on the
-  // zero-offset portion of the generated shift path.
-  EXPECT_FALSE(isLateralExecutionLagging(0.0, 0.0, 0.2));
-  EXPECT_TRUE(isLateralExecutionLagging(0.0, 0.3, 0.2));
+  // An actual offset ahead of the planned shift is not execution lag.
+  EXPECT_FALSE(isLateralExecutionLagging(0.0, 0.3, 0.2));
+  EXPECT_FALSE(isLateralExecutionLagging(0.3, 0.5, 0.2));
+  EXPECT_FALSE(isLateralExecutionLagging(-0.3, -0.5, 0.2));
+
+  // Only an offset that remains behind the planned shift is lagging.
+  EXPECT_TRUE(isLateralExecutionLagging(0.3, 0.0, 0.2));
+  EXPECT_TRUE(isLateralExecutionLagging(-0.3, 0.0, 0.2));
   EXPECT_TRUE(isLateralExecutionLagging(0.3, 0.0, -0.1));
 }
 
@@ -156,7 +161,8 @@ TEST_F(SimpleAvoidanceUtilsTest, CommitmentWindowUsesContinuousDistanceBoundary)
 TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartKeepsFixedDistanceFromObjectFront)
 {
   auto params = defaultParameters();
-  params.lateral_margin = 0.4;
+  params.lateral_margin = 0.8;
+  params.longitudinal_margin_before_object_front = 0.4;
   params.min_shifting_distance = 10.0;
   params.avoidance_start_distance_before_object_front = 10.0;
 
@@ -166,18 +172,19 @@ TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartKeepsFixedDistanceFromObjectFront
 
     ASSERT_EQ(result.reason, InfeasibleReason::NONE);
     EXPECT_NEAR(
-      target.longitudinal_distance - target.object_half_length - result.dist_to_avoid_start,
-      10.4, 1e-6);
+      target.longitudinal_distance - target.object_half_length - result.dist_to_avoid_start, 10.4,
+      1e-6);
     EXPECT_GE(
       target.longitudinal_distance - target.object_half_length - result.dist_to_avoid_start,
       params.avoidance_start_distance_before_object_front);
   }
 }
 
-TEST_F(SimpleAvoidanceUtilsTest, ActualStartIncludesTransitionAndLateralMargin)
+TEST_F(SimpleAvoidanceUtilsTest, ActualStartIncludesTransitionAndLongitudinalMargin)
 {
   auto params = defaultParameters();
-  params.lateral_margin = 0.4;
+  params.lateral_margin = 0.8;
+  params.longitudinal_margin_before_object_front = 0.4;
   params.min_shifting_distance = 10.0;
   params.avoidance_start_distance_before_object_front = 10.0;
   const auto target = makeTarget(0.5, 40.5, 0.5, 0.5);
@@ -193,7 +200,8 @@ TEST_F(SimpleAvoidanceUtilsTest, ActualStartIncludesTransitionAndLateralMargin)
 TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartFailsWhenObjectIsTooClose)
 {
   auto params = defaultParameters();
-  params.lateral_margin = 0.4;
+  params.lateral_margin = 0.8;
+  params.longitudinal_margin_before_object_front = 0.4;
   params.min_shifting_distance = 10.0;
   params.avoidance_start_distance_before_object_front = 10.0;
   const auto target = makeTarget(0.5, 10.5, 0.5, 0.5);
@@ -207,7 +215,8 @@ TEST_F(SimpleAvoidanceUtilsTest, AvoidanceStartFailsWhenObjectIsTooClose)
 TEST_F(SimpleAvoidanceUtilsTest, JerkDistanceCanMoveAvoidanceStartEarlier)
 {
   auto params = defaultParameters();
-  params.lateral_margin = 0.4;
+  params.lateral_margin = 0.8;
+  params.longitudinal_margin_before_object_front = 0.4;
   params.min_shifting_distance = 1.0;
   params.avoidance_start_distance_before_object_front = 10.0;
   params.shifting_lateral_jerk = 1.0e-6;
@@ -219,7 +228,7 @@ TEST_F(SimpleAvoidanceUtilsTest, JerkDistanceCanMoveAvoidanceStartEarlier)
   EXPECT_GT(result.jerk_distance, params.min_shifting_distance);
   EXPECT_DOUBLE_EQ(
     result.required_start_distance_before_front,
-    params.lateral_margin + result.transition_distance);
+    params.longitudinal_margin_before_object_front + result.transition_distance);
   EXPECT_GT(result.required_start_distance_before_front, 10.0);
 }
 
@@ -298,8 +307,9 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsLostCandidateBeforeCommitment)
 
 TEST_F(SimpleAvoidanceUtilsTest, MergeShiftLinesPreservesCommittedPrefix)
 {
-  const auto make_line = [](const size_t start_idx, const size_t end_idx,
-                            const double start_shift, const double end_shift) {
+  const auto make_line = [](
+                           const size_t start_idx, const size_t end_idx, const double start_shift,
+                           const double end_shift) {
     ShiftLine line;
     line.start_idx = start_idx;
     line.end_idx = end_idx;
@@ -313,8 +323,7 @@ TEST_F(SimpleAvoidanceUtilsTest, MergeShiftLinesPreservesCommittedPrefix)
   const ShiftLine new_avoid = make_line(18, 28, 0.0, -0.9);
   const ShiftLine new_return = make_line(34, 46, -0.9, 0.0);
 
-  const auto merged = mergeShiftLines(
-    {old_return, committed_prefix}, {new_return, new_avoid});
+  const auto merged = mergeShiftLines({old_return, committed_prefix}, {new_return, new_avoid});
 
   ASSERT_EQ(merged.size(), 3U);
   EXPECT_EQ(merged.at(0).start_idx, committed_prefix.start_idx);
@@ -345,8 +354,7 @@ TEST_F(SimpleAvoidanceUtilsTest, MergeShiftLinesKeepsNonConflictingOppositeRetur
   opposite_return.start_shift_length = 0.9;
   opposite_return.end_shift_length = 0.0;
 
-  const auto merged = mergeShiftLines(
-    {registered_return}, {opposite_avoid, opposite_return});
+  const auto merged = mergeShiftLines({registered_return}, {opposite_avoid, opposite_return});
 
   ASSERT_EQ(merged.size(), 3U);
   EXPECT_EQ(merged.at(0).start_idx, registered_return.start_idx);
@@ -411,7 +419,7 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsUncommittedCandidateOnGeneratio
   EXPECT_EQ(decision.action, AvoidanceLifecycleAction::CANCEL_CANDIDATE);
 }
 
-TEST_F(SimpleAvoidanceUtilsTest, LifecycleStopsAfterSustainedGenerationFailure)
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleKeepsLastValidPathAfterSustainedGenerationFailure)
 {
   AvoidanceLifecycleObservation observation;
   observation.state = AvoidanceLifecycleState::RETURNING;
@@ -421,11 +429,11 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecycleStopsAfterSustainedGenerationFailure)
 
   const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
 
-  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::STOPPING);
-  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::INSERT_FEASIBLE_STOP);
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::RETURNING);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::KEEP_LAST_VALID_PATH);
 }
 
-TEST_F(SimpleAvoidanceUtilsTest, LifecyclePublishesSafeStopWithoutReusablePreviousPath)
+TEST_F(SimpleAvoidanceUtilsTest, LifecycleCancelsWhenGenerationFailsWithoutReusablePath)
 {
   AvoidanceLifecycleObservation observation;
   observation.state = AvoidanceLifecycleState::RETURNING;
@@ -434,8 +442,8 @@ TEST_F(SimpleAvoidanceUtilsTest, LifecyclePublishesSafeStopWithoutReusablePrevio
 
   const auto decision = decideAvoidanceLifecycle(observation, 0.5, 3);
 
-  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::STOPPING);
-  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::PublishSafeStop);
+  EXPECT_EQ(decision.next_state, AvoidanceLifecycleState::IDLE);
+  EXPECT_EQ(decision.action, AvoidanceLifecycleAction::CANCEL_CANDIDATE);
 }
 
 TEST_F(SimpleAvoidanceUtilsTest, SafeStopPrefersShiftedGeometryAndZerosVelocity)
@@ -462,6 +470,37 @@ TEST_F(SimpleAvoidanceUtilsTest, SafeStopPrefersShiftedGeometryAndZerosVelocity)
     EXPECT_DOUBLE_EQ(point.point.pose.position.y, 2.0);
     EXPECT_DOUBLE_EQ(point.point.longitudinal_velocity_mps, 0.0);
   }
+}
+
+TEST_F(SimpleAvoidanceUtilsTest, SafeStopLimitsKinematicDeceleration)
+{
+  PathWithLaneId path;
+  for (size_t i = 0; i <= 10; ++i) {
+    autoware_internal_planning_msgs::msg::PathPointWithLaneId point;
+    point.point.pose.position.x = static_cast<double>(i);
+    point.point.pose.orientation.w = 1.0;
+    point.point.longitudinal_velocity_mps = 3.0;
+    path.points.push_back(point);
+  }
+
+  nav_msgs::msg::Odometry odometry;
+  odometry.pose.pose.orientation.w = 1.0;
+  odometry.twist.twist.linear.x = 2.0;
+  const auto stopped_path = make_safe_stop_path(path, PathWithLaneId{}, odometry);
+
+  ASSERT_EQ(stopped_path.points.size(), path.points.size());
+  double previous_velocity = 2.0;
+  for (size_t i = 1; i < stopped_path.points.size(); ++i) {
+    const double velocity = stopped_path.points.at(i).point.longitudinal_velocity_mps;
+    const double ds = stopped_path.points.at(i).point.pose.position.x -
+                      stopped_path.points.at(i - 1).point.pose.position.x;
+    const double implied_deceleration =
+      (velocity * velocity - previous_velocity * previous_velocity) / (2.0 * ds);
+    EXPECT_GE(implied_deceleration, -2.5 - 1.0e-9);
+    EXPECT_LE(velocity, previous_velocity + 1.0e-9);
+    previous_velocity = velocity;
+  }
+  EXPECT_DOUBLE_EQ(stopped_path.points.back().point.longitudinal_velocity_mps, 0.0);
 }
 
 TEST_F(SimpleAvoidanceUtilsTest, SafeStopCreatesEgoSegmentWhenAllPathsAreEmpty)

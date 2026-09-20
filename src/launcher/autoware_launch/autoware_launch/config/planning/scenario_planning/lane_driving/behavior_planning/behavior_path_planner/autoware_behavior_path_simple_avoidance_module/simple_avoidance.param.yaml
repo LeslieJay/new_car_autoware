@@ -36,10 +36,13 @@
       max_forward_distance: 50.0
 
       # [m] 自车外轮廓与障碍物近侧边缘之间要求保留的横向安全余量。
-      # 该值同时用于目标横向重叠判定、侧移量计算，以及障碍物前沿的纵向缓冲。
-      # 调大更保守，但会增大所需侧移量和纵向空间；过大容易触发 NO_ROOM 或
-      # INSUFFICIENT_DISTANCE。调小可减少侧移，但会压缩实际安全间距。
+      # 该值用于目标横向重叠判定和侧移量计算。调大更保守，但会增大所需侧移量，
+      # 过大容易触发 NO_ROOM；调小可减少侧移，但会压缩横向实际安全间距。
       lateral_margin: 0.1
+
+      # [m] 侧移完成点与障碍物前缘之间要求保留的纵向安全余量。
+      # 该值独立于 lateral_margin，仅影响侧移起点的提前量、可行性检查和保守停车距离。
+      longitudinal_margin_before_object_front: 0.1
 
       # [m] 允许生成的最大横向侧移量（取绝对值）。
       # 当满足安全余量所需的侧移量超过此值时，模块判定 NO_ROOM，不生成避障路径。
@@ -47,7 +50,8 @@
       max_shift_length: 5.0
 
       # [m] 理想的绕障起点到障碍物前缘的距离。
-      # 实际起点还会满足 lateral_margin + max(jerk_distance, min_shifting_distance)，
+      # 实际起点还会满足 longitudinal_margin_before_object_front +
+      # max(jerk_distance, min_shifting_distance)，
       # 因此侧移空间不足时会自动提前，而不会晚于该距离开始横移。
       avoidance_start_distance_before_object_front: 2.0
 
@@ -99,6 +103,8 @@
       # active target 已通过、shift line 已清空，并且 base offset 与 ego shift 的绝对值
       # 均不大于此值时，避障流程才可完成。过小可能长期无法结束，过大可能提前结束。
       lateral_execution_threshold: 0.2
+      lateral_tracking_error_threshold: 0.4
+      lateral_tracking_grace_time: 0.5
 
       trailer:
         configuration_topic: /vehicle/status/trailer_configuration
@@ -133,7 +139,8 @@
       #    所需侧移超过上限时会报告 NO_ROOM。
       # 3. 纵向空间：起点到障碍物前缘的要求为
       #      max(avoidance_start_distance_before_object_front,
-      #          lateral_margin + max(jerk_distance, min_shifting_distance))
+      #          longitudinal_margin_before_object_front +
+      #          max(jerk_distance, min_shifting_distance))
       #    起点或侧移终点不可行时会报告 INSUFFICIENT_DISTANCE，并排除该目标；
       #    obstacle_stop 负责对被排除的近距离障碍物停车。
       # 4. 状态稳定：target_lost_time_threshold 与 target_hold_lateral_hysteresis 用于

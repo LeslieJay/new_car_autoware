@@ -67,6 +67,7 @@ private:
   bool canTransitFailureState() override { return false; }
 
   void initVariables();
+  void clearAvoidanceStateForPassThrough();
   std::optional<AvoidanceTarget> detectTarget(
     const std::optional<std::string> & preferred_uuid = std::nullopt,
     bool use_hold_hysteresis = false) const;
@@ -98,6 +99,9 @@ private:
   bool isGeneratedPathContinuous(const ShiftedPath & path) const;
   bool isCommitmentDetected() const;
   bool hasReusablePreviousPath() const;
+  void updateAdjacentLaneContext(double shift_length);
+  bool isAdjacentLaneOccupied(const AvoidanceTarget & target, double shift_length) const;
+  InfeasibleReason validateCandidateObjectSafety(const PathWithLaneId & path) const;
   BehaviorModuleOutput make_safe_stop_output() const;
   BehaviorModuleOutput adjustDrivableArea(const ShiftedPath & path) const;
   BehaviorModuleOutput passThrough(
@@ -107,6 +111,8 @@ private:
 
   PathWithLaneId reference_path_{};
   lanelet::ConstLanelets current_lanelets_{};
+  lanelet::ConstLanelets adjacent_lanelets_{};
+  std::optional<bool> adjacent_lane_is_left_{};
   std::shared_ptr<SimpleAvoidanceParameters> parameters_;
   std::shared_ptr<TrailerConfigurationStore> trailer_configuration_store_;
   ResolvedTrailerConfiguration active_trailer_configuration_;
@@ -116,6 +122,7 @@ private:
   AvoidanceLifecycleState lifecycle_state_{AvoidanceLifecycleState::IDLE};
   size_t completion_stable_count_{0};
   bool ego_aligned_return_active_{false};
+  mutable std::optional<rclcpp::Time> lateral_lag_started_;
   std::optional<rclcpp::Time> path_generation_failure_started_;
   std::optional<unique_identifier_msgs::msg::UUID> route_id_;
   mutable std::shared_ptr<SimpleAvoidanceBoundaryValidationCache> boundary_validation_cache_;

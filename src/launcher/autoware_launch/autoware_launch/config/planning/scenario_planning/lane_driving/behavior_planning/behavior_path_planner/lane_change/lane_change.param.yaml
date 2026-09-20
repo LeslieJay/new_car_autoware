@@ -9,7 +9,7 @@
       enable_stopped_vehicle_buffer: true
 
       # turn signal
-      min_length_for_turn_signal_activation: 10.0 # [m]
+      min_length_for_turn_signal_activation: 2.0 # [m]
 
       # terminal path
       terminal_path:
@@ -19,16 +19,16 @@
 
       # trajectory generation
       trajectory:
-        max_prepare_duration: 4.0
-        min_prepare_duration: 2.0
+        max_prepare_duration: 2.0
+        min_prepare_duration: 1.0
         lateral_jerk: 0.5
         min_longitudinal_acc: -1.0
-        max_longitudinal_acc: 1.0
+        max_longitudinal_acc: 0.5
         th_prepare_length_diff: 1.0
         th_lane_changing_length_diff: 1.0
-        min_lane_changing_velocity: 2.78
+        min_lane_changing_velocity: 0.5
         lon_acc_sampling_num: 5
-        lat_acc_sampling_num: 3
+        lat_acc_sampling_num: 5
         lane_changing_decel_factor: 0.5
         th_prepare_curvature: 0.03 # [/]
 
@@ -51,7 +51,7 @@
       safety_check:
         allow_loose_check_for_cancel: true
         enable_target_lane_bound_check: true
-        stopped_object_velocity_threshold: 0.3          # [m/s] Object whose velocity is less than the threshold is treated as static object.
+        stopped_object_velocity_threshold: 0.4          # [m/s] Object whose velocity is less than the threshold is treated as static object.
         prepare:                                        # RSS parameters used during the prepare phase, regardless of whether the ego is searching for a safe path, canceling, or transitioning to another state.
           expected_front_deceleration: -1.0             # [m/s2]
           expected_rear_deceleration: -1.0              # [m/s2]
@@ -105,9 +105,9 @@
 
       # lateral acceleration map
       lateral_acceleration:
-        velocity: [0.0, 4.0, 10.0]
-        min_values: [0.4, 0.4, 0.4]
-        max_values: [0.65, 0.65, 0.65]
+        velocity: [0.0, 1.0, 2.0]
+        min_values: [0.2, 0.2, 0.2]
+        max_values: [0.4, 0.4, 0.4]
 
       # target object
       target_object:
@@ -115,7 +115,7 @@
         truck: true
         bus: true
         trailer: true
-        unknown: false
+        unknown: true
         bicycle: true
         motorcycle: true
         pedestrian: true
@@ -137,7 +137,7 @@
 
       # ego vehicle stuck detection
       stuck_detection:
-        velocity: 0.5 # [m/s]
+        velocity: 0.1 # [m/s]
         stop_time: 3.0 # [s]
 
       # lane change cancel
@@ -146,14 +146,14 @@
         enable_on_lane_changing_phase: true
         delta_time: 1.0                     # [s]
         duration: 5.0                       # [s]
-        max_lateral_jerk: 100.0             # [m/s3]
+        max_lateral_jerk: 1.5               # [m/s3]
         overhang_tolerance: 0.0             # [m]
         unsafe_hysteresis_threshold: 5      # [/]
         deceleration_sampling_num: 1        # [/] Used to sample the approved lane change path, specifically for checking safety against leading objects.
 
       lane_change_finish_judge_buffer: 2.0      # [m]
-      finish_judge_lateral_threshold: 0.1        # [m]
-      finish_judge_lateral_angle_deviation: 1.0 # [deg]
+      finish_judge_lateral_threshold: 0.2        # [m]
+      finish_judge_lateral_angle_deviation: 3.0 # [deg]
 
       # debug
-      publish_debug_marker: true
+      publish_debug_marker: false

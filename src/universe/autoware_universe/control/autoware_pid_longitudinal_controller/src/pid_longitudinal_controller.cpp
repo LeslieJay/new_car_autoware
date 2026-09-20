@@ -782,6 +782,14 @@ void PidLongitudinalController::updateControlState(const ControlData & control_d
     if (stopped_condition) {
       return changeControlState(ControlState::STOPPED);
     }
+    if (longitudinal_utils::shouldRecoverFromClearedStop(
+          emergency_condition.result, departure_condition_from_stopped, has_nonzero_target_vel)) {
+      m_pid_vel.reset();
+      m_lpf_vel_error->reset(0.0);
+      m_lpf_acc_error->reset(0.0);
+      m_prev_raw_ctrl_cmd.acc = std::max(0.0, m_prev_raw_ctrl_cmd.acc);
+      return changeControlState(ControlState::DRIVE, "current trajectory stop point cleared");
+    }
 
     if (!emergency_condition.result) {
       if (!is_under_control) {

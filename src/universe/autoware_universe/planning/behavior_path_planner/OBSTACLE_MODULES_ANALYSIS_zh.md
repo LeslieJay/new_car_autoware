@@ -308,12 +308,14 @@ jerk_distance = calc_longitudinal_dist_from_jerk(
 )
 
 dist_to_shift_end = min_prepare_distance + max(jerk_distance, min_shifting_distance)
-dist_to_obstacle  = target.longitudinal_distance - object_half_length - lateral_margin
+dist_to_obstacle  = target.longitudinal_distance - object_half_length
+                    - longitudinal_margin_before_object_front
 ```
 
 如果 `dist_to_shift_end > dist_to_obstacle`，返回 `INSUFFICIENT_DISTANCE`。
 
-这里 `lateral_margin` 也被复用为障碍物前沿的纵向 buffer。调大它会同时让横向更保守、纵向更难通过可行性检查。
+这里使用独立的 `longitudinal_margin_before_object_front` 作为障碍物前沿的纵向 buffer，
+避免调节横向安全距离时意外改变纵向可行性。
 
 ### 4.8 PathShifter 输出
 

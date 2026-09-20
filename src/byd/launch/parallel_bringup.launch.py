@@ -131,6 +131,11 @@ def _launch_everything(context: LaunchContext):
     system_event_monitor_launch = _share_path(
         "byd_system_event_monitor", "launch", "system_event_monitor.launch.py"
     )
+    high_precision_reverse_controller_launch = _share_path(
+        "agv_high_precision_reverse_controller",
+        "launch",
+        "agv_high_precision_reverse_controller.launch.py",
+    )
 
     actions = [
         IncludeLaunchDescription(
@@ -164,6 +169,9 @@ def _launch_everything(context: LaunchContext):
                     "byd_vehicle_state_config_file"
                 ),
             }.items(),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(high_precision_reverse_controller_launch),
         ),
     ]
 

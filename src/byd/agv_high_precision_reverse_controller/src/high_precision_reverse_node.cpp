@@ -350,6 +350,18 @@ void HighPrecisionReverseNode::processModeHandoff()
             std::placeholders::_1));
         break;
       }
+    case HandoffPhase::CLEAR_FORWARD_ROUTE_BEFORE_AUTO: {
+        if (!clear_route_client_->service_is_ready()) {
+          return;
+        }
+        handoff_phase_ = HandoffPhase::WAIT_CLEAR_FORWARD_ROUTE_BEFORE_AUTO;
+        clear_route_client_->async_send_request(
+          std::make_shared<autoware_adapi_v1_msgs::srv::ClearRoute::Request>(),
+          std::bind(
+            &HighPrecisionReverseNode::onClearForwardRouteResponse, this,
+            std::placeholders::_1));
+        break;
+      }
     case HandoffPhase::CHANGE_TO_AUTONOMOUS: {
         if (!change_to_autonomous_client_->service_is_ready()) {
           return;
@@ -432,10 +444,21 @@ void HighPrecisionReverseNode::onClearForwardRouteResponse(
     !response->status.success &&
     response->status.code != autoware_adapi_v1_msgs::msg::ResponseStatus::NO_EFFECT)
   {
-    failModeHandoff("failed to clear previous forward route: " + response->status.message);
+    const std::string reason =
+      "failed to clear previous forward route: " + response->status.message;
+    if (handoff_phase_ == HandoffPhase::WAIT_CLEAR_FORWARD_ROUTE_BEFORE_AUTO) {
+      retryModeHandoff(HandoffPhase::CLEAR_FORWARD_ROUTE_BEFORE_AUTO, reason);
+    } else {
+      failModeHandoff(reason);
+    }
     return;
   }
-  handoff_phase_ = HandoffPhase::CHANGE_TO_LOCAL;
+  if (handoff_phase_ == HandoffPhase::WAIT_CLEAR_FORWARD_ROUTE_BEFORE_AUTO) {
+    RCLCPP_INFO(get_logger(), "Forward route cleared before returning to AUTONOMOUS");
+    handoff_phase_ = HandoffPhase::CHANGE_TO_AUTONOMOUS;
+  } else {
+    handoff_phase_ = HandoffPhase::CHANGE_TO_LOCAL;
+  }
 }
 
 void HighPrecisionReverseNode::onChangeToLocalResponse(
@@ -498,7 +521,7 @@ void HighPrecisionReverseNode::onPauseForAutoResponse(
     failModeHandoff("failed to pause before AUTO handoff: " + response->status.message);
     return;
   }
-  handoff_phase_ = HandoffPhase::CHANGE_TO_AUTONOMOUS;
+  handoff_phase_ = HandoffPhase::CLEAR_FORWARD_ROUTE_BEFORE_AUTO;
 }
 
 void HighPrecisionReverseNode::onChangeToAutonomousResponse(

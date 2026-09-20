@@ -5,9 +5,11 @@
       min_forward_distance: 0.5
       max_forward_distance: 60.0
       lateral_margin: 0.4
+      # 障碍物前缘前的纵向安全余量；不参与横向重叠或侧移量计算。
+      longitudinal_margin_before_object_front: 0.4
       max_shift_length: 4.0
       # 理想绕障起点到障碍物前缘的距离；实际起点还会根据侧移过渡距离和
-      # lateral_margin 自动提前，以确保侧移完成后仍在障碍物前缘之前。
+      # 纵向安全余量自动提前，以确保侧移完成后仍在障碍物前缘之前。
       avoidance_start_distance_before_object_front: 10.0
       min_shifting_distance: 10.0
       shifting_lateral_jerk: 0.5
@@ -16,11 +18,20 @@
       target_lost_time_threshold: 1.0
       target_hold_lateral_hysteresis: 0.3
       commitment_distance_before_shift_start: 2.0
-      lateral_execution_threshold: 0.05
+      # [m] 判断回正完成的横向误差阈值；不用于瞬时滞后判定。
+      lateral_execution_threshold: 0.2
+      # [m] 只有朝规划侧移方向持续超过该误差才认为车辆滞后。
+      lateral_tracking_error_threshold: 0.4
+      # [s] 横向滞后必须持续该时间才触发安全处理。
+      lateral_tracking_grace_time: 0.5
       road_boundary_margin: 0.10
       boundary_check_resample_interval: 0.30
       publish_steering_diagnostics: false
       path_generation_failure_timeout: 0.5
+      # [m/s^3] 条件停车可行性计算使用的最大纵向 jerk。
+      stop_max_jerk: 1.0
+      # [m/s] 低于该速度时允许在短距离内插入目标前停止点。
+      stop_low_speed_threshold: 1.38
       completion_stable_count: 3
       trailer:
         configuration_topic: /vehicle/status/trailer_configuration

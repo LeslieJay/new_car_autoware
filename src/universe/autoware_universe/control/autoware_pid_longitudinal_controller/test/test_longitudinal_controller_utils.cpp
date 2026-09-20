@@ -100,6 +100,14 @@ TEST(TestLongitudinalControllerUtils, calcStopDistance)
   EXPECT_EQ(longitudinal_utils::calcStopDistance(current_pose, traj, max_dist, max_yaw), 3.0);
 }
 
+TEST(TestLongitudinalControllerUtils, shouldRecoverFromClearedStop)
+{
+  EXPECT_TRUE(longitudinal_utils::shouldRecoverFromClearedStop(false, true, true));
+  EXPECT_FALSE(longitudinal_utils::shouldRecoverFromClearedStop(true, true, true));
+  EXPECT_FALSE(longitudinal_utils::shouldRecoverFromClearedStop(false, false, true));
+  EXPECT_FALSE(longitudinal_utils::shouldRecoverFromClearedStop(false, true, false));
+}
+
 TEST(TestLongitudinalControllerUtils, getPitchByPose)
 {
   tf2::Quaternion quaternion_tf;

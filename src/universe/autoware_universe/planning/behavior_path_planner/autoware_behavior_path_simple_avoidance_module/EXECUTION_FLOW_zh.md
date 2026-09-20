@@ -257,7 +257,7 @@ plan()
 │    │    │    ├─ path_shifter_.generate(&shifted_path)
 │    │    │    │    ├─ 有 shift lines：继续执行避让/回正几何
 │    │    │    │    └─ 无 shift lines：使用最新参考路径 + base offset；回正后 offset 为 0
-│    │    │    │    └─ 失败/不连续 → 失败状态机，必要时发布非空安全停车路径
+│    │    │    │    └─ 失败/不连续 → 复用边界仍有效的上一条路径，否则透传上游路径
 │    │    │    ├─ setOrientation + prev_output_ 更新
 │    │    │    ├─ lifecycle_state_ = RETURNING
 │    │    │    └─ return adjustDrivableArea(shifted_path) ────────────► 退出③（延续并回正）
@@ -267,10 +267,15 @@ plan()
 ├─ [Step 5] active_target_ = target
 │
 ├─ [Step 6] shift_result = calcShiftLength(target, params, ego_half_width)
-│    └─ reason != NONE → passThrough(NO_ROOM) ────────────────────────► 退出⑤
+│    └─ reason != NONE → 条件停车判断，否则 passThrough(NO_ROOM) ───► 退出⑤
 │
 ├─ [Step 7] feasibility = checkFeasibility(target, shift_length, params, ego_speed)
-│    └─ reason != NONE → passThrough(INSUFFICIENT_DISTANCE) ──────────► 退出⑥
+│    └─ reason != NONE → 条件停车判断，否则 passThrough ─────────────► 退出⑥
+│
+├─ [Step 7.1] 构造绕障侧同向相邻车道 context
+│    ├─ RouteHandler 只取 shift 方向的 normal left/right lanelet
+│    ├─ 邻道对象占用 → ADJACENT_LANE_OCCUPIED
+│    └─ 当前车道 + 邻道最外侧边界用于候选、legacy 和拖挂检查
 │
 ├─ [Step 8] shift_lines = mergeShiftLines(registered_lines, buildShiftLines(target, shift_length))
 │    path_shifter_.setShiftLines(shift_lines)
@@ -294,7 +299,9 @@ plan()
 passThrough(reason, debug_info)
 ├─ debug_data_.last_reason = reason
 ├─ logPassThroughDetails(...)   // 按 reason 打印详细诊断
-└─ return getPreviousModuleOutput()   // 原样透传上游路径，不做绕障
+├─ 上一条绕障路径连续且当前边界仍有效 → 复用
+├─ 否则使用上游路径，再否则使用参考路径
+└─ 所有路径均为空 → 生成 ego 前方非空零速应急路径
 ```
 
 | InfeasibleReason | 日志关键字 | 触发位置 |
@@ -302,7 +309,10 @@ passThrough(reason, debug_info)
 | `no_target` | `not requested` / `pass-through reason=no_target` | 无目标 |
 | `infeasible_no_room` | `pass-through reason=infeasible_no_room` | calcShiftLength |
 | `infeasible_distance` | `pass-through reason=infeasible_distance` | checkFeasibility |
-| `path_generation_failed` | `pass-through reason=path_generation_failed` | PathShifter.generate |
+| `no_adjacent_lane` | `pass-through reason=no_adjacent_lane` | 候选需要越出当前车道但无同向邻道 |
+| `adjacent_lane_occupied` | `pass-through reason=adjacent_lane_occupied` | 绕障侧邻道存在对象 |
+| `vehicle_collision` | `pass-through reason=vehicle_collision` | 候选 footprint 与对象相交 |
+| `path_generation_failed` | `pass-through reason=path_generation_failed` | PathShifter.generate；不主动停车 |
 
 ---
 
@@ -347,14 +357,15 @@ passThrough(reason, debug_info)
 
 3. required_start_distance_before_front = max(
      avoidance_start_distance_before_object_front,
-     lateral_margin + transition_distance)
+     longitudinal_margin_before_object_front + transition_distance)
 
 4. dist_to_avoid_start = target.lon - obj_hl
      - required_start_distance_before_front
 
 5. dist_to_shift_end = dist_to_avoid_start + transition_distance
 
-6. dist_to_obstacle = target.lon - obj_hl - lateral_margin
+6. dist_to_obstacle = target.lon - obj_hl
+     - longitudinal_margin_before_object_front
 
 7. dist_to_avoid_start <= 0 或 dist_to_shift_end > dist_to_obstacle
    → INSUFFICIENT_DISTANCE；否则 → NONE
@@ -395,10 +406,11 @@ PathShifter 输出路径的 orientation 可能无效，按相邻点方向用 `at
 ```
 adjustDrivableArea(shifted_path)
 │
-├─ 根据 shift_length 最大/最小值计算左右 drivable area 扩展量
+├─ 使用与候选边界检查相同的当前车道 + 绕障侧同向邻道 context
 ├─ cropPoints（按 forward/backward 裁剪输出路径）
-├─ generateDrivableLanes(current_lanelets_)
-├─ cutOverlappedLanes + expandLanelets
+├─ lane-change 工具生成两车道 DrivableLanes；无邻道时仅当前车道
+├─ cutOverlappedLanes，设置 is_already_expanded=true（禁止继续扩到第三车道/路肩）
+├─ combineDrivableAreaInfo 保留上游障碍物、信号和扩展属性
 │
 └─ return BehaviorModuleOutput {
      path, reference_path, drivable_area_info
@@ -529,11 +541,11 @@ sequenceDiagram
 
 | 环节 | 原版 | Simple Avoidance |
 |------|------|------------------|
-| 目标数量 | 多目标 + 复杂过滤 | 单活动目标（最近可行，连续接管） |
+| 目标数量 | 多目标 + 复杂过滤 | 单活动目标（最近有效目标，可绕性后判定） |
 | 偏移计算 | 路肩自适应 margin | 固定公式 `calcShiftLength` |
 | ShiftLine | ShiftLineGenerator 多阶段 | 直接 `buildShiftLines` 两条，再与已注册线合成 |
-| 可行性 | 多种约束 + RTC | 仅纵向 jerk |
-| 失败处理 | 可能等待/停车 | 按承诺阶段保持既有路径或安全停车 |
+| 可行性 | 多种约束 + RTC | 纵向 jerk、合并外边界、邻道当前占用和对象碰撞 |
+| 失败处理 | 可能等待/停车 | 承诺前障碍物相关且制动可行时停车，否则复用有效路径或透传 |
 | RTC | 有 | 无（`enable_rtc: false`） |
 
 ---
