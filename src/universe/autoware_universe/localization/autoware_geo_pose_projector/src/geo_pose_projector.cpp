@@ -109,6 +109,15 @@ void GeoPoseProjector::try_publish_geo_pose()
     return;
   }
 
+  // Reject invalid timestamp (non-positive timestamp can occur before RTK time sync)
+  if (nav_sat.header.stamp.sec <= 0 || orientation.header.stamp.sec <= 0) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000 /* ms */,
+      "NavSatFix or Orientation has invalid non-positive timestamp (nav_sat sec: %d, orientation sec: %d), skipping.",
+      nav_sat.header.stamp.sec, orientation.header.stamp.sec);
+    return;
+  }
+
   // Create GeoPose message internally
   geographic_msgs::msg::GeoPoint gps_point;
   gps_point.latitude = nav_sat.latitude;

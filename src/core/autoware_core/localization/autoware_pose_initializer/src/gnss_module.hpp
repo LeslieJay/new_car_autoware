@@ -36,10 +36,13 @@ private:
 
   autoware::map_height_fitter::MapHeightFitter fitter_;
   rclcpp::Clock::SharedPtr clock_;
+  rclcpp::Logger logger_;
   rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr sub_gnss_pose_;
   PoseWithCovarianceStamped::ConstSharedPtr pose_;
   double timeout_;
+  double max_position_variance_;
 };
 }  // namespace autoware::pose_initializer
+
 
 #endif  // GNSS_MODULE_HPP_

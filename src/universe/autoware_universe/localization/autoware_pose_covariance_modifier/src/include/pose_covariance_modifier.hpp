@@ -17,8 +17,12 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
+
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <cstddef>
 
@@ -30,9 +34,11 @@ public:
   explicit PoseCovarianceModifierNode(const rclcpp::NodeOptions & node_options);
 
   enum class PoseSource {
-    GNSS = 0,
+    NDT = 0,
     GNSS_NDT = 1,
-    NDT = 2,
+    GNSS = 2,
+    AUTO_HYBRID = 3,
+    TRANSITION_SMOOTHING = 4,
   };
 
 private:
@@ -57,17 +63,46 @@ private:
   bool use_ndt_orientation_with_gnss_position_;
   bool debug_mode_;
 
+  // Auto attitude alignment parameters
+  bool enable_auto_attitude_switch_;
+  double min_align_velocity_mps_;
+  double max_align_yaw_diff_deg_;
+  double max_align_pos_diff_m_;
+  double required_stable_duration_sec_;
+  double max_angular_velocity_radps_;
+  double smooth_transition_duration_sec_;
+  double fast_fallback_yaw_diff_deg_;
+
+  // State variables
   rclcpp::Time gnss_pose_received_time_last_;
   geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr gnss_pose_with_cov_last_;
   geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr ndt_pose_with_cov_last_;
+  geometry_msgs::msg::TwistWithCovarianceStamped::ConstSharedPtr current_twist_;
+
   PoseSource pose_source_;
   PoseSource candidate_pose_source_;
   std::size_t candidate_pose_source_count_;
 
+  // Attitude convergence & transition tracking
+  bool attitude_converged_{false};
+  rclcpp::Time attitude_stable_start_time_{0, 0, RCL_ROS_TIME};
+  bool is_attitude_stable_{false};
+
+  bool in_transition_{false};
+  rclcpp::Time transition_start_time_{0, 0, RCL_ROS_TIME};
+  geometry_msgs::msg::Quaternion transition_start_orientation_;
+
+  std::size_t fallback_anomaly_count_{0};
+
+  // Subscribers
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
     sub_gnss_pose_with_cov_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
     sub_ndt_pose_with_cov_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr
+    sub_twist_with_cov_;
+
+  // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
     pub_pose_with_covariance_stamped_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_str_pose_source_;
@@ -79,6 +114,9 @@ private:
 
   void callback_ndt_pose_with_cov(
     const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & msg_pose_with_cov_in);
+
+  void callback_twist_with_cov(
+    const geometry_msgs::msg::TwistWithCovarianceStamped::ConstSharedPtr & msg_twist_in);
 
   bool gnss_pose_has_timed_out(const rclcpp::Time & gnss_pose_received_time_last);
 
@@ -92,12 +130,18 @@ private:
     const geometry_msgs::msg::PoseWithCovarianceStamped & ndt_pose, double & position_difference,
     double & yaw_difference_deg) const;
 
+  bool check_attitude_convergence();
+
   std::array<double, 36> update_ndt_covariances_from_gnss(
     const std::array<double, 36> & ndt_covariance_in);
 
   geometry_msgs::msg::PoseWithCovarianceStamped make_gnss_position_ndt_orientation_pose(
     const geometry_msgs::msg::PoseWithCovarianceStamped & gnss_pose,
     const geometry_msgs::msg::PoseWithCovarianceStamped & ndt_pose) const;
+
+  geometry_msgs::msg::PoseWithCovarianceStamped make_interpolated_orientation_pose(
+    const geometry_msgs::msg::PoseWithCovarianceStamped & gnss_pose,
+    const geometry_msgs::msg::PoseWithCovarianceStamped & ndt_pose, double ratio) const;
 
   void publish_pose_type(const PoseSource & pose_source);
 };

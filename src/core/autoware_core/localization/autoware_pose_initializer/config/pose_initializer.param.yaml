@@ -5,6 +5,7 @@
       pose: $(var user_defined_initial_pose/pose)
 
     gnss_pose_timeout: 3.0 # [sec]
+    max_gnss_position_variance: 0.02 # only allow RTK fixed (status=4, var<=0.01), reject status=5 float (var>=0.05)
     stop_check_duration: 3.0 # [sec]
     pose_error_threshold: 5.0 # [m]
     pose_error_check_enabled: false # check initial pose error with gnss

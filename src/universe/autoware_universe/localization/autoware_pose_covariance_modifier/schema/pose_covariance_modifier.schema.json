@@ -75,6 +75,69 @@
           "type": "boolean",
           "default": true,
           "description": "Publish additional debug topics"
+        },
+        "attitude_alignment": {
+          "type": "object",
+          "properties": {
+            "enable_auto_attitude_switch": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable automatic detection and handover to GNSS dual-antenna attitude during driving"
+            },
+            "min_align_velocity_mps": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 0.8,
+              "description": "Minimum vehicle speed required to validate attitude alignment"
+            },
+            "max_align_yaw_diff_deg": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 2.5,
+              "description": "Maximum yaw difference between GNSS attitude and NDT/motion direction to consider aligned"
+            },
+            "max_align_pos_diff_m": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 0.8,
+              "description": "Maximum horizontal position difference between GNSS and NDT during attitude alignment"
+            },
+            "required_stable_duration_sec": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 1.5,
+              "description": "Duration GNSS yaw must remain stable and consistent before triggering handover"
+            },
+            "max_angular_velocity_radps": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 0.05,
+              "description": "Maximum vehicle yaw rate to ensure straight-line motion validation"
+            },
+            "smooth_transition_duration_sec": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 1.0,
+              "description": "Duration for SLERP quaternion orientation interpolation when switching to GNSS"
+            },
+            "fast_fallback_yaw_diff_deg": {
+              "type": "number",
+              "minimum": 0.0,
+              "default": 5.0,
+              "description": "Threshold for fast fallback to hybrid/NDT if GNSS orientation diverges"
+            }
+          },
+          "required": [
+            "enable_auto_attitude_switch",
+            "min_align_velocity_mps",
+            "max_align_yaw_diff_deg",
+            "max_align_pos_diff_m",
+            "required_stable_duration_sec",
+            "max_angular_velocity_radps",
+            "smooth_transition_duration_sec",
+            "fast_fallback_yaw_diff_deg"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

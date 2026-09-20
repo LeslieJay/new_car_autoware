@@ -33,4 +33,16 @@
     # Output is published at the NDT rate. If GNSS degrades or times out, the node falls back to NDT.
     use_ndt_orientation_with_gnss_position: false
 
+    # Automatic outdoor attitude alignment and smooth transition to GNSS
+    attitude_alignment:
+      enable_auto_attitude_switch: true
+      min_align_velocity_mps: 0.8
+      max_align_yaw_diff_deg: 2.5
+      max_align_pos_diff_m: 0.8
+      required_stable_duration_sec: 1.5
+      max_angular_velocity_radps: 0.05
+      smooth_transition_duration_sec: 1.0
+      fast_fallback_yaw_diff_deg: 5.0
+
     enable_debug_topics: true
+
