@@ -55,6 +55,7 @@ public:
 
     // 创建发布者 - 使用 SensorDataQoS (Best Effort) 以匹配 Autoware 点云订阅者的 QoS
     rclcpp::SensorDataQoS sensor_qos;
+    sensor_qos.keep_last(1);
     pub_filtered_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
         "/sensing/lidar/top/outlier_filtered/pointcloud", sensor_qos);
     pub_concatenated_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
@@ -62,7 +63,7 @@ public:
 
     // 创建订阅者
     sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        "/rslidar_points", 10,
+        "/rslidar_points", sensor_qos,
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
           this->pointCloudCallback(msg);
         });

@@ -55,6 +55,7 @@ public:
 
     // 2. 订阅与发布 - 使用 SensorDataQoS (Best Effort) 避免队列积压，保证实时性并与 Autoware 节点匹配
     rclcpp::SensorDataQoS sensor_qos;
+    sensor_qos.keep_last(1);
     pub_filtered_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, sensor_qos);
     sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         input_topic, sensor_qos,

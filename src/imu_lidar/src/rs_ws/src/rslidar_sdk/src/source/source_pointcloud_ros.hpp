@@ -480,7 +480,11 @@ inline void DestinationPointCloudRos::init(const YAML::Node& config)
     node_ptr_.reset(new rclcpp::Node(node_name.str()));
   }
 
-  pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(ros_send_topic, ros_queue_length);
+  // Point clouds are real-time sensor data.  Use SensorDataQoS so a slow
+  // subscriber cannot apply Reliable backpressure to the driver and create
+  // an ever-growing latency backlog.
+  auto pointcloud_qos = rclcpp::SensorDataQoS().keep_last(ros_queue_length);
+  pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(ros_send_topic, pointcloud_qos);
 
 #ifdef ENABLE_IMU_DATA_PARSE
   std::string ros_send_imu_data_topic;
@@ -505,4 +509,3 @@ inline void DestinationPointCloudRos::sendImuData(const std::shared_ptr<ImuData>
 }  // namespace robosense
 
 #endif
-

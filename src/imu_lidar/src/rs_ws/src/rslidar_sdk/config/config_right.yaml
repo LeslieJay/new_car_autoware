@@ -13,6 +13,7 @@ lidar:
       device_ip: 192.168.1.202    # left_lidar 的 IP
       msop_port: 6697              #  Msop port of lidar
       difop_port: 7786             #  Difop port of lidar
+      socket_recv_buf: 4194304     #  UDP receive buffer size (4 MiB)
       imu_port: 6689                  #  IMU port of lidar(only for RSAIRY, RSE1), 0 means no imu.
                                    #  If you want to use IMU, please first set ENABLE_IMU_DATA_PARSE to ON in CMakeLists.txt 
       node_name: rslidar_right_node
@@ -23,7 +24,7 @@ lidar:
 
       min_distance: 0.2            #  Minimum distance of point cloud
       max_distance: 200            #  Maximum distance of point cloud
-      use_lidar_clock: true   #  true--Use the lidar clock as the message timestamp
+      use_lidar_clock: false   #  true--Use the lidar clock as the message timestamp
                                    #  false-- Use the system clock as the timestamp
       dense_points: false          #  true: discard NAN points; false: reserve NAN points
       

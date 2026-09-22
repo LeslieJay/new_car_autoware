@@ -2,9 +2,10 @@
   <arg name="input/twist" default="/sensing/vehicle_velocity_converter/twist_with_covariance"/>
 
   <!-- ================================================================ -->
-  <!-- Step 1: 激光雷达坐标变换 + 外点滤波（保留原有节点，在同一容器中零拷贝通信） -->
+  <!-- Step 1: Load transforms into the LiDAR driver container for
+       intra-process communication. -->
   <!-- ================================================================ -->
-  <node_container pkg="rclcpp_components" exec="component_container_mt" name="lidar_processing_container" namespace="">
+  <load_composable_node target="/rslidar_container">
 
     <!-- 顶部雷达变换 (RS-Helios) -->
     <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::LidarTransformNode" name="top_lidar_transform">
@@ -55,7 +56,7 @@
       <param name="crop_radius" value="0.8"/>
     </composable_node>
 
-  </node_container>
+  </load_composable_node>
 
   <!-- ================================================================ -->
   <!-- Step 2: 三路独立地面分割 (didrive_patchwork2)                     -->
