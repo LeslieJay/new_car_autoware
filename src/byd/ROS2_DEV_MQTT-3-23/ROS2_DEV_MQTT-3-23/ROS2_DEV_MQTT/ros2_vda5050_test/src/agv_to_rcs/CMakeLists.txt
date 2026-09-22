@@ -162,6 +162,7 @@ ament_target_dependencies(
   "ref_slam_interface"
   "agv_interfaces"
   "behaviortree_cpp"
+  "autoware_system_msgs"
 )
 
 ament_target_dependencies(

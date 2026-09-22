@@ -98,7 +98,7 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
         std::cout << "action_type ： " << order_messages.msg_state.action_states[i].action_type.c_str() << std::endl;
 
         // 找到对应的动作，并且该动作未完成，则执行动作
-        if(order_messages.msg_state.action_states[i].action_type == "LOAD" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
+        if((order_messages.msg_state.action_states[i].action_type == "LOAD" || order_messages.msg_state.action_states[i].action_type == "pick") && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
             
             actionID = i;
 
@@ -108,11 +108,10 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
                 flag_have_fork_action_ = true;
             }
             
-            int base_height = std::stoi(order_messages.msg_state.action_states[i].action_description);
-            int fork_height = base_height + agv_config.fork_action_height;
+            // LOAD 动作对应挂钩抬升（挂车），底盘 CAN 0x401 发送 data[4]=1（位置1）
+            int fork_height = 1;
             
-            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "LOAD动作计算货叉高度: action_description=%d, fork_action_height=%d, 最终高度=%d", 
-                       base_height, agv_config.fork_action_height, fork_height);
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "LOAD动作执行挂钩抬升: 目标位置=%d", fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height);
             bool fork_state = agv_fork_control->control();
@@ -132,7 +131,7 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
             }
 
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "UNLOAD" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
+        else if((order_messages.msg_state.action_states[i].action_type == "UNLOAD" || order_messages.msg_state.action_states[i].action_type == "drop") && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
             
             actionID = i;
 
@@ -142,7 +141,10 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
                 flag_have_fork_action_ = true;
             }
             
-            int fork_height = std::stoi(order_messages.msg_state.action_states[i].action_description);
+            // UNLOAD 动作对应挂钩下降（脱钩），底盘 CAN 0x401 需要发送 data[4]=2（位置2）
+            int fork_height = 2;
+            
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "UNLOAD动作执行挂钩下降: 目标位置=%d", fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height);
             bool fork_state = agv_fork_control->control();

@@ -140,7 +140,15 @@ NodeStatus LaserRunningStateBehaviors::tick()
     flag_pausing = false; // 初始化暂停标志为false
 
     goal_points_to_driver = {};
-
+    // tick() 实际上是**“新任务的初始化启动入口”，每个任务从始至终只执行一次**，在任务运行过程中根本不会被反复调用。
+    // 关键防误杀逻辑：新订单开始执行时，检测并失效在空闲态残留的历史 cancelOrder
+    auto pending_interrupt = instant_action_listener->get_interrupt_order_message();
+    if (pending_interrupt.action_type == "cancelOrder" && pending_interrupt.action_status == "WAITING") {
+        RCLCPP_WARN(rclcpp::get_logger("rclcpp"), 
+            "新任务开始执行，检测到空闲态残留的历史打断指令 [ID: %s]，将其置为已完成，防止误取消新任务！",
+            pending_interrupt.action_id.c_str());
+        instant_action_listener->update_interrupt_order_message_status("FINISHED");
+    }
     // 主逻辑
     // 根据can传来的是否有货的消息，更新是否载货
     if(can_data_listener_->update_load_status == 1 || can_data_listener_->update_load_status == 2){
@@ -520,16 +528,26 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 interrupt_order_message_.action_status = "FINISHED";
 
                 // 抢占一下导航任务，让小车运动到当前目标点就停下来
-                Point start_point   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
-                Point end_point     = {order_messages_.goal_x[point_index]  , order_messages_.goal_y[point_index]  , order_messages_.goal_theta[point_index]  };
-                std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[point_index-1], order_messages_.goal_edge_orientation[point_index-1]);
+                if (point_index > 0)
+                {
+                    // 小车已在路径边上行驶，平滑行驶到当前目标点后停止
+                    Point start_point   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
+                    Point end_point     = {order_messages_.goal_x[point_index]  , order_messages_.goal_y[point_index]  , order_messages_.goal_theta[point_index]  };
+                    std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[point_index-1], order_messages_.goal_edge_orientation[point_index-1]);
 
-                agv_driver_control->setPostion(goal_points);
-                drive_state = agv_driver_control->control();
+                    agv_driver_control->setPostion(goal_points);
+                    drive_state = agv_driver_control->control();
 
-                while(agv_driver_control->get_flag_driving()){
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "等待小车停稳至下一个点位，然后才完成取消任务...");
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                    while(agv_driver_control->get_flag_driving()){
+                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "等待小车停稳至下一个点位，然后才完成取消任务...");
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                    }
+                }
+                else
+                {
+                    // point_index == 0，小车尚在起始点，没有前序边，直接取消底层导航控制，无需计算轨迹
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "小车处于起始节点(point_index=0)，直接取消当前任务导航");
+                    agv_driver_control->cancel();
                 }
 
                 // 更新一下order_messages_.msg_state.action_states，在末尾增加有关取消任务的"任务完成"信号

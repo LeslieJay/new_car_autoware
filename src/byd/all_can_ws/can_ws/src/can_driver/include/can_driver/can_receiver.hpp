@@ -125,7 +125,7 @@ namespace can_driver
 
     private:
             // 记录 0x181 报文相关
-std::string record_file_path_ = "/home/nvidia/autoware/0x181_records.csv"; // 可配置
+std::string record_file_path_ = "/home/nvidia/autoware/log/can_data/0x181_records.csv"; // 可配置
 std::ofstream record_file_;
 std::queue<std::string> record_queue_;
 std::mutex record_queue_mutex_;
@@ -141,8 +141,8 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         std::ofstream log_file_;
         std::vector<std::string> log_buffer_;
         int log_line_count_ = 0;
-        static constexpr size_t BUFFER_FLUSH_SIZE = 1000;
-        static constexpr int MAX_LOG_LINES = 100000;
+        static constexpr size_t BUFFER_FLUSH_SIZE = 5000000;
+        static constexpr int MAX_LOG_LINES = 10000000;
 
         void flushLogBuffer();
         void truncateLogFile();

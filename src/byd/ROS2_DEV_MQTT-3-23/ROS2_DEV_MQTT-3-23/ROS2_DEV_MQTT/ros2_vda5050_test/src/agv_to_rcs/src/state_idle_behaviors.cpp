@@ -148,6 +148,25 @@ NodeStatus IdleStateBehaviors::tick()
 
 void IdleStateBehaviors::OnInitSuccess(){
 
+    // 检查是否有空闲态收到的取消任务指令
+    InterruptOrderMessage interrupt_order = instant_action_listener->get_interrupt_order_message();
+    if (interrupt_order.action_type == "cancelOrder" && interrupt_order.action_status == "WAITING") {
+        RCLCPP_INFO(rclcpp::get_logger("agv_to_rcs_main"), "Idle: 空闲状态下收到cancelOrder，无运行中任务，直接完成该指令并反馈RCS");
+        instant_action_listener->update_interrupt_order_message_status("FINISHED");
+
+        // 反馈给调度系统
+        ActionStates one_action_state;
+        one_action_state.action_id          = interrupt_order.action_id;
+        one_action_state.action_type        = interrupt_order.action_type;
+        one_action_state.action_status      = "FINISHED";
+        one_action_state.action_description = interrupt_order.action_description;
+
+        auto current_msg_state = order_listener->msg_state;
+        current_msg_state.action_states = {one_action_state};
+        order_listener->set_msg_state(current_msg_state);
+        data_publish->state_timer_callback();
+    }
+
     // 检查can数据是否异常
     if(can_data_listener_->io_data_is_error || can_data_listener_->err_data_is_error || can_data_listener_->hardware_data_is_error){
         RCLCPP_ERROR(rclcpp::get_logger("agv_to_rcs_main"), "Idle: CAN data error, transition to lock");
