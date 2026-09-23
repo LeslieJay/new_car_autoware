@@ -22,7 +22,7 @@
 # include <thread>
 # include <atomic>
 # include <mutex>
-
+#include "autoware_system_msgs/msg/autoware_state.hpp"
 using namespace BT;
 using vda5050_interfaces::msg::ActionStates;
 
@@ -83,6 +83,12 @@ public:
     Math_Tool math_tool;
 
 private:
+    // 订阅 /byd/autoware/state 判定到达
+    rclcpp::Subscription<autoware_system_msgs::msg::AutowareState>::SharedPtr autoware_state_sub_;
+    std::atomic<int> current_autoware_state_{0};
+    void autoware_state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg);
+
+
     // 数据更新
     bool data_updates();
 

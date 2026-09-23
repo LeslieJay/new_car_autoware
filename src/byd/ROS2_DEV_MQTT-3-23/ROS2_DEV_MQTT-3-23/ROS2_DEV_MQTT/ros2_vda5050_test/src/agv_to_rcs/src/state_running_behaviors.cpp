@@ -111,8 +111,19 @@ LaserRunningStateBehaviors::LaserRunningStateBehaviors(const std::string& name, 
     goal_points_to_driver = {};
 
     math_tool = Math_Tool();
-}
 
+    current_autoware_state_ = 0;
+    autoware_state_sub_ = agv_bone.agv_all_nodes->create_subscription<autoware_system_msgs::msg::AutowareState>(
+    "/byd/autoware/state", 10,
+    std::bind(&LaserRunningStateBehaviors::autoware_state_callback, this, std::placeholders::_1));
+}
+void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg)
+{
+    current_autoware_state_ = msg->state;
+    if (msg->state == 6) {
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【到达判定】收到 /byd/autoware/state 状态 6 (ArrivedGoal)，判定到达目的地！");
+    }
+}
 
 NodeStatus LaserRunningStateBehaviors::tick()
 {
@@ -138,7 +149,7 @@ NodeStatus LaserRunningStateBehaviors::tick()
     if_reach_point = true;
     if_order_updated = true;
     flag_pausing = false; // 初始化暂停标志为false
-
+    current_autoware_state_ = 0;
     goal_points_to_driver = {};
     // tick() 实际上是**“新任务的初始化启动入口”，每个任务从始至终只执行一次**，在任务运行过程中根本不会被反复调用。
     // 关键防误杀逻辑：新订单开始执行时，检测并失效在空闲态残留的历史 cancelOrder
@@ -222,9 +233,8 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         // 如果目标点和当前位姿存在误差，则启动驱动，否则不启动驱动
         // if(abs(order_messages_.goal_x[point_index] - current_pose_.current_x)> high_distance_precision || abs(order_messages_.goal_y[point_index] - current_pose_.current_y)>high_distance_precision || abs(order_messages_.goal_theta[point_index] - current_pose_.current_theta)>high_angle_precision){
         // if_reach_point初始化为true，进入下面else if的条件
-        if((!if_reach_point) && (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index])))
-        // 这里去掉(!if_reach_point) && 从而保证只要离目标点远就必须先导航到了位置在做动作
-        // if (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
+        if((!if_reach_point) && (current_autoware_state_ != 6))
+        // if((!if_reach_point) && (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index])))
         {
             // far_point_index是一小段路径的终点（特殊操作点）或者路径终点，如果point_index > far_point_index当前索引已经超过终点索引，就代表上一段路径走完了，也是一种意义上的订单更新
             if(point_index > far_point_index || if_order_updated == true) // 如果发现当前目标点是全新的（未处理过的）|| RCS发来的order更新了，则需要进行多点导航
@@ -385,6 +395,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 goal_points_to_driver.push_back(one_point);
                 agv_driver_control->setPostion(goal_points_to_driver);
                 agv_driver_control->setForward(forward);
+                current_autoware_state_ = 0; // 下发新目标点前，清空旧的 state=6
                 drive_state = agv_driver_control->control();
                 
                 // std::cout << "Drive state result: " << drive_state << std::endl;
@@ -401,28 +412,35 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             // 主线程阻塞直到 AGV 到达当前目标点（point_index），或者发生异常/超时
             int times = 0;
             // x,y,theta某个误差超过偏差
-            while(abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
+            while(current_autoware_state_ != 6)
+            // while(abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
             {
                 // 数据更新函数，更新的数据包括：instantAction消息数据、order消息数据、当前位姿消息数据
                 // 36000ms，一小时算超时
+                // if(!data_updates() || times > 36000)
+                // {
+                //     // x,y,theta均已与far_point_index的误差达标
+                //     if(abs(order_messages_.goal_x[far_point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && abs(order_messages_.goal_y[far_point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && if_angle_qualify(order_messages_.goal_theta[far_point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[far_point_index]))
+                //     {
+                //         // 走到第一个特殊点，将当前索引更新到这
+                //         point_index = far_point_index;
+                //         break;
+                //     }
+                //     else
+                //     {
+                //         drive_state = false;
+                //         std::cout << "=== 未能在60秒内到达下一个目标点！ ===" << std::endl;
+                //         this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
+                //         break;
+                //     }
+                // }
                 if(!data_updates() || times > 36000)
                 {
-                    // x,y,theta均已与far_point_index的误差达标
-                    if(abs(order_messages_.goal_x[far_point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && abs(order_messages_.goal_y[far_point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && if_angle_qualify(order_messages_.goal_theta[far_point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[far_point_index]))
-                    {
-                        // 走到第一个特殊点，将当前索引更新到这
-                        point_index = far_point_index;
-                        break;
-                    }
-                    else
-                    {
-                        drive_state = false;
-                        std::cout << "=== 未能在60秒内到达下一个目标点！ ===" << std::endl;
-                        this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
-                        break;
-                    }
+                    drive_state = false;
+                    std::cout << "=== 未能在超时时间内收到 state=6 到达信号！ ===" << std::endl;
+                    this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
+                    break;
                 }
-
                 // 以下是暂停业务************************************************************************************************************
                 handle_pause(true, false);
                 if(flag_pausing == false) {
@@ -457,10 +475,12 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         
         }
         // 初始if_reach_point，目标位置和当前位置在误差内
-        else if(
-           (if_reach_point)
-        || (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[point_index] && abs(order_messages_.goal_y[point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[point_index] && if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
-        ){
+        // else if(
+        //    (if_reach_point)
+        // || (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[point_index] && abs(order_messages_.goal_y[point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[point_index] && if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
+        // )
+        else if(if_reach_point || current_autoware_state_ == 6)
+        {
             if_reach_point = false;
             // std::cout << "111111111111111111111111111111111111111111111111111111111" << std::endl;
             std::cout<<"point_index:"<<point_index<<"  "<<order_messages_.msg_state.node_states.size()<<std::endl;

@@ -413,7 +413,7 @@ void signalHandler(int signum)
 
 int main(int argc, char * argv[])
 {
-  loadConfigFromYaml("six.yaml");
+  loadConfigFromYaml("/home/nvidia/autoware/src/byd/all_can_ws/rtk_can_pkg/src/can_driver/src/six.yaml");
 
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, signalHandler);
