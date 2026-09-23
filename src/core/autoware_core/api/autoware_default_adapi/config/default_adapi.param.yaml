@@ -8,5 +8,6 @@
   ros__parameters:
     stop_check_duration: 1.0
     diagnostic_updater:
-      period: 1.0
+      # Publish at 5 Hz so the diagnostic graph's 3 s timeout has scheduling margin.
+      period: 0.2
       use_fqn: true

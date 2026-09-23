@@ -2,8 +2,7 @@ units:
   - path: /autoware/planning
     type: and
     list:
-      - type: link
-        link: /autoware/planning/routing/state
+      # Keep routing/state visible as a leaf, but do not gate planning availability on its heartbeat.
       - type: and
         list:
           - { type: link, link: /autoware/planning/topic_rate_check/route }
@@ -29,6 +28,7 @@ units:
     type: diag
     node: /adapi/node/routing
     name: state
+    timeout: 3.0
 
   - path: /autoware/planning/topic_rate_check/route
     type: diag
