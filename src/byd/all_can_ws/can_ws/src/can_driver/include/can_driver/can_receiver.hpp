@@ -211,7 +211,9 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Time last_can_cmd_log_time_{0, 0, RCL_ROS_TIME};
         rclcpp::Time last_voice_frame_time_{0, 0, RCL_ROS_TIME};
         rclcpp::Time last_engage_frame_time_{0, 0, RCL_ROS_TIME};
-        int voice_frame_period_ms_{200};
+        int voice_frame_period_ms_{3000};  // 默认由 200 改为 3000
+        uint8_t last_voice_id_{0};         // 记录上一次下发的语音编号
+        std::mutex voice_mutex_;           // 保证多线程回调下时间戳线程安全
         int engage_frame_period_ms_{500};
         int control_frame_period_ms_{20};
         int control_command_warn_timeout_ms_{60};

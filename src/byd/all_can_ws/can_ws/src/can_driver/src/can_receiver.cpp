@@ -92,7 +92,7 @@ namespace can_driver
 
         node_->declare_parameter("engage_service_wait_timeout", 2.0); // 等待服务可用的超时时间
         node_->declare_parameter("engage_service_call_timeout", 5.0); // 调用服务响应的超时时间
-        node_->declare_parameter("voice_frame_period_ms", 200);
+        node_->declare_parameter("voice_frame_period_ms", 3000); // 默认 3000
         node_->declare_parameter("engage_frame_period_ms", 500);
         node_->declare_parameter("control_frame_period_ms", 20);
         node_->declare_parameter("control_command_warn_timeout_ms", 60);
@@ -159,7 +159,7 @@ namespace can_driver
         sendSafetyFrameCallback();
         // 创建安全定时器，之后无需任何调用即可定期执行sendSafetyFrameCallback
         safety_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(3000),
+            std::chrono::milliseconds(5000),
             std::bind(&CanReceiver::sendSafetyFrameCallback, this)
         );
         control_watchdog_timer_ = node_->create_wall_timer(
@@ -311,69 +311,23 @@ namespace can_driver
         return x_rad;
     }
     void CanReceiver::agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg){
-        const auto now = node_->get_clock()->now();
-        std::vector<struct can_frame> send_frames;
-        struct can_frame v_frame{};
-        // 语音播报
-        v_frame.can_id = 0x401;
-        v_frame.can_dlc = 8;
-        v_frame.data[0] = 0;
-        v_frame.data[1] = 0;
-        v_frame.data[2] = 0;
-        v_frame.data[3] = 0;
-        v_frame.data[4] = 0;
-        v_frame.data[5] = 0;
-        v_frame.data[6] = 0;
-        v_frame.data[7] = 0;
         if (msg->state == 6){
-            // 第4位设为1,打开语音播报
-            v_frame.data[0] |= (1 << 4);
-            // 语音到达目标点
-            v_frame.data[2] = 5;
+            const auto now = node_->get_clock()->now();
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool interval_elapsed =
+              (now - last_voice_frame_time_).nanoseconds() >=
+              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            if (interval_elapsed || last_voice_id_ != 5) {
+                std::vector<struct can_frame> send_frames;
+                struct can_frame v_frame = make_frame(0x401);
+                v_frame.data[0] |= (1 << 4); // 打开语音播报
+                v_frame.data[2] = 5;         // 语音到达目标点
+                send_frames.push_back(v_frame);
+                send_queue_->push(send_frames);
+                last_voice_frame_time_ = now;
+                last_voice_id_ = 5;
+            }
         }
-        const bool should_send_voice =
-          (now - last_voice_frame_time_).nanoseconds() >=
-          static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-        if (should_send_voice) {
-            send_frames.push_back(v_frame);
-            last_voice_frame_time_ = now;
-        }
-        // 添加到队列
-        if (!send_frames.empty()) {
-            send_queue_->push(send_frames);
-        }
-        // ULONG result = VCI_Transmit(
-        //     gDevType, 
-        //     gDevIdx, 
-        //     0,                      // 0=CAN0
-        //     &send_frames[0],     // 【关键】直接传入 vector 的数据指针，等价于 
-        //     static_cast<UINT>(send_frames.size()) // 发送帧的数量
-        // );
-        
-        // // 3. 检查返回值
-        // if (result == 1) {
-        //     RCLCPP_INFO(node_->get_logger(), "Publishing到站语音...  ");
-        // } else {
-        //     RCLCPP_INFO(node_->get_logger(), "Publishing到站语音失败...  ");
-        //     // // 1. 定义一个错误信息结构体变量
-        //     // VCI_ERR_INFO errInfo;
-        //     // // 可选：调用前先将结构体清零
-        //     // memset(&errInfo, 0, sizeof(VCI_ERR_INFO));
-
-        //     // // 2. 立即调用 VCI_ReadErrInfo 获取详细错误
-        //     // if (VCI_ReadErrInfo(gDevType, gDevIdx, 0, &errInfo) == 1) {
-        //     //     // 成功获取错误信息，解析 errInfo 中的 ErrCode
-        //     //     RCLCPP_ERROR(node_->get_logger(), 
-        //     //         "VCI_Transmit 失败，错误码: 0x%08X", errInfo.ErrCode);
-                
-        //     //     // 可以在此处添加更详细的错误码分析逻辑
-        //     //     // switch (errInfo.ErrCode) { ... }
-
-        //     // } else {
-        //     //     RCLCPP_ERROR(node_->get_logger(), "无法读取 VCI_Transmit 的错误信息。");
-        //     // }
-        // }
-        
     }
     
     /**
@@ -433,85 +387,47 @@ namespace can_driver
     }
     void CanReceiver::person_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
         std::vector<struct can_frame> send_frames;
-        struct can_frame v_frame{};
-        // 语音播报，灯光控制
-        v_frame.can_id = 0x401;
-        v_frame.can_dlc = 8;
-        v_frame.data[0] = 0;
-        v_frame.data[1] = 0;
-        v_frame.data[2] = 0;
-        v_frame.data[3] = 0;
-        v_frame.data[4] = 0;
-        v_frame.data[5] = 0;
-        v_frame.data[6] = 0;
-        v_frame.data[7] = 0;
-        // 第4位设为1,打开语音播报
-        v_frame.data[0] |= (1 << 4);
+        const auto now = node_->get_clock()->now();
 
-        // 检测到行人，速度降为0
-        int16_t speed_command = 0;
-        struct can_frame frame{};
-
-        // 发送控制can指令
-        frame.can_id = 0x201;
-        frame.can_dlc = 8;
-        frame.data[0] = 0;
-        frame.data[1] = 0;
-        frame.data[2] = 0;
-        frame.data[3] = 0;
-        frame.data[4] = 0b00001001; // 抱闸
-        frame.data[5] = 0;
-        frame.data[6] = 0;  
-        frame.data[7] = 0;
-        // 行人靠近，急停
+        // 1. 语音部分：行人靠近急停语音（3秒下发一次）
         if (msg->current_state == 2){
-            frame.data[4] = 0b00000001; // 抱闸
-            v_frame.data[2] = 9;
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool interval_elapsed =
+              (now - last_voice_frame_time_).nanoseconds() >=
+              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            if (interval_elapsed || last_voice_id_ != 9) {
+                struct can_frame v_frame = make_frame(0x401);
+                v_frame.data[0] |= (1 << 4); // 打开语音播报
+                v_frame.data[2] = 9;         // 行人靠近语音编号
+                send_frames.push_back(v_frame);
+                last_voice_frame_time_ = now;
+                last_voice_id_ = 9;
+            }
         }
-        send_frames.push_back(v_frame);
-        send_frames.push_back(frame);
+
         send_queue_->push(send_frames);
-        // ULONG result = VCI_Transmit(
-        //     gDevType, 
-        //     gDevIdx, 
-        //     0,                      // 0=CAN0
-        //     &send_frames[0],     // 【关键】直接传入 vector 的数据指针，等价于 
-        //     static_cast<UINT>(send_frames.size()) // 发送帧的数量
-        // );
-        
-        // // 3. 检查返回值
-        // if (result == 1) {
-        //     RCLCPP_INFO(node_->get_logger(), "Publishing行人帧...  ");
-        // } else {
-        //     RCLCPP_INFO(node_->get_logger(), "Publishing行人帧失败...  ");
-        // }
-        // // send_queue_->push(send_frames);
-    } 
+    }
+
     void CanReceiver::car_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
-        RCLCPP_INFO(node_->get_logger(), "接到车辆话题...  ");
-        std::vector<struct can_frame> send_frames;
-        struct can_frame v_frame{};
-        // 语音播报，灯光控制
-        v_frame.can_id = 0x401;
-        v_frame.can_dlc = 8;
-        v_frame.data[0] = 0;
-        v_frame.data[1] = 0;
-        v_frame.data[2] = 0;
-        v_frame.data[3] = 0;
-        v_frame.data[4] = 0;
-        v_frame.data[5] = 0;
-        v_frame.data[6] = 0;
-        v_frame.data[7] = 0;
-        // 第4位设为1,打开语音播报
-        v_frame.data[0] |= (1 << 4);
-        // 车辆靠近报警
+        RCLCPP_INFO(node_->get_logger(), "接到车辆话题...  %d", msg->current_state);
         if (msg->current_state == 2){
-            v_frame.data[2] = 10;
+            const auto now = node_->get_clock()->now();
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool interval_elapsed =
+              (now - last_voice_frame_time_).nanoseconds() >=
+              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            if (interval_elapsed || last_voice_id_ != 10) {
+                std::vector<struct can_frame> send_frames;
+                struct can_frame v_frame = make_frame(0x401);
+                v_frame.data[0] |= (1 << 4); // 打开语音播报
+                v_frame.data[2] = 10;        // 车辆靠近报警
+                send_frames.push_back(v_frame);
+                send_queue_->push(send_frames);
+                last_voice_frame_time_ = now;
+                last_voice_id_ = 10;
+            }
         }
-         RCLCPP_INFO(node_->get_logger(), "接到车辆话题...  %d", msg->current_state);
-        send_frames.push_back(v_frame);
-        send_queue_->push(send_frames);
-    } 
+    }
     /**
      * @brief 接受报文
      *
@@ -855,29 +771,47 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
           angle, steering_command_scale_left_, steering_command_scale_right_,
           steering_command_offset_, steering_command_offset_, 6000);
 
-        struct can_frame v_frame = make_frame(0x401);
-        // 第4位设为1,打开语音播报
-        v_frame.data[0] |= (1 << 4);
-        // 左转,角度小于500认为微调，非转向
+                struct can_frame v_frame = make_frame(0x401);
+        uint8_t voice_id = 0;
+
+        // --- 其他内容：转向灯、倒车状态（保持原有方式和频率正常写入） ---
+        // 左转, 角度小于500认为微调，非转向
         if (angle_command < 6001 && angle_command > 500){
-            v_frame.data[2] = 2;
-            // 左转向灯，第0位设为1
-            v_frame.data[0] |= (1 << 0);
-            // RCLCPP_INFO_STREAM(node_->get_logger(),"左转向:");
+            voice_id = 2;                // 左转语音编号
+            v_frame.data[0] |= (1 << 0); // 左转向灯，第0位设为1
         }
         // 右转
         if (angle_command > -6001 && angle_command < -500){
-            v_frame.data[2] = 3;
-            v_frame.data[0] |= (1 << 1);
-            // RCLCPP_INFO_STREAM(node_->get_logger(),"右转向.");
+            voice_id = 3;                // 右转语音编号
+            v_frame.data[0] |= (1 << 1); // 右转向灯，第1位设为1
+        }
+        if (velocity < 0){
+            voice_id = 4;                // 正在倒车语音编号
+            v_frame.data[3] |= (1 << 1); // 倒车灯/状态
         }
 
-        if (velocity < 0){
-            // 正在倒车语音
-            v_frame.data[2] = 4;
-            v_frame.data[3] |= (1 << 1);
+        // --- 语音内容：3秒下发一次 ---
+        if (voice_id != 0) {
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool interval_elapsed =
+              (now - last_voice_frame_time_).nanoseconds() >=
+              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            // 达到3秒间隔，或语音编号切换（例如从直行切换为转向立即响应）
+            if (interval_elapsed || voice_id != last_voice_id_) {
+                v_frame.data[0] |= (1 << 4); // 打开语音播报
+                v_frame.data[2] = voice_id;  // 写入语音编号
+                last_voice_frame_time_ = now;
+                last_voice_id_ = voice_id;
+            }
+        } else {
+            // 直行无转向/倒车时，重置当前控制语音记录
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            if (last_voice_id_ == 2 || last_voice_id_ == 3 || last_voice_id_ == 4) {
+                last_voice_id_ = 0;
+            }
         }
-        send_frames.push_back(v_frame);
+
+        send_frames.push_back(v_frame); // 0x401灯光等其他内容照常按原频率下发
 
         // 默认1 count = 0.001 m/s；正反向比例和零点可独立标定。
         const int16_t speed_limit = static_cast<int16_t>(
