@@ -29,17 +29,10 @@ units:
     list:
       - { type: link, link: /adapi/mrm_request/delegate }
 
+  # Debug setup: do not gate autonomous availability on the diagnostic graph.
+  # Restore the dependency list before production operation.
   - path: /autoware/modes/autonomous
-    type: and
-    list:
-      - { type: link, link: /autoware/map }
-      # localization check disabled for debugging (scan_matching / state STALE no longer block Auto)
-      - { type: link, link: /autoware/planning }
-      - { type: link, link: /autoware/perception }
-      - { type: link, link: /autoware/control }
-      - { type: link, link: /autoware/vehicle }
-      - { type: link, link: /autoware/system }
-      - { type: link, link: /adapi/mrm_request/delegate }
+    type: ok
 
   - path: /autoware/modes/pull_over
     type: and

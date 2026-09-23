@@ -3,7 +3,7 @@ kCaMaxLen: 3000
 kSixMountPoint: "RTCM32_GRECJ2"
 kSixAk: "4734542738"
 kSixAs: "fb0vwkac16a5gyqziya6d385rwdg1z75qmjdy66gbzey57k19debgnwnt3v0vkf0"
-kSixDevId: "1421225047560"
+kSixDevId: "1425225011292"
 kSixDevType: "SDK"
 kSixRtcmPort: 4405
 kCanFdIf: "can1"

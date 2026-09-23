@@ -33,7 +33,7 @@ ros2 launch agv_high_precision_reverse_controller \
 ```bash
 ros2 service call /agv_high_precision_reverse_controller/set_goal_pose \
   reverse_parking_planner/srv/SetGoalPose \
-  "{goal_pose: {header: {frame_id: map}, pose: {position: {x: -2.0, y: 0.0}, orientation: {w: 1.0}}}}"
+  "{goal_pose: {header: {frame_id: map}, pose: {position: {x: 101.99, y: -107.21}, orientation: {w: 1.0}}}}"
 ```
 
 调用 `set_goal_pose` 后，节点会自动执行以下模式切换，无需再运行
