@@ -168,6 +168,34 @@ private:
     void state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
+        if (msg->state == ARRIVAL_STATE) {
+            geometry_msgs::msg::PoseStamped cur;
+            bool ok = false;
+            double gx = 0.0, gy = 0.0;
+            bool has_goal = false;
+            {
+                std::lock_guard<std::mutex> p_lock(pose_mutex_);
+                if (current_pose_valid_) {
+                    cur.pose = current_pose_msg_.pose.pose;
+                    ok = true;
+                }
+            }
+            {
+                std::lock_guard<std::mutex> g_lock(goal_mutex_);
+                if (active_goal_ && active_goal_->is_active()) {
+                    gx = active_goal_->get_goal()->goal_pose.pose.position.x;
+                    gy = active_goal_->get_goal()->goal_pose.pose.position.y;
+                    has_goal = true;
+                }
+            }
+            if (ok && has_goal) {
+                double dist = std::hypot(cur.pose.position.x - gx, cur.pose.position.y - gy);
+                if (dist > 1.0) {
+                    current_autoware_state_ = 0;
+                    return;
+                }
+            }
+        }
         current_autoware_state_ = msg->state;
     }
 
@@ -286,7 +314,46 @@ private:
                 || goal_handle->is_canceling();
         };
 
-        // ---- 1. 下发目标 ----
+        auto interruptible_sleep = [this, &preempted](int ms) -> bool {
+            int elapsed = 0;
+            while (rclcpp::ok() && elapsed < ms) {
+                if (preempted()) return false;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                elapsed += 50;
+            }
+            return !preempted();
+        };
+
+        auto handle_startup_preempt = [&]() {
+            RCLCPP_WARN(this->get_logger(), "[%s] Preempted/canceled during startup, stopping.",
+                        mode_str.c_str());
+            call_stop_mode();
+            if (goal_handle->is_active()) {
+                result->success = false;
+                if (goal_handle->is_canceling()) {
+                    result->message = "Goal canceled";
+                    goal_handle->canceled(result);
+                } else {
+                    result->message = "Preempted by newer goal";
+                    goal_handle->abort(result);
+                }
+            }
+        };
+
+        // ---- 1. 如果此前处于暂停/停止模式，先唤醒并切换到自主模式，确保 Autoware 退出 STOP 状态 ----
+        call_autonomous_mode();
+        if (!interruptible_sleep(150)) {
+            handle_startup_preempt();
+            return;
+        }
+
+        // ---- 2. 清空内部旧状态 ----
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            current_autoware_state_ = 0;
+        }
+
+        // ---- 3. 下发目标并等待路径规划 ----
         if (forward) {
             geometry_msgs::msg::PoseStamped goal_pose_to_pub = goal->goal_pose;
             if (goal_pose_to_pub.header.stamp.sec == 0 &&
@@ -295,6 +362,18 @@ private:
             }
             goal_pub_->publish(goal_pose_to_pub);
             RCLCPP_INFO(this->get_logger(), "Forward goal published.");
+
+            // 给 Autoware 全局路径规划充足时间 (通常需 200~500ms)
+            if (!interruptible_sleep(400)) {
+                handle_startup_preempt();
+                return;
+            }
+
+            // 路径规划完成后，再次调用自主模式以启动车辆 (Engage)
+            if (!call_autonomous_mode()) {
+                RCLCPP_WARN(this->get_logger(),
+                    "Could not switch to autonomous mode after planning, will retry in loop.");
+            }
         } else {
             RCLCPP_INFO(this->get_logger(), "Waiting for reverse parking service...");
             // 可中断等待服务
@@ -305,14 +384,7 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             if (preempted()) {
-                RCLCPP_WARN(this->get_logger(), "Reverse goal preempted before service call.");
-                call_stop_mode();
-                if (goal_handle->is_active()) {
-                    result->success = false;
-                    result->message = "Preempted before reverse service call";
-                    if (goal_handle->is_canceling()) goal_handle->canceled(result);
-                    else goal_handle->abort(result);
-                }
+                handle_startup_preempt();
                 return;
             }
             if (!reverse_parking_client_->service_is_ready()) {
@@ -330,14 +402,7 @@ private:
             // 可中断等待服务响应
             while (rclcpp::ok()) {
                 if (preempted()) {
-                    RCLCPP_WARN(this->get_logger(), "Reverse planning preempted.");
-                    call_stop_mode();
-                    if (goal_handle->is_active()) {
-                        result->success = false;
-                        result->message = "Preempted during reverse planning";
-                        if (goal_handle->is_canceling()) goal_handle->canceled(result);
-                        else goal_handle->abort(result);
-                    }
+                    handle_startup_preempt();
                     return;
                 }
                 if (future.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready) {
@@ -356,32 +421,27 @@ private:
             }
             RCLCPP_INFO(this->get_logger(),
                 "Reverse parking goal accepted. Path points: %u", response->path_points_num);
-        }
 
-        // ---- 2. 切换到自主模式 ----
-        if (!call_autonomous_mode()) {
-            RCLCPP_WARN(this->get_logger(),
-                "Could not switch to autonomous mode, but continuing execution.");
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            current_autoware_state_ = 0;
+            if (!call_autonomous_mode()) {
+                RCLCPP_WARN(this->get_logger(),
+                    "Could not switch to autonomous mode for reverse, will retry in loop.");
+            }
         }
 
         RCLCPP_INFO(this->get_logger(),
             "Executing goal [%s]: pos=(%.2f, %.2f), yaw=%.2f deg. Awaiting state==6.",
             mode_str.c_str(), target_x, target_y, target_yaw * 180.0 / M_PI);
 
-        // ---- 3. 主循环 ----
+        // ---- 4. 主循环 ----
         const double TIMEOUT_SEC = 60000.0;
         auto start_time = this->now();
         rclcpp::Rate loop_rate(10.0);
         auto last_status_time = this->now();
+        auto last_engage_retry_time = this->now();
         auto feedback = std::make_shared<AutowareAuto::Feedback>();
 
         while (rclcpp::ok()) {
-            // 统一抢占 / 取消路径
+            // 统一抢占 / 取消路径 (支持暂停状态下的新旧抢占)
             if (preempted()) {
                 RCLCPP_WARN(this->get_logger(), "[%s] Preempted/canceled, stopping.",
                             mode_str.c_str());
@@ -406,56 +466,83 @@ private:
                 return;
             }
 
+            // 提前计算距离与航向差
             geometry_msgs::msg::PoseStamped current_pose;
             bool pose_ok = get_current_pose(current_pose);
+            double dist = 999.0, yaw_diff = 999.0;
+
             if (pose_ok) {
                 feedback->current_pose = current_pose;
                 feedback->number_of_poses_remaining = 0;
                 goal_handle->publish_feedback(feedback);
+
+                double dx = current_pose.pose.position.x - target_x;
+                double dy = current_pose.pose.position.y - target_y;
+                dist = std::hypot(dx, dy);
+                
+                double current_yaw = tf2::getYaw(current_pose.pose.orientation);
+                yaw_diff = std::abs(current_yaw - target_yaw);
+                yaw_diff = std::fmod(yaw_diff, 2 * M_PI);
+                if (yaw_diff > M_PI) yaw_diff = 2 * M_PI - yaw_diff;
             }
 
             int state = get_autoware_state();
+            auto now = this->now();
+            
+            // 加入距离校验，判断是否是真的终点到达（规避残余状态 6 的 Bug）
             if (state == ARRIVAL_STATE) {
-                result->success = true;
-                result->message = "Arrived at goal (autoware state = 6)";
-                if (pose_ok) {
-                    double dx = current_pose.pose.position.x - target_x;
-                    double dy = current_pose.pose.position.y - target_y;
-                    double dist = std::hypot(dx, dy);
-                    double current_yaw = tf2::getYaw(current_pose.pose.orientation);
-                    double yaw_diff = std::abs(current_yaw - target_yaw);
-                    yaw_diff = std::fmod(yaw_diff, 2 * M_PI);
-                    if (yaw_diff > M_PI) yaw_diff = 2 * M_PI - yaw_diff;
-                    if (dist > DIST_TOLERANCE || yaw_diff > ANGLE_TOLERANCE) {
+                if (dist <= 1.0) { // 只有物理距离在 1m 以内，才认可 state 6 为最终完成
+                    result->success = true;
+                    result->message = "Arrived at goal (autoware state = 6)";
+                    if (pose_ok) {
+                        if (dist > DIST_TOLERANCE || yaw_diff > ANGLE_TOLERANCE) {
+                            RCLCPP_WARN(this->get_logger(),
+                                "[%s] state=6 but pose slightly off target: dist=%.3f (tol %.2f), "
+                                "yaw_diff=%.3f (tol %.2f)",
+                                mode_str.c_str(), dist, DIST_TOLERANCE, yaw_diff, ANGLE_TOLERANCE);
+                            result->message += " (pose off target)";
+                        }
+                    }
+                    goal_handle->succeed(result);
+                    RCLCPP_INFO(this->get_logger(), "[%s] Goal succeeded (state=6).", mode_str.c_str());
+                    return;
+                } else {
+                    {
+                        std::lock_guard<std::mutex> lock(state_mutex_);
+                        current_autoware_state_ = 0;
+                    }
+                    if ((now - last_status_time).seconds() >= 1.0) {
                         RCLCPP_WARN(this->get_logger(),
-                            "[%s] state=6 but pose off target: dist=%.3f (tol %.2f), "
-                            "yaw_diff=%.3f (tol %.2f)",
-                            mode_str.c_str(), dist, DIST_TOLERANCE, yaw_diff, ANGLE_TOLERANCE);
-                        result->message += " (pose off target)";
+                            "[%s] Autoware state=6, but dist=%.3fm (> 1.0m). Cleared residual state.",
+                            mode_str.c_str(), dist);
+                        last_status_time = now;
                     }
                 }
-                goal_handle->succeed(result);
-                RCLCPP_INFO(this->get_logger(), "[%s] Goal succeeded (state=6).",
-                            mode_str.c_str());
-                return;
+            } else {
+                if ((now - last_status_time).seconds() >= 1.0) {
+                    RCLCPP_INFO(this->get_logger(),
+                        "[%s] Autoware state=%d | dist=%.3f, angle_diff=%.3f | Waiting for state==6",
+                        mode_str.c_str(), state, dist, yaw_diff);
+                    last_status_time = now;
+                }
             }
 
-            auto now = this->now();
-            if ((now - last_status_time).seconds() >= 1.0) {
-                double dist = 999.0, yaw_diff = 999.0;
-                if (pose_ok) {
-                    double dx = current_pose.pose.position.x - target_x;
-                    double dy = current_pose.pose.position.y - target_y;
-                    dist = std::hypot(dx, dy);
-                    double current_yaw = tf2::getYaw(current_pose.pose.orientation);
-                    yaw_diff = std::abs(current_yaw - target_yaw);
-                    yaw_diff = std::fmod(yaw_diff, 2 * M_PI);
-                    if (yaw_diff > M_PI) yaw_diff = 2 * M_PI - yaw_diff;
+            // 车辆未启动或处于等待介入状态处理 (若 dist > 1.0m 且 state == 0，说明未进入自主行驶或规划未启动)
+            if (state == 0 && dist > 1.0 && (now - last_engage_retry_time).seconds() >= 1.5) {
+                if (forward) {
+                    geometry_msgs::msg::PoseStamped retry_pose = goal->goal_pose;
+                    retry_pose.header.stamp = this->now();
+                    goal_pub_->publish(retry_pose);
+                    RCLCPP_INFO(this->get_logger(),
+                        "[%s] Autoware still in state=0 (dist=%.2fm). Re-publishing goal and re-engaging autonomous mode...",
+                        mode_str.c_str(), dist);
+                } else {
+                    RCLCPP_INFO(this->get_logger(),
+                        "[%s] Autoware still in state=0 (dist=%.2fm). Re-engaging autonomous mode...",
+                        mode_str.c_str(), dist);
                 }
-                RCLCPP_INFO(this->get_logger(),
-                    "[%s] Autoware state=%d | dist=%.3f, angle_diff=%.3f | Waiting for state==6",
-                    mode_str.c_str(), state, dist, yaw_diff);
-                last_status_time = now;
+                call_autonomous_mode();
+                last_engage_retry_time = now;
             }
 
             loop_rate.sleep();

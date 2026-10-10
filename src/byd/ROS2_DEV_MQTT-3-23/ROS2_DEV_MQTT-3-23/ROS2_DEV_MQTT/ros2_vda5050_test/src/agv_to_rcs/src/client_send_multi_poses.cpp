@@ -183,37 +183,48 @@ void LaserSendMultiPose::feedback_callback(GoalHandleACTION::SharedPtr goal_hand
 }
 
 void LaserSendMultiPose::result_callback(const GoalHandleACTION::WrappedResult &result){
+    bool is_current = (current_goal_handle_ && current_goal_handle_->get_goal_id() == result.goal_id);
     switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
-            flag_finish = true;
-            flag_aborted = false;
-            flag_canceled = false;
-            flag_driving = false;
+            if (is_current || !current_goal_handle_) {
+                flag_finish = true;
+                flag_aborted = false;
+                flag_canceled = false;
+                flag_driving = false;
+            }
             RCLCPP_INFO_STREAM(node_->get_logger(), "Goal succeeded! ID:" << arr_to_str(result.goal_id));
             break;
         case rclcpp_action::ResultCode::ABORTED:
             RCLCPP_WARN_STREAM(node_->get_logger(), "Goal was aborted! ID:" << arr_to_str(result.goal_id));
-            flag_finish = false;
-            flag_aborted = true;
-            flag_canceled = false;
-            flag_driving = false;
+            if (is_current) {
+                flag_finish = false;
+                flag_aborted = true;
+                flag_canceled = false;
+                flag_driving = false;
+            }
             break;
         case rclcpp_action::ResultCode::CANCELED:
             RCLCPP_INFO(node_->get_logger(), "Goal was canceled by the user.");
-            flag_finish = false;
-            flag_aborted = false;
-            flag_canceled = true;
-            flag_driving = false;
+            if (is_current) {
+                flag_finish = false;
+                flag_aborted = false;
+                flag_canceled = true;
+                flag_driving = false;
+            }
             break;
         default:
             RCLCPP_ERROR(node_->get_logger(), "Unknown result code!");
-            flag_finish = true;
-            flag_aborted = false;
-            flag_canceled = false;
-            flag_driving = false;
+            if (is_current) {
+                flag_finish = true;
+                flag_aborted = false;
+                flag_canceled = false;
+                flag_driving = false;
+            }
             break;
     }
-    current_goal_handle_.reset();   // 目标已结束，句柄失效
+    if (is_current) {
+        current_goal_handle_.reset();   // 目标已结束，句柄失效
+    }
 }
 
 

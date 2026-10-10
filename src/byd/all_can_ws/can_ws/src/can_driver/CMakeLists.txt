@@ -13,7 +13,7 @@ find_package(tier4_external_api_msgs REQUIRED)
 find_package(vda5050_interfaces REQUIRED)
 find_package(ref_slam_interface REQUIRED)
 find_package(autoware_system_msgs REQUIRED)
-
+find_package(autoware_perception_msgs REQUIRED)
 
 # ✅ 添加 include 目录到编译路径
 include_directories(include)
@@ -37,6 +37,7 @@ ament_target_dependencies(can_node
   autoware_vehicle_msgs
   tier4_external_api_msgs
   vda5050_interfaces
+  autoware_perception_msgs
   ref_slam_interface)
 target_link_libraries(can_node 
   pthread)

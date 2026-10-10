@@ -119,9 +119,21 @@ LaserRunningStateBehaviors::LaserRunningStateBehaviors(const std::string& name, 
 }
 void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg)
 {
-    current_autoware_state_ = msg->state;
     if (msg->state == 6) {
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【到达判定】收到 /byd/autoware/state 状态 6 (ArrivedGoal)，判定到达目的地！");
+        double dist = 999.0;
+        if (point_index < order_messages_.goal_x.size() && point_index < order_messages_.goal_y.size()) {
+            double dx = order_messages_.goal_x[point_index] - current_pose_.current_x;
+            double dy = order_messages_.goal_y[point_index] - current_pose_.current_y;
+            dist = std::hypot(dx, dy);
+        }
+        if (dist <= 1.0) {
+            current_autoware_state_ = 6;
+        } else {
+            // 距离大于 1.0m 时，收到的 state 6 视为历史残留，直接清零，绝不保持！
+            current_autoware_state_ = 0;
+        }
+    } else {
+        current_autoware_state_ = msg->state;
     }
 }
 
@@ -411,53 +423,100 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             // 其实小车在运行过程中，此循环占据了主进程的大部分
             // 主线程阻塞直到 AGV 到达当前目标点（point_index），或者发生异常/超时
             int times = 0;
-            // x,y,theta某个误差超过偏差
-            while(current_autoware_state_ != 6)
-            // while(abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
+            auto last_residual_warn_time = std::chrono::steady_clock::now();
+            // 主循环：等待到达目标点，或检测超时/抢占/暂停/取消
+            while(true)
             {
                 // 数据更新函数，更新的数据包括：instantAction消息数据、order消息数据、当前位姿消息数据
-                // 36000ms，一小时算超时
-                // if(!data_updates() || times > 36000)
-                // {
-                //     // x,y,theta均已与far_point_index的误差达标
-                //     if(abs(order_messages_.goal_x[far_point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && abs(order_messages_.goal_y[far_point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[far_point_index] && if_angle_qualify(order_messages_.goal_theta[far_point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[far_point_index]))
-                //     {
-                //         // 走到第一个特殊点，将当前索引更新到这
-                //         point_index = far_point_index;
-                //         break;
-                //     }
-                //     else
-                //     {
-                //         drive_state = false;
-                //         std::cout << "=== 未能在60秒内到达下一个目标点！ ===" << std::endl;
-                //         this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
-                //         break;
-                //     }
-                // }
                 if(!data_updates() || times > 36000)
                 {
                     drive_state = false;
-                    std::cout << "=== 未能在超时时间内收到 state=6 到达信号！ ===" << std::endl;
+                    std::cout << "=== 未能在超时时间内收到到达信号！ ===" << std::endl;
                     this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
                     break;
                 }
 
-                // 抢占判断：如果收到新订单（data_updates 内部会将 if_order_updated 置为 true）
-                if(if_order_updated)
+                // 0. 取消任务判断：如果收到 cancelOrder 即时指令，立即刹车并退出
+                if(handle_cancel_order())
                 {
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "检测到新任务下发，立即抢占当前未完成的导航任务！");
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【导航打断】行驶中收到 cancelOrder 指令，已取消导航并停车！");
+                    drive_state = true;
                     break;
                 }
 
-                // 以下是暂停业务************************************************************************************************************
+                // 1. 抢占判断：如果收到新订单（data_updates 内部会将 if_order_updated 置为 true）
+                if(if_order_updated)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "检测到新任务下发，立即抢占当前未完成的导航任务！");
+                    agv_driver_control->cancel();
+                    break;
+                }
+
+                // 2. 以下是暂停业务************************************************************************************************************
                 handle_pause(true, false);
                 if(flag_pausing == false) {
                     drive_state = restored_drive_state_;
                 }
+                // 暂停状态下被新任务抢占后立即退出旧导航
+                if(if_order_updated)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "暂停状态下检测到新任务抢占，立即跳出旧导航！");
+                    break;
+                }
+                // 暂停状态下被 cancelOrder 取消任务后立即退出
+                if(!order_listener->get_order)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务已被取消，立即跳出导航主循环！");
+                    break;
+                }
                 // 以上是暂停业务************************************************************************************************************
+
+                // 3. 计算当前位姿到目标点的欧氏距离
+                double dist = 999.0;
+                if (point_index < order_messages_.goal_x.size() && point_index < order_messages_.goal_y.size()) {
+                    double dx = order_messages_.goal_x[point_index] - current_pose_.current_x;
+                    double dy = order_messages_.goal_y[point_index] - current_pose_.current_y;
+                    dist = std::hypot(dx, dy);
+                }
+
+                // 4. 到达判定与残留状态过滤：
+                // 规则：当距离 > 1.0m 时，收到的任何 state=6 或 flag_finish 都是旧任务残留，直接清空，绝不能保持！
+                // 只有当距离 <= 1.0m 并且收到新的到达信号时，才判定为到达！
+                if (dist > 1.0)
+                {
+                    if (current_autoware_state_ == 6 || agv_driver_control->get_flag_finish())
+                    {
+                        current_autoware_state_ = 0;
+                        agv_driver_control->set_flag_finish(false);
+
+                        auto now_time = std::chrono::steady_clock::now();
+                        if(std::chrono::duration_cast<std::chrono::seconds>(now_time - last_residual_warn_time).count() >= 1)
+                        {
+                            RCLCPP_WARN(rclcpp::get_logger("rclcpp"),
+                                "【状态过滤】收到 /byd/autoware/state 状态 6，但距离终点 (%.2f, %.2f) 为 %.3fm (> 1.0m)，清除残留状态并继续导航...",
+                                order_messages_.goal_x[point_index], order_messages_.goal_y[point_index], dist);
+                            last_residual_warn_time = now_time;
+                        }
+                    }
+                }
+                else
+                {
+                    // dist <= 1.0m: 只有在 1m 以内接收到到达信号，才确认为到达
+                    if (current_autoware_state_ == 6 || agv_driver_control->get_flag_finish())
+                    {
+                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
+                            "【到达判定】成功到达目标点！收到最新到达信号 state=%d, dist=%.3fm <= 1.0m",
+                            current_autoware_state_.load(), dist);
+                        break;
+                    }
+                }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(60));
                 times++;
+            }
+            if(!order_listener->get_order)
+            {
+                break; // 订单已取消，跳出外层 order 循环
             }
             if_reach_point = true;
             if(order_messages_.point_types[point_index] == PointType::SHARP)
@@ -466,13 +525,29 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "在离开尖点前，先等待导航完成...");
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
+                    if(handle_cancel_order())
+                    {
+                        break;
+                    }
+
                     // 以下是暂停业务************************************************************************************************************
                     handle_pause(true, false);
                     if(flag_pausing == false) {
                         drive_state = restored_drive_state_;
                     }
+                    if(if_order_updated) {
+                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "在等待尖点完成时检测到新任务抢占，立即跳出！");
+                        break;
+                    }
+                    if(!order_listener->get_order) {
+                        break;
+                    }
                     // 以上是暂停业务************************************************************************************************************
                 }
+            }
+            if(!order_listener->get_order)
+            {
+                break;
             }
             // 说明当前位置已经超过了上一段的终点，上一段走完了，通过far_point_index = 0来标志
             if(point_index > far_point_index) // 当到达多点导航的最终目标时，重置far_point_index
@@ -513,6 +588,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             // 上报完状态之后，需要等待200ms，给rcs足够时间发来反馈或者新任务
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             // 有动作的时候，到了位置也不一定执行完，还要等货叉什么的不动了
+            // 有动作的任务不能取消，只能暂停，所以这个里面的while中，只有暂停监测，没有取消任务监测
             if(order_messages_.point_types[point_index] == PointType::HARDACTION){
 
                 RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "即将执行HARD动作，需要等待导航完成...");
@@ -520,92 +596,31 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "等待导航完成...");
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
+                    if(handle_cancel_order())
+                    {
+                        break;
+                    }
+
                     // 以下是暂停业务************************************************************************************************************
                     handle_pause(true, false);
                     if(flag_pausing == false) {
                         drive_state = restored_drive_state_;
                     }
+                    if(!order_listener->get_order) {
+                        break;
+                    }
                     // 以上是暂停业务************************************************************************************************************
                 }
             }
+            if(!order_listener->get_order)
+            {
+                break;
+            }
 
             // 调度系统发来取消任务的即时指令
-            interrupt_order_message_ = instant_action_listener->get_interrupt_order_message();
-            if(interrupt_order_message_.action_type == "cancelOrder" && interrupt_order_message_.action_status == "WAITING") // 表明现在要取消任务
+            if(handle_cancel_order())
             {
-                // 先反馈正在执行取消任务
-                instant_action_listener->update_interrupt_order_message_status("RUNNING");
-                interrupt_order_message_.action_status = "RUNNING";
-
-                ActionStates one_action_state;
-                one_action_state.action_id          = interrupt_order_message_.action_id;
-                one_action_state.action_type        = interrupt_order_message_.action_type;
-                one_action_state.action_status      = interrupt_order_message_.action_status;
-                one_action_state.action_description = interrupt_order_message_.action_description;
-                order_messages_.msg_state.action_states.push_back(one_action_state);
-
-                // 同步msg_state到order_listener
-                order_listener->set_msg_state(order_messages_.msg_state);
-
-                // 通知调度系统，我已经完成取消任务指令了
-                agv_data_publish_->state_timer_callback();
-
-
-                // 接下来控制小车去下一个点，然后上报完成取消任务
-                instant_action_listener->update_interrupt_order_message_status("FINISHED");
-                interrupt_order_message_.action_status = "FINISHED";
-
-                // 抢占一下导航任务，让小车运动到当前目标点就停下来
-                if (point_index > 0)
-                {
-                    // 小车已在路径边上行驶，平滑行驶到当前目标点后停止
-                    Point start_point   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
-                    Point end_point     = {order_messages_.goal_x[point_index]  , order_messages_.goal_y[point_index]  , order_messages_.goal_theta[point_index]  };
-                    std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[point_index-1], order_messages_.goal_edge_orientation[point_index-1]);
-
-                    agv_driver_control->setPostion(goal_points);
-                    drive_state = agv_driver_control->control();
-
-                    while(agv_driver_control->get_flag_driving()){
-                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "等待小车停稳至下一个点位，然后才完成取消任务...");
-                        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                    }
-                }
-                else
-                {
-                    // point_index == 0，小车尚在起始点，没有前序边，直接取消底层导航控制，无需计算轨迹
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "小车处于起始节点(point_index=0)，直接取消当前任务导航");
-                    agv_driver_control->cancel();
-                }
-
-                // 更新一下order_messages_.msg_state.action_states，在末尾增加有关取消任务的"任务完成"信号
-
-                order_messages_.msg_state.action_states.back().action_status = interrupt_order_message_.action_status;
-
-                // 同步msg_state到order_listener
-                order_listener->set_msg_state(order_messages_.msg_state);
-
-                // 通知调度系统，我已经完成取消任务指令了
-                agv_data_publish_->state_timer_callback();
-
-                // 已完成取消任务指令，接下来进入空闲状态，等待调度系统发来新的指令
-                last_instant_action_order_id = instant_action_messages_.last_instant_action_order_id;
-                
-                if(execute_action_->get_loading() == true)
-                {
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务已取消，但小车处于载货状态，需要人工处理！");
-                    drive_state = false;
-                }
-                else
-                {
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务已取消，进行数据清零！");
-                    drive_state = true;
-                }
-
-                order_listener->OrderFinished();
-                if_reach_point = true;
                 break;
-
             }
 
             // 检查该段任务是否存在动作，如果有动作则判断在该node_id上是否有动作，有的话执行动作
@@ -620,10 +635,21 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     // 休眠时间100ms
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
+                    if(handle_cancel_order())
+                    {
+                        break;
+                    }
+
                     // 以下是暂停业务************************************************************************************************************
                     handle_pause(false, true);
-                    // 以下是暂停业务************************************************************************************************************
+                    if(!order_listener->get_order) {
+                        break;
+                    }
+                    // 以上是暂停业务************************************************************************************************************
 
+                }
+                if(!order_listener->get_order) {
+                    break;
                 }
 
                 if(actionID > -1) // 表示有要做的动作
@@ -657,10 +683,21 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     // 休眠时间100ms
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
+                    if(handle_cancel_order())
+                    {
+                        break;
+                    }
+
                     // 以下是暂停业务************************************************************************************************************
                     handle_pause(false, true);
+                    if(!order_listener->get_order) {
+                        break;
+                    }
                     // 以上是暂停业务************************************************************************************************************
                     
+                }
+                if(!order_listener->get_order) {
+                    break;
                 }
 
                     // current_fork_height 现在由 execute_action_->agv_fork_control 管理
@@ -1086,6 +1123,66 @@ void LaserRunningStateBehaviors::update_points_type()
 }
 
 
+bool LaserRunningStateBehaviors::handle_cancel_order()
+{
+    interrupt_order_message_ = instant_action_listener->get_interrupt_order_message();
+    if(interrupt_order_message_.action_type == "cancelOrder" && interrupt_order_message_.action_status == "WAITING")
+    {
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【取消订单】收到 cancelOrder 即时指令，立即停止底层 Autoware 导航及所有动作！");
+
+        // 1. 立即停止 Autoware 导航（与 startPause 表现一致，调用底层 cancel 使车辆刹停）
+        agv_driver_control->cancel();
+
+        // 2. 如果货叉正在执行动作，也立即取消
+        if(execute_action_ && execute_action_->agv_fork_control && execute_action_->agv_fork_control->get_flag_driving())
+        {
+            execute_action_->agv_fork_control->cancel();
+        }
+
+        // 3. 上报 RUNNING 状态给 RCS
+        instant_action_listener->update_interrupt_order_message_status("RUNNING");
+        interrupt_order_message_.action_status = "RUNNING";
+
+        ActionStates one_action_state;
+        one_action_state.action_id          = interrupt_order_message_.action_id;
+        one_action_state.action_type        = interrupt_order_message_.action_type;
+        one_action_state.action_status      = interrupt_order_message_.action_status;
+        one_action_state.action_description = interrupt_order_message_.action_description;
+        order_messages_.msg_state.action_states.push_back(one_action_state);
+
+        order_listener->set_msg_state(order_messages_.msg_state);
+        agv_data_publish_->state_timer_callback();
+
+        // 4. 上报 FINISHED 状态给 RCS
+        instant_action_listener->update_interrupt_order_message_status("FINISHED");
+        interrupt_order_message_.action_status = "FINISHED";
+        order_messages_.msg_state.action_states.back().action_status = "FINISHED";
+        order_listener->set_msg_state(order_messages_.msg_state);
+        agv_data_publish_->state_timer_callback();
+
+        // 5. 状态清理与复位
+        last_instant_action_order_id = instant_action_messages_.last_instant_action_order_id;
+        if(execute_action_->get_loading() == true)
+        {
+            RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "任务已取消，但小车处于载货状态，需要人工处理！");
+        }
+        else
+        {
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务已取消，完成数据清零并原地停车！");
+        }
+
+        flag_pausing = false;
+        order_messages_.msg_state.paused = false;
+        current_autoware_state_ = 0;
+        if_reach_point = true;
+
+        order_listener->OrderFinished(); // 将 order_listener->get_order 置为 false，清空订单
+
+        return true;
+    }
+    return false;
+}
+
 void LaserRunningStateBehaviors::handle_pause(bool navigation, bool fork)
 {
     interrupt_order_message_ = instant_action_listener->get_interrupt_order_message();
@@ -1127,7 +1224,33 @@ void LaserRunningStateBehaviors::handle_pause(bool navigation, bool fork)
 
         while(flag_pausing)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // 0. 检查是否收到 cancelOrder 指令（暂停状态下支持取消任务）
+            if(handle_cancel_order())
+            {
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【暂停取消】暂停状态下收到 cancelOrder 指令，已取消导航并退出暂停！");
+                flag_pausing = false;
+                break;
+            }
+
+            // 1. 检查是否有新任务抢占旧任务（暂停状态下支持新任务抢占）
+            if(order_listener->messages_change)
+            {
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【暂停抢占】暂停状态下检测到新任务下发，立即抢占旧任务！");
+                data_updates(); // 解析并载入新任务，更新 order_messages_，设置 point_index=0，if_order_updated=true
+                flag_pausing = false;
+
+                // 解除 paused 状态并同步上报
+                order_messages_.msg_state.paused = false;
+                order_listener->set_msg_state(order_messages_.msg_state);
+                agv_data_publish_->state_timer_callback();
+
+                // 不恢复旧任务的导航或动作，直接跳出暂停等待循环
+                break;
+            }
+
+            // 2. 检查是否有恢复指令 stopPause
             interrupt_order_message_ = instant_action_listener->get_interrupt_order_message();
             if(interrupt_order_message_.action_type == "stopPause" && interrupt_order_message_.action_status == "WAITING")
             {

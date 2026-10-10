@@ -65,9 +65,13 @@ namespace can_driver
             "/can_driver/debug/control_cmd_can", 10);
 
         gear_subscript_ = node_->create_subscription<autoware_vehicle_msgs::msg::GearCommand>("/control/command/gear_cmd", 1, std::bind(&CanReceiver::gear_cmd_callback, this, _1));
-        person_instance_subscript_ = node_->create_subscription<autoware_control_msgs::msg::SafetyState>("/perception/pedestrian_distance_judge/state", 1, std::bind(&CanReceiver::person_instance_callback, this, _1));
-        car_instance_subscript_ = node_->create_subscription<autoware_control_msgs::msg::SafetyState>("/perception/vehicel_distance_judge/state", 1, std::bind(&CanReceiver::car_instance_callback, this, _1));
- 
+        person_instance_subscript_ = node_->create_subscription<autoware_perception_msgs::msg::PredictedObjects>(
+            "/perception/object_recognition/objects", 1,
+            std::bind(&CanReceiver::person_instance_callback, this, _1));
+
+        car_instance_subscript_ = node_->create_subscription<autoware_perception_msgs::msg::PredictedObjects>(
+            "/perception/object_recognition/objects", 1,
+            std::bind(&CanReceiver::car_instance_callback, this, _1)); 
         // // 该话题用来汇报转向信息，但是在模拟时，左转时标志位不变，直接使用control_cmd播报转向信息
         // turn_cmd_subscript_ = node_->create_subscription<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>(
         //     "/control/command/turn_indicators_cmd", 1, std::bind(&CanReceiver::turn_cmd_callback, this, _1));
@@ -385,17 +389,35 @@ namespace can_driver
         RCLCPP_INFO(node_->get_logger(), " CAN filter applied successfully for %zu IDs.", filters.size());
         return true;
     }
-    void CanReceiver::person_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
-        RCLCPP_INFO(node_->get_logger(), "AAAAAAAAAAAAAAAAAAAA接到行人话题...  %d", msg->current_state);
+
+    void CanReceiver::person_instance_callback(
+        const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg)
+    {
         std::vector<struct can_frame> send_frames;
         const auto now = node_->get_clock()->now();
 
-        // 1. 语音部分：行人靠近急停语音（3秒下发一次）
-        if (msg->current_state == 2){
+        bool person_close = false;
+
+        for (const auto & obj : msg->objects) {
+            for (const auto & cls : obj.classification) {
+                // 同时满足：类别是行人，且概率 > 0.5
+                if (cls.label == autoware_perception_msgs::msg::ObjectClassification::PEDESTRIAN &&
+                    cls.probability > 0.5f) {
+                    person_close = true;
+                    break;
+                }
+            }
+            if (person_close) {
+                break;
+            }
+        }
+
+        // 语音部分：行人靠近急停语音（3秒下发一次）
+        if (person_close) {
             std::lock_guard<std::mutex> lock(voice_mutex_);
             const bool interval_elapsed =
-              (now - last_voice_frame_time_).nanoseconds() >=
-              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            (now - last_voice_frame_time_).nanoseconds() >=
+            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
             if (interval_elapsed || last_voice_id_ != 9) {
                 struct can_frame v_frame = make_frame(0x401);
                 v_frame.data[0] |= (1 << 4); // 打开语音播报
@@ -409,14 +431,39 @@ namespace can_driver
         send_queue_->push(send_frames);
     }
 
-    void CanReceiver::car_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
-        RCLCPP_INFO(node_->get_logger(), "AAAAAAAAAAAAAAAAAAAA接到车辆话题...  %d", msg->current_state);
-        if (msg->current_state == 2){
+    void CanReceiver::car_instance_callback(
+        const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg)
+    {
+        RCLCPP_INFO(node_->get_logger(), "接到车辆话题... objects count = %zu", msg->objects.size());
+
+        bool car_close = false;
+
+        for (const auto & obj : msg->objects) {
+            for (const auto & cls : obj.classification) {
+                // 车辆类：CAR / TRUCK / BUS / TRAILER / MOTORCYCLE 视需求取舍
+                const bool is_vehicle =
+                    (cls.label == autoware_perception_msgs::msg::ObjectClassification::CAR ||
+                    cls.label == autoware_perception_msgs::msg::ObjectClassification::TRUCK ||
+                    cls.label == autoware_perception_msgs::msg::ObjectClassification::BUS ||
+                    cls.label == autoware_perception_msgs::msg::ObjectClassification::TRAILER ||
+                    cls.label == autoware_perception_msgs::msg::ObjectClassification::MOTORCYCLE);
+
+                if (is_vehicle && cls.probability > 0.5f) {
+                    car_close = true;
+                    break;
+                }
+            }
+            if (car_close) {
+                break;
+            }
+        }
+
+        if (car_close) {
             const auto now = node_->get_clock()->now();
             std::lock_guard<std::mutex> lock(voice_mutex_);
             const bool interval_elapsed =
-              (now - last_voice_frame_time_).nanoseconds() >=
-              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            (now - last_voice_frame_time_).nanoseconds() >=
+            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
             if (interval_elapsed || last_voice_id_ != 10) {
                 std::vector<struct can_frame> send_frames;
                 struct can_frame v_frame = make_frame(0x401);
