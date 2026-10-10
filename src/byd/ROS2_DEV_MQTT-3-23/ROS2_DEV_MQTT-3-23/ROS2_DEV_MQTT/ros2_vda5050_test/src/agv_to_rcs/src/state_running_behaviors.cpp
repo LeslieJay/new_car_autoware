@@ -233,7 +233,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         // 如果目标点和当前位姿存在误差，则启动驱动，否则不启动驱动
         // if(abs(order_messages_.goal_x[point_index] - current_pose_.current_x)> high_distance_precision || abs(order_messages_.goal_y[point_index] - current_pose_.current_y)>high_distance_precision || abs(order_messages_.goal_theta[point_index] - current_pose_.current_theta)>high_angle_precision){
         // if_reach_point初始化为true，进入下面else if的条件
-        if((!if_reach_point) && (current_autoware_state_ != 6))
+        if(!if_reach_point)
         // if((!if_reach_point) && (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) > order_messages_.goal_allowed_deviation_xy[point_index] || abs(order_messages_.goal_y[point_index] - current_pose_.current_y) > order_messages_.goal_allowed_deviation_xy[point_index] || !if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index])))
         {
             // far_point_index是一小段路径的终点（特殊操作点）或者路径终点，如果point_index > far_point_index当前索引已经超过终点索引，就代表上一段路径走完了，也是一种意义上的订单更新
@@ -441,6 +441,14 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     this->config().blackboard->set("fault_code", "DRIVE_OUT_TIME");
                     break;
                 }
+
+                // 抢占判断：如果收到新订单（data_updates 内部会将 if_order_updated 置为 true）
+                if(if_order_updated)
+                {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "检测到新任务下发，立即抢占当前未完成的导航任务！");
+                    break;
+                }
+
                 // 以下是暂停业务************************************************************************************************************
                 handle_pause(true, false);
                 if(flag_pausing == false) {
@@ -479,7 +487,7 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         //    (if_reach_point)
         // || (abs(order_messages_.goal_x[point_index] - current_pose_.current_x) <= order_messages_.goal_allowed_deviation_xy[point_index] && abs(order_messages_.goal_y[point_index] - current_pose_.current_y) <= order_messages_.goal_allowed_deviation_xy[point_index] && if_angle_qualify(order_messages_.goal_theta[point_index], current_pose_.current_theta, order_messages_.goal_allowed_deviation_theta[point_index]))
         // )
-        else if(if_reach_point || current_autoware_state_ == 6)
+        else if(if_reach_point)
         {
             if_reach_point = false;
             // std::cout << "111111111111111111111111111111111111111111111111111111111" << std::endl;

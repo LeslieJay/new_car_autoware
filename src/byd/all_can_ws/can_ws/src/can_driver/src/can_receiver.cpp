@@ -386,6 +386,7 @@ namespace can_driver
         return true;
     }
     void CanReceiver::person_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
+        RCLCPP_INFO(node_->get_logger(), "AAAAAAAAAAAAAAAAAAAA接到行人话题...  %d", msg->current_state);
         std::vector<struct can_frame> send_frames;
         const auto now = node_->get_clock()->now();
 
@@ -409,7 +410,7 @@ namespace can_driver
     }
 
     void CanReceiver::car_instance_callback(const autoware_control_msgs::msg::SafetyState::ConstSharedPtr msg){
-        RCLCPP_INFO(node_->get_logger(), "接到车辆话题...  %d", msg->current_state);
+        RCLCPP_INFO(node_->get_logger(), "AAAAAAAAAAAAAAAAAAAA接到车辆话题...  %d", msg->current_state);
         if (msg->current_state == 2){
             const auto now = node_->get_clock()->now();
             std::lock_guard<std::mutex> lock(voice_mutex_);
