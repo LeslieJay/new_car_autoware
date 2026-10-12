@@ -1,3 +1,7 @@
+sudo stty -F /dev/ttyUSB1 460800 cs8 -cstopb -parenb -crtscts raw -echo
+sudo nohup bash -c 'cat /dev/ttyUSB1 | ts "[%Y-%m-%d %H:%M:%.S]" >> /home/nvidia/serial_usb1.log' > /dev/null 2>&1 &
+
+
 # can_six_driver
 
 RTK/INS CAN FD 驱动：从 `can1` 接收定位/IMU，发布 Autoware 相关话题，并通过六分 SDK 上传 GGA、回灌 RTCM。
