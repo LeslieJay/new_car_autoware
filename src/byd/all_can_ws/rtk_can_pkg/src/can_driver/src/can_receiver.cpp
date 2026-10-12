@@ -149,6 +149,40 @@ geometry_msgs::msg::Quaternion attiToQuaternion(const int16_t atti[2], const uin
 namespace can_driver
 {
 
+static std::mutex g_gga_mutex;
+static std::condition_variable g_gga_cv;
+static std::string g_pending_gga;
+static bool g_has_new_gga = false;
+
+void updateLatestGGA(const std::string & gga)
+{
+  {
+    std::lock_guard<std::mutex> lock(g_gga_mutex);
+    g_pending_gga = gga;
+    g_has_new_gga = true;
+  }
+  g_gga_cv.notify_one();
+}
+
+bool waitForGGA(std::string & gga, std::chrono::milliseconds timeout)
+{
+  std::unique_lock<std::mutex> lock(g_gga_mutex);
+  if (!g_has_new_gga) {
+    g_gga_cv.wait_for(lock, timeout, [] { return g_has_new_gga; });
+  }
+  if (g_has_new_gga) {
+    gga = g_pending_gga;
+    g_has_new_gga = false;
+    return true;
+  }
+  return false;
+}
+
+void notifyGGA()
+{
+  g_gga_cv.notify_all();
+}
+
 CanReceiver::CanReceiver(std::shared_ptr<rclcpp::Node> node) : node_(node), running_(false)
 {
   auto can_node = std::dynamic_pointer_cast<CanNode>(node_);
@@ -174,6 +208,7 @@ CanReceiver::CanReceiver(std::shared_ptr<rclcpp::Node> node) : node_(node), runn
 CanReceiver::~CanReceiver()
 {
   running_ = false;
+  notifyGGA();
   if (raw_log_file_.is_open()) {
     raw_log_file_.close();
   }
@@ -187,6 +222,7 @@ bool CanReceiver::isRunning() const
 void CanReceiver::stop()
 {
   running_ = false;
+  notifyGGA();
 }
 
 bool CanReceiver::initRawLogging()
@@ -254,35 +290,26 @@ void CanReceiver::writeRawFrame(const CanFrame & frame, const rclcpp::Time & sta
   if (current_log_lines_ >= MAX_LOG_LINES) {
     raw_log_file_.close();
     std::string filename = raw_log_basename_ + ".log";
-    std::ifstream infile(filename);
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(infile, line)) {
-      lines.push_back(line);
-    }
-    infile.close();
-
-    std::ofstream outfile(filename, std::ios::out | std::ios::trunc);
-    for (size_t i = TRIM_LINES; i < lines.size(); ++i) {
-      outfile << lines[i] << "\n";
-    }
-    outfile.close();
-    current_log_lines_ = static_cast<int>(lines.size() - TRIM_LINES);
-    raw_log_file_.open(filename, std::ios::out | std::ios::app);
+    std::string old_filename = raw_log_basename_ + ".log.old";
+    std::rename(filename.c_str(), old_filename.c_str());
+    raw_log_file_.open(filename, std::ios::out | std::ios::trunc);
+    current_log_lines_ = 0;
   }
 
-  std::ostringstream line_stream;
-  line_stream << stamp.seconds() << "." << std::setfill('0') << std::setw(9) << stamp.nanoseconds()
-              << ", 0x" << std::hex << frame.frameId << std::dec << ", "
-              << static_cast<int>(frame.dataLen);
+  char buf[256];
+  int offset = snprintf(
+    buf, sizeof(buf), "%ld.%09ld, 0x%x, %d",
+    static_cast<long>(stamp.nanoseconds() / 1000000000ULL),
+    static_cast<long>(stamp.nanoseconds() % 1000000000ULL),
+    frame.frameId, static_cast<int>(frame.dataLen));
 
-  for (int i = 0; i < frame.dataLen; ++i) {
-    line_stream << ", 0x" << std::hex << std::setw(2) << std::setfill('0')
-                << static_cast<int>(frame.data[i]);
+  for (int i = 0; i < frame.dataLen && offset < static_cast<int>(sizeof(buf)) - 8; ++i) {
+    offset += snprintf(buf + offset, sizeof(buf) - offset, ", 0x%02x", frame.data[i]);
   }
-  line_stream << "\n";
-
-  raw_log_file_ << line_stream.str();
+  if (offset < static_cast<int>(sizeof(buf)) - 2) {
+    buf[offset++] = '\n';
+  }
+  raw_log_file_.write(buf, offset);
   current_log_lines_++;
   if (current_log_lines_ % 1000 == 0) {
     raw_log_file_.flush();
@@ -342,7 +369,7 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
 
       if (g_six_sdk_running) {
         std::string gga_str = buildGGAString(dataPos);
-        sixents_sdkSendGGAStr(gga_str.c_str(), gga_str.size());
+        updateLatestGGA(gga_str);
       }
 
       if (rtk_NavSatFix_publisher_) {

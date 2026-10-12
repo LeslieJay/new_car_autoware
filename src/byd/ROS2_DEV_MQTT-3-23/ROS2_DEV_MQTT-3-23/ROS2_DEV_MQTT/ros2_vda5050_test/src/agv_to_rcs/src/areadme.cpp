@@ -1,6 +1,6 @@
 cansend can0 401#0000000001000000
 cansend can0 401#0000000002000000
-
+candump -L can1,603:7FF | pv -l -i 1 > /dev/null报文频率
 ros2 topic pub /byd/autoware/state autoware_system_msgs/msg/AutowareState "{stamp: {sec: 0, nanosec: 0}, state: 6}" --once
 
 

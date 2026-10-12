@@ -75,6 +75,10 @@ private:
     rtk_velocity_vector_publisher_;
 };
 
+void updateLatestGGA(const std::string & gga);
+bool waitForGGA(std::string & gga, std::chrono::milliseconds timeout);
+void notifyGGA();
+
 }  // namespace can_driver
 
 #endif  // CAN_DRIVER__CAN_RECEIVER_HPP_

@@ -70,10 +70,17 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
     return false;
   }
 
-  struct can_filter filter;
-  filter.can_id = 0;
-  filter.can_mask = 0;
-  if (setsockopt(socket_handle, SOL_CAN_RAW, CAN_RAW_FILTER, &filter, sizeof(filter)) < 0) {
+  int rcvbuf_size = 1024 * 1024;
+  if (setsockopt(socket_handle, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size)) < 0) {
+    perror("setsockopt SO_RCVBUF");
+  }
+
+  struct can_filter filters[2];
+  filters[0].can_id = 0x603;
+  filters[0].can_mask = CAN_SFF_MASK;
+  filters[1].can_id = 0x604;
+  filters[1].can_mask = CAN_SFF_MASK;
+  if (setsockopt(socket_handle, SOL_CAN_RAW, CAN_RAW_FILTER, filters, sizeof(filters)) < 0) {
     perror("setsockopt CAN filter");
     close(socket_handle);
     socket_handle = -1;

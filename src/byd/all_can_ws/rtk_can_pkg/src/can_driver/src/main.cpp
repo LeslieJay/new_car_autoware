@@ -389,11 +389,15 @@ void sixents_thread_func()
   std::cout << "Sixents SDK started. Entering Tick loop.\n";
 
   while (g_six_sdk_running && rclcpp::ok()) {
+    std::string gga_str;
+    if (can_driver::waitForGGA(gga_str, std::chrono::milliseconds(200))) {
+      sixents_sdkSendGGAStr(gga_str.c_str(), gga_str.size());
+    }
+
     sixents_int32 ret = sixents_sdkTick();
     if (ret != SIXENTS_RET_OK) {
       fprintf(stderr, "sixents_sdkTick error: %d\n", ret);
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
 
   g_six_sdk_running = false;
@@ -409,6 +413,7 @@ void signalHandler(int signum)
 {
   std::cout << "\nReceived signal " << signum << ". Shutting down..." << std::endl;
   g_six_sdk_running = false;
+  can_driver::notifyGGA();
 }
 
 int main(int argc, char * argv[])
@@ -456,6 +461,7 @@ int main(int argc, char * argv[])
 
   // 停止所有接收器
   g_six_sdk_running = false;
+  can_driver::notifyGGA();
   for (auto & receiver : g_receivers) {
     receiver->stop();
   }
