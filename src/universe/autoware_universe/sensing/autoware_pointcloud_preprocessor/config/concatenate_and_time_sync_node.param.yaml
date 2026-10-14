@@ -2,12 +2,12 @@
   ros__parameters:
     debug_mode: false
     rosbag_length: 10.0
-    maximum_queue_size: 10
-    timeout_sec: 0.09
+    maximum_queue_size: 2
+    timeout_sec: 0.15
     is_motion_compensated: false
     publish_synchronized_pointcloud: false
     keep_input_frame_in_synchronized_pointcloud: true
-    publish_previous_but_late_pointcloud: true
+    publish_previous_but_late_pointcloud: false
     synchronized_pointcloud_postfix: pointcloud
     input_twist_topic_type: twist
     input_topics: [
@@ -17,4 +17,8 @@
                 ]
     output_frame: base_link
     matching_strategy:
-      type: naive
+      type: advanced
+      # Relative first-point timestamps measured on this three-LiDAR rig.
+      # Do not pair side scans from the previous 100 ms rotation with the top scan.
+      lidar_timestamp_offsets: [0.0, 0.007, 0.0045]
+      lidar_timestamp_noise_window: [0.015, 0.015, 0.015]

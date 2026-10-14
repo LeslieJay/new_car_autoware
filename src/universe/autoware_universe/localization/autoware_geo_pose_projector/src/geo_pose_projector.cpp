@@ -95,8 +95,14 @@ void GeoPoseProjector::try_publish_geo_pose()
     return;
   }
 
-  const auto & nav_sat = latest_nav_sat_fix_.value();
-  const auto & orientation = latest_orientation_.value();
+  if (latest_nav_sat_fix_->header.stamp != latest_orientation_->header.stamp) {
+    return;
+  }
+
+  const auto nav_sat = latest_nav_sat_fix_.value();
+  const auto orientation = latest_orientation_.value();
+  latest_nav_sat_fix_.reset();
+  latest_orientation_.reset();
 
   // Reject invalid coordinates (NaN/Inf can occur during RTK initialization)
   if (

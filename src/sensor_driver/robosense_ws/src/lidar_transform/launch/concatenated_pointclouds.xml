@@ -15,7 +15,8 @@
       <param name="transform_roll" value="0.0"/>
       <param name="transform_pitch" value="0.0"/>
       <param name="transform_yaw" value="0.0"/>
-      </composable_node>
+      <extra_arg name="use_intra_process_comms" value="true"/>
+    </composable_node>
 
     <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::SideLidarCropBoxNode" name="left_lidar_cropbox">
       <param name="input_topic" value="/rslidar_left/points"/>
@@ -33,6 +34,7 @@
       <param name="crop_min_z" value="-0.5"/>
       <param name="crop_max_z" value="1.5"/>
       <param name="crop_radius" value="0.8"/>
+      <extra_arg name="use_intra_process_comms" value="true"/>
     </composable_node>
 
     <composable_node pkg="lidar_transform" plugin="autoware::lidar_transform::SideLidarCropBoxNode" name="right_lidar_cropbox">
@@ -51,6 +53,7 @@
       <param name="crop_min_z" value="-0.2"/>
       <param name="crop_max_z" value="1.5"/>
       <param name="crop_radius" value="0.8"/>
+      <extra_arg name="use_intra_process_comms" value="true"/>
     </composable_node>
 
   </load_composable_node>

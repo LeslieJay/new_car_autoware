@@ -144,6 +144,9 @@ def _launch_everything(context: LaunchContext):
                 "map_path": LaunchConfiguration("map_path"),
                 "rviz": LaunchConfiguration("enable_rviz"),
                 "launch_sensing_driver": "false",
+                # Keep the localization point-cloud filters beside the LiDAR
+                # publisher so the full cloud does not cross a DDS process boundary.
+                "localization_pointcloud_container_name": "/rslidar_container",
             }.items(),
         ),
         Node(

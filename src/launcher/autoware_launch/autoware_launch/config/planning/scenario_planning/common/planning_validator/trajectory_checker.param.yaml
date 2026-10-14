@@ -26,7 +26,7 @@
         threshold: 2.0
       steering:
         enable: true
-        threshold: 0.70
+        threshold: 0.90
       steering_rate:
         enable: true
         threshold: 1.0

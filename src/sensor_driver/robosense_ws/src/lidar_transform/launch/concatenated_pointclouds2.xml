@@ -16,6 +16,7 @@
       <param name="transform_roll" value="0.0"/>
       <param name="transform_pitch" value="0.0"/>
       <param name="transform_yaw" value="0.0"/>
+      <extra_arg name="use_intra_process_comms" value="true"/>
     </composable_node>
 
     <!-- 左侧雷达裁剪 (RS-Airy Left) -->
@@ -35,6 +36,7 @@
       <param name="crop_min_z" value="-0.5"/>
       <param name="crop_max_z" value="1.5"/>
       <param name="crop_radius" value="0.8"/>
+      <extra_arg name="use_intra_process_comms" value="true"/>
     </composable_node>
 
     <!-- 右侧雷达裁剪 (RS-Airy Right) -->
@@ -54,6 +56,7 @@
       <param name="crop_min_z" value="-0.2"/>
       <param name="crop_max_z" value="1.5"/>
       <param name="crop_radius" value="0.8"/>
+      <extra_arg name="use_intra_process_comms" value="true"/>
     </composable_node>
 
   </load_composable_node>
