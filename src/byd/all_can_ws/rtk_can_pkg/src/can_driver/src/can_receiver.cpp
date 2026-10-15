@@ -365,6 +365,11 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
         } else {
           RCLCPP_WARN(node_->get_logger(), "RTK状态异常(state=%d)", dataPos.state);
         }
+        if (g_six_sdk_running) {
+          RCLCPP_INFO(node_->get_logger(), "差分数据(GGA)正常更新中");
+        } else {
+          RCLCPP_WARN(node_->get_logger(), "差分数据(GGA)未下发");
+        }
       }
 
       if (g_six_sdk_running) {

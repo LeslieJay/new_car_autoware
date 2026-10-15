@@ -326,6 +326,7 @@ namespace can_driver
                 struct can_frame v_frame = make_frame(0x401);
                 v_frame.data[0] |= (1 << 4); // 打开语音播报
                 v_frame.data[2] = 5;         // 语音到达目标点
+                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
                 send_frames.push_back(v_frame);
                 send_queue_->push(send_frames);
                 last_voice_frame_time_ = now;
@@ -422,6 +423,7 @@ namespace can_driver
                 struct can_frame v_frame = make_frame(0x401);
                 v_frame.data[0] |= (1 << 4); // 打开语音播报
                 v_frame.data[2] = 9;         // 行人靠近语音编号
+                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
                 send_frames.push_back(v_frame);
                 last_voice_frame_time_ = now;
                 last_voice_id_ = 9;
@@ -469,6 +471,7 @@ namespace can_driver
                 struct can_frame v_frame = make_frame(0x401);
                 v_frame.data[0] |= (1 << 4); // 打开语音播报
                 v_frame.data[2] = 10;        // 车辆靠近报警
+                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
                 send_frames.push_back(v_frame);
                 send_queue_->push(send_frames);
                 last_voice_frame_time_ = now;
@@ -641,24 +644,32 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 if (battery < 30){
                     struct can_frame v_frame = make_frame(0x401);
                     v_frame.data[2] = 17;
+                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
                     send_frames.push_back(v_frame);                            
                 }
             }
             // 0x181 检测上报小车实际速度和转向
             if (frame.can_id == 0x181)
             {
-                // 记录插销当前状态
-                if((frame.data[4] >> 5) & 0x01){
-                    hook = 1;
-                }
-                if((frame.data[4] >> 6) & 0x01){
-                    hook = -1;
-                }
-                if((frame.data[4] >> 7) & 0x01){
-                    hook = 2;
-                }
-                if((frame.data[5] >> 0) & 0x01){
-                    hook = -2;
+                // 记录插销/挂钩当前状态
+                // 0x181 的 byte4 的 bit6=1 为起升到位，bit7=1 为下降到位
+                const bool hook_up_reached = (frame.data[4] & (1 << 6)) != 0;
+                const bool hook_down_reached = (frame.data[4] & (1 << 7)) != 0;
+
+                if (hook_up_reached) {
+                    hook.store(2, std::memory_order_relaxed);
+                    if (hook_target_cmd_.load(std::memory_order_relaxed) == 1) {
+                        hook_target_cmd_.store(0, std::memory_order_relaxed);
+                    }
+                } else if (hook_down_reached) {
+                    hook.store(-2, std::memory_order_relaxed);
+                    if (hook_target_cmd_.load(std::memory_order_relaxed) == 2) {
+                        hook_target_cmd_.store(0, std::memory_order_relaxed);
+                    }
+                } else if ((frame.data[4] & (1 << 5)) != 0) {
+                    hook.store(1, std::memory_order_relaxed);
+                } else {
+                    hook.store(0, std::memory_order_relaxed);
                 }
                 // 将两个字节的数据合并在一起，来表示一项数据，一个字节8位，16位能表示更大的数字，这种使用方式完全由用户协定
                 // 读取can构建数据
@@ -820,6 +831,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
           steering_command_offset_, steering_command_offset_, 6000);
 
                 struct can_frame v_frame = make_frame(0x401);
+        v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
         uint8_t voice_id = 0;
 
         // --- 其他内容：转向灯、倒车状态（保持原有方式和频率正常写入） ---
@@ -1214,7 +1226,7 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         voice_frame.data[1] = 0x00;
         voice_frame.data[2] = 1;
         voice_frame.data[3] = 0x00;
-        voice_frame.data[4] = 0x00;
+        voice_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
         voice_frame.data[5] = 0x00;
         voice_frame.data[6] = 0x00;
         voice_frame.data[7] = 0x00;

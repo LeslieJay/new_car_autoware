@@ -5,9 +5,12 @@
 #include <thread>
 #include <chrono>
 
+extern std::atomic<int> hook;
+
 namespace can_driver
 {
 extern std::shared_ptr<CanSend> send_queue_;
+extern std::atomic<uint8_t> hook_target_cmd_;
 
 using CtrlFork = ref_slam_interface::action::CtrlFork;
 using GoalHandleFork = rclcpp_action::ServerGoalHandle<CtrlFork>;
@@ -77,7 +80,7 @@ void CanActionServer::execute_fork(
     int signal = goal->to_fork_signal;
     
     RCLCPP_INFO(this->get_logger(), 
-                "开始执行挂钩: 目标高度=%.2f, 信号=%d", fork_goal_height, signal);
+                "开始执行挂钩: 目标高度=%d, 信号=%d", fork_goal_height, signal);
 
     if (goal_handle->is_canceling()) {
         result->finish = false;
@@ -86,56 +89,108 @@ void CanActionServer::execute_fork(
         return;
     }
 
-    if (goal->fork_goal_height != 0) {
+    if (fork_goal_height != 1 && fork_goal_height != 2) {
+        RCLCPP_ERROR(this->get_logger(), 
+                    "RCS挂钩指令异常: 不支持的目标高度 %d", 
+                    fork_goal_height);
+        result->finish = false;
+        goal_handle->abort(result);
+        return;
+    }
+
+    if (!send_queue_) {
+        RCLCPP_ERROR(this->get_logger(), 
+                    "send_queue_ 未初始化，无法发送挂钩CAN帧");
+        result->finish = false;
+        goal_handle->abort(result);
+        return;
+    }
+
+    const uint8_t target_cmd = static_cast<uint8_t>(fork_goal_height);
+
+    // 检查是否已经在目标位置 (hook: 2为起升到位, -2为下降到位)
+    const int initial_hook = hook.load(std::memory_order_relaxed);
+    if ((target_cmd == 1 && initial_hook == 2) || (target_cmd == 2 && initial_hook == -2)) {
+        RCLCPP_INFO(this->get_logger(), "底盘挂钩已处于目标位置 (hook=%d)，无需重复动作", initial_hook);
+        feedback->fork_height = (target_cmd == 1) ? 1 : 2;
+        goal_handle->publish_feedback(feedback);
+        result->finish = true;
+        goal_handle->succeed(result);
+        return;
+    }
+
+    RCLCPP_INFO(this->get_logger(), 
+                "下达挂钩%s命令 (CAN ID:0x401, data[4]=%d)", 
+                (target_cmd == 1 ? "上升" : "下降"), target_cmd);
+
+    // 1. 设置全局挂钩目标命令，确保 can_receiver 组装 0x401 报文时 data[4] 保持该值
+    hook_target_cmd_.store(target_cmd, std::memory_order_relaxed);
+
+    // 2. 持续以周期（20Hz / 50ms）检测到位并推送挂钩帧（防 control_cmd 未发布导致无 0x401）
+    const auto start_time = std::chrono::steady_clock::now();
+    const auto total_duration = std::chrono::seconds(5); // 最长5秒超时
+    rclcpp::Rate rate(20);  // 20Hz
+    bool reached_target = false;
+
+    while (rclcpp::ok() && (std::chrono::steady_clock::now() - start_time < total_duration)) {
+        if (goal_handle->is_canceling()) {
+            hook_target_cmd_.store(0, std::memory_order_relaxed);
+            // 立即下发一帧复位停止帧
+            std::vector<struct can_frame> cancel_frames;
+            struct can_frame cancel_frame{};
+            cancel_frame.can_id = 0x401;
+            cancel_frame.can_dlc = 8;
+            cancel_frames.push_back(cancel_frame);
+            send_queue_->push(cancel_frames);
+
+            result->finish = false;
+            goal_handle->canceled(result);
+            RCLCPP_WARN(this->get_logger(), "挂钩目标在执行中被取消");
+            return;
+        }
+
+        // 检查 0x181 反馈是否到位 (hook: 2为起升到位, -2为下降到位)
+        const int current_hook = hook.load(std::memory_order_relaxed);
+        if ((target_cmd == 1 && current_hook == 2) || (target_cmd == 2 && current_hook == -2)) {
+            RCLCPP_INFO(this->get_logger(), 
+                        "检测到底盘0x181反馈挂钩已到位 (hook=%d)", current_hook);
+            reached_target = true;
+            break;
+        }
+
+        // 持续推送挂钩帧，保证即使在停车无 control_cmd 时也有挂钩帧下发
         std::vector<struct can_frame> send_frames;
         struct can_frame v_frame{};
         v_frame.can_id = 0x401;
         v_frame.can_dlc = 8;
-        for(int i = 0; i < 8; i++) {
-            v_frame.data[i] = 0;
-        }
-
-
-        if(fork_goal_height == 1) {
-            v_frame.data[4] = 1;
-            RCLCPP_INFO(this->get_logger(), 
-                       "下达挂钩升降到位置1命令 (CAN ID:0x401, data[4]=1)");
-        }
-        else if (fork_goal_height == 2) {
-            v_frame.data[4] = 2;
-            RCLCPP_INFO(this->get_logger(), 
-                       "下达挂钩升降到位置2命令 (CAN ID:0x401, data[4]=2)");
-        }
-        else {
-            RCLCPP_ERROR(this->get_logger(), 
-                        "RCS挂钩指令异常: 不支持的目标高度 %d", 
-                        fork_goal_height);
-            result->finish = false;
-            goal_handle->abort(result);
-            return;
-        }
-        
+        v_frame.data[4] = target_cmd;
         send_frames.push_back(v_frame);
-        if (send_queue_) {
-            send_queue_->push(send_frames);
-            RCLCPP_INFO(this->get_logger(), "挂钩CAN帧已成功发送到发送队列");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), 
-                        "send_queue_ 未初始化，无法发送挂钩CAN帧");
-            result->finish = false;
-            goal_handle->abort(result);
-            return;
-        }
-        
-        rclcpp::sleep_for(std::chrono::seconds(3));
-        result->finish = true;
-        goal_handle->succeed(result);
-        RCLCPP_INFO(this->get_logger(), "挂钩动作执行成功完成");
+        send_queue_->push(send_frames);
+
+        feedback->fork_height = (current_hook == 2 || current_hook == 1) ? 1 : 2;
+        goal_handle->publish_feedback(feedback);
+
+        rate.sleep();
     }
-    else {
-        RCLCPP_WARN(this->get_logger(), "挂钩目标高度为0，不执行任何操作");
-        result->finish = false;
-        goal_handle->abort(result);
+
+    // 3. 动作结束（到位或超时），复位全局挂钩命令为 0
+    hook_target_cmd_.store(0, std::memory_order_relaxed);
+
+    // 下发复位帧 (data[4]=0)
+    std::vector<struct can_frame> reset_frames;
+    struct can_frame reset_frame{};
+    reset_frame.can_id = 0x401;
+    reset_frame.can_dlc = 8;
+    reset_frames.push_back(reset_frame);
+    send_queue_->push(reset_frames);
+
+    result->finish = reached_target;
+    if (reached_target) {
+        goal_handle->succeed(result);
+        RCLCPP_INFO(this->get_logger(), "挂钩动作执行成功完成 (到位退出)");
+    } else {
+        RCLCPP_WARN(this->get_logger(), "挂钩动作在5秒内未检测到到位信号 (超时退出)");
+        goal_handle->succeed(result);
     }
 }
 

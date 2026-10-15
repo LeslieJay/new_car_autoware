@@ -73,6 +73,7 @@ struct BatteryInfo
 namespace can_driver
 {
     extern std::shared_ptr<CanSend> send_queue_;
+    extern std::atomic<uint8_t> hook_target_cmd_;
    
     class CanReceiver 
     {
@@ -240,6 +241,6 @@ void pushRecord(const can_frame &frame, double angle, double speed);
     };
 
 } // namespace can_driver
-extern int hook;
+extern std::atomic<int> hook;
 
 #endif // CAN_DRIVER__CAN_RECEIVER_HPP_

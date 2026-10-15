@@ -17,10 +17,11 @@
 namespace can_driver
 {
 std::shared_ptr<CanSend> send_queue_ = nullptr;
+std::atomic<uint8_t> hook_target_cmd_{0};
 }  // namespace can_driver
 
-// 1: 正在起升, 2: 起升到顶, 0: 无动作, -1: 正在下降, -2: 下降到位
-int hook = 0;
+// 1: 正在起升, 2: 起升到位, 0: 无动作, -1: 正在下降, -2: 下降到位
+std::atomic<int> hook{0};
 std::vector<std::shared_ptr<can_driver::CanReceiver>> g_receivers;
 std::vector<int> g_socket_handles;
 std::atomic<bool> g_running{true};
