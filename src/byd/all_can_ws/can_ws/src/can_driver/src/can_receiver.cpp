@@ -402,8 +402,7 @@ namespace can_driver
         for (const auto & obj : msg->objects) {
             for (const auto & cls : obj.classification) {
                 // 同时满足：类别是行人，且概率 > 0.5
-                if (cls.label == autoware_perception_msgs::msg::ObjectClassification::PEDESTRIAN &&
-                    cls.probability > 0.5f) {
+                if (cls.label == 7) {
                     person_close = true;
                     break;
                 }
@@ -444,13 +443,13 @@ namespace can_driver
             for (const auto & cls : obj.classification) {
                 // 车辆类：CAR / TRUCK / BUS / TRAILER / MOTORCYCLE 视需求取舍
                 const bool is_vehicle =
-                    (cls.label == autoware_perception_msgs::msg::ObjectClassification::CAR ||
-                    cls.label == autoware_perception_msgs::msg::ObjectClassification::TRUCK ||
-                    cls.label == autoware_perception_msgs::msg::ObjectClassification::BUS ||
-                    cls.label == autoware_perception_msgs::msg::ObjectClassification::TRAILER ||
-                    cls.label == autoware_perception_msgs::msg::ObjectClassification::MOTORCYCLE);
-
-                if (is_vehicle && cls.probability > 0.5f) {
+                    (cls.label == 6 ||
+                    cls.label == 2 ||
+                    cls.label == 3 ||
+                    cls.label == 4 ||
+                    cls.label == 5);
+                // if (is_vehicle && cls.probability > 0.5f) {
+                if (is_vehicle) {
                     car_close = true;
                     break;
                 }
