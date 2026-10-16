@@ -52,6 +52,18 @@ std::string g_sixents_log_root = "/home/nvidia/autoware/log/sixtens";
 int g_canfd_socket = -1;
 std::atomic<bool> g_six_sdk_running{false};
 
+// 差分数据（RTCM）与上行统计全局变量
+std::atomic<uint64_t> g_rtcm_rx_count{0};
+std::atomic<uint64_t> g_rtcm_rx_bytes{0};
+std::atomic<int64_t> g_last_rtcm_rx_time_ms{0};
+
+std::atomic<uint64_t> g_rtcm_canfd_tx_frames{0};
+std::atomic<uint64_t> g_rtcm_canfd_tx_bytes{0};
+std::atomic<uint64_t> g_rtcm_canfd_tx_err_count{0};
+
+std::atomic<uint64_t> g_gga_tx_count{0};
+std::atomic<int64_t> g_last_gga_tx_time_ms{0};
+
 std::vector<std::shared_ptr<CanReceiver>> g_receivers;
 std::vector<int> g_socket_handles;
 std::string g_ca_cert_path;
@@ -145,9 +157,60 @@ static bool loadConfigFromYaml(const std::string &filepath)
 void sixents_diff_rtcm_process(const sixents_char * buff, sixents_uint32 len)
 {
   if (!buff || len == 0) {
+    std::cerr << "[六分差分-下发] 警告: 接收到空的 RTCM 数据包 (buff=" << reinterpret_cast<const void *>(buff)
+              << ", len=" << len << ")\n";
     return;
   }
-  send_rtcm_via_canfd(reinterpret_cast<const unsigned char *>(buff), len);
+
+  const unsigned char * udata = reinterpret_cast<const unsigned char *>(buff);
+  auto now = std::chrono::system_clock::now();
+  int64_t now_ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  g_last_rtcm_rx_time_ms.store(now_ms);
+  g_rtcm_rx_count++;
+  g_rtcm_rx_bytes += len;
+
+  // RTCM 3.x 报文特征解析（前导码 0xD3，高 6 位保留位全为 0，10 位长度，12 位 Message Type）
+  int rtcm_msg_type = -1;
+  bool valid_preamble = (udata[0] == 0xD3);
+  if (valid_preamble && len >= 6) {
+    // 字节 0: 0xD3 (前导码 8 bits)
+    // 字节 1: 000000 + 长度高 2 位
+    // 字节 2: 长度低 8 位
+    // 字节 3: Message Number 高 8 位
+    // 字节 4: Message Number 低 4 位 (高 4 位)
+    rtcm_msg_type = (static_cast<int>(udata[3]) << 4) | (static_cast<int>(udata[4]) >> 4);
+  }
+
+  // 节流汇总日志，防止高频差分数据（1Hz~5Hz）导致终端刷屏
+  static auto last_log_time = std::chrono::steady_clock::now();
+  static uint32_t interval_rx_bytes = 0;
+  static uint32_t interval_rx_packets = 0;
+  interval_rx_bytes += len;
+  interval_rx_packets++;
+
+  auto steady_now = std::chrono::steady_clock::now();
+  auto elapsed_ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(steady_now - last_log_time).count();
+
+  // 前3包或每隔1秒输出详细诊断
+  if (elapsed_ms >= 1000 || g_rtcm_rx_count <= 3) {
+    std::cout << "[六分差分-下发] 收到云端RTCM数据包: " << len << " 字节";
+    if (valid_preamble && rtcm_msg_type > 0) {
+      std::cout << " (RTCM3前导码正常 0xD3, MessageType=" << rtcm_msg_type << ")";
+    } else if (!valid_preamble) {
+      std::cout << " (警告: 前导码非0xD3, 首字节=0x" << std::hex << static_cast<int>(udata[0])
+                << std::dec << ")";
+    }
+    std::cout << " | 近" << elapsed_ms << "ms下发: " << interval_rx_packets << "包 ("
+              << interval_rx_bytes << "字节) | 累计: " << g_rtcm_rx_count.load() << "包 ("
+              << g_rtcm_rx_bytes.load() << "字节)\n";
+    last_log_time = steady_now;
+    interval_rx_bytes = 0;
+    interval_rx_packets = 0;
+  }
+
+  send_rtcm_via_canfd(udata, len);
 }
 
 static std::string current_time_string(const char * format)
@@ -293,13 +356,19 @@ static void send_rtcm_via_canfd(const unsigned char * data, unsigned int len)
     return;
   }
   if (g_canfd_socket < 0) {
-    std::cerr << "[RTCM_DEBUG] 发送失败：g_canfd_socket 当前无效 (值为: " << g_canfd_socket
-              << ")\n";
+    static auto last_sock_err_time = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_sock_err_time).count() >= 2) {
+      std::cerr << "[RTCM->CANFD] 回灌失败: CAN-FD socket 当前无效 (fd=" << g_canfd_socket
+                << ", 目标接口=" << g_can_fd_if << ")\n";
+      last_sock_err_time = now;
+    }
     return;
   }
 
   unsigned int offset = 0;
   int packet_idx = 0;
+  int success_frames = 0;
   while (offset < len) {
     struct canfd_frame frame{};
     frame.can_id = g_can_fd_id;
@@ -312,13 +381,32 @@ static void send_rtcm_via_canfd(const unsigned char * data, unsigned int len)
     ssize_t nbytes = write(g_canfd_socket, &frame, sizeof(struct canfd_frame));
     if (nbytes < 0) {
       int err = errno;
-      std::cerr << "[RTCM_DEBUG] 第 " << packet_idx << " 包发送异常！错误码: " << err
-                << ", 原因: " << std::strerror(err) << "\n";
+      g_rtcm_canfd_tx_err_count++;
+      std::cerr << "[RTCM->CANFD] 发送异常! 接口=" << g_can_fd_if << ", CAN-ID=0x"
+                << std::hex << g_can_fd_id << std::dec << ", 第 " << packet_idx
+                << " 包, 错误码: " << err << " (" << std::strerror(err) << ")\n";
       break;
     }
 
+    success_frames++;
+    g_rtcm_canfd_tx_frames++;
+    g_rtcm_canfd_tx_bytes += chunk;
     offset += chunk;
     packet_idx++;
+  }
+
+  // 节流汇总日志，防止每帧都打印
+  static auto last_tx_log_time = std::chrono::steady_clock::now();
+  auto steady_now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(steady_now - last_tx_log_time).count() >=
+        1000 ||
+      g_rtcm_canfd_tx_frames <= 5)
+  {
+    std::cout << "[RTCM->CANFD] 回灌成功: 本次已将 " << len << " 字节分 " << success_frames
+              << " 帧写入 " << g_can_fd_if << " (ID=0x" << std::hex << g_can_fd_id << std::dec
+              << ") | 累计写入: " << g_rtcm_canfd_tx_frames.load() << " 帧 ("
+              << g_rtcm_canfd_tx_bytes.load() << " 字节)\n";
+    last_tx_log_time = steady_now;
   }
 }
 
@@ -380,7 +468,19 @@ void sixents_thread_func()
     return;
   }
   if (sixents_sdkStart() != SIXENTS_RET_OK) {
-    fprintf(stderr, "Sixents SDK start failed\n");
+    fprintf(stderr, "\n==================== [六分SDK 启动失败] ====================\n");
+    fprintf(stderr, "[错误] sixents_sdkStart() 返回非 OK 错误码!\n");
+    fprintf(stderr, "[排查建议]:\n");
+    fprintf(stderr, "  1. 请检查日志文件获取底层具体状态码: %s\n", g_sixents_log_file_path.c_str());
+    fprintf(stderr, "  2. 常见原因对照:\n");
+    fprintf(stderr, "     - status=1305: 另一台车正在使用相同的设备ID/账号 (单点登录互斥)\n");
+    fprintf(stderr, "     - status=1312: 系统时间错误导致 TLS 证书失效 (运行 date 检查时间)\n");
+    fprintf(
+      stderr,
+      "     - status=1302/1304: 差分端口 4405 或 443 超时/无法连接 (运行 nc -zv vrs.sixents.com "
+      "4405)\n");
+    fprintf(stderr, "     - status=1202/1206: AK/AS/DevID 鉴权失败或 yaml 配置路径不正确\n");
+    fprintf(stderr, "============================================================\n\n");
     sixents_sdkFinal();
     return;
   }
@@ -391,12 +491,30 @@ void sixents_thread_func()
   while (g_six_sdk_running && rclcpp::ok()) {
     std::string gga_str;
     if (can_driver::waitForGGA(gga_str, std::chrono::milliseconds(200))) {
-      sixents_sdkSendGGAStr(gga_str.c_str(), gga_str.size());
+      sixents_retCode ret_gga = sixents_sdkSendGGAStr(gga_str.c_str(), gga_str.size());
+      g_gga_tx_count++;
+      auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+      g_last_gga_tx_time_ms.store(now_ms);
+
+      static auto last_gga_log = std::chrono::steady_clock::now();
+      auto steady_now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::seconds>(steady_now - last_gga_log).count() >= 5 ||
+          g_gga_tx_count <= 2)
+      {
+        if (ret_gga == SIXENTS_RET_OK) {
+          std::cout << "[六分上行-GGA] 成功上报GGA位置数据 (长度: " << gga_str.size() << " 字节, 累计: "
+                    << g_gga_tx_count.load() << " 次) -> 云端据此下发差分\n";
+        } else {
+          std::cerr << "[六分上行-GGA] 上报GGA失败! 错误码: " << ret_gga << "\n";
+        }
+        last_gga_log = steady_now;
+      }
     }
 
     sixents_int32 ret = sixents_sdkTick();
     if (ret != SIXENTS_RET_OK) {
-      fprintf(stderr, "sixents_sdkTick error: %d\n", ret);
+      fprintf(stderr, "[六分Tick] sixents_sdkTick 异常返回值: %d\n", ret);
     }
   }
 
