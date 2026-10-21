@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -34,6 +35,9 @@ using autoware::freespace_planning_algorithms::ReedsSheppStateSpace;
 
 namespace
 {
+constexpr std::uint8_t kRearWarningCaution = 2U;
+constexpr std::uint8_t kRearWarningStop = 3U;
+
 ControllerParameters declareControllerParameters(rclcpp::Node & node)
 {
   ControllerParameters p;
@@ -82,12 +86,17 @@ HighPrecisionReverseNode::HighPrecisionReverseNode(const rclcpp::NodeOptions & o
 : Node("agv_high_precision_reverse_controller", options),
   controller_(declareControllerParameters(*this)),
   last_odometry_receipt_(0, 0, get_clock()->get_clock_type()),
+  last_rear_warning_receipt_(0, 0, get_clock()->get_clock_type()),
   last_observability_publish_(0, 0, get_clock()->get_clock_type())
 {
   control_rate_ = declare_parameter<double>("control_rate", control_rate_);
   trajectory_publish_rate_ =
     declare_parameter<double>("trajectory_publish_rate", trajectory_publish_rate_);
   odometry_timeout_ = declare_parameter<double>("safety.odometry_timeout", odometry_timeout_);
+  rear_warning_timeout_ =
+    declare_parameter<double>("safety.rear_warning_timeout", rear_warning_timeout_);
+  caution_reverse_speed_ = declare_parameter<double>(
+    "longitudinal.caution_reverse_speed", caution_reverse_speed_);
   turning_radius_ = declare_parameter<double>("planning.turning_radius", turning_radius_);
   path_resolution_ = declare_parameter<double>("planning.path_resolution", path_resolution_);
   min_path_length_ = declare_parameter<double>("planning.min_path_length", min_path_length_);
@@ -181,15 +190,21 @@ void HighPrecisionReverseNode::onTimer()
     publishObservability();
     return;
   }
-  if (rear_warning_level_ >= 2U) {
-    if (state_ != State::SAFETY_HOLD) {
-      changeState(State::SAFETY_HOLD, "rear obstacle warning");
+  if (handoff_phase_ == HandoffPhase::REVERSING) {
+    const bool rear_warning_is_fresh = rearWarningIsFresh();
+    if (!rear_warning_is_fresh || rear_warning_level_ >= kRearWarningStop) {
+      if (state_ != State::SAFETY_HOLD) {
+        changeState(
+          State::SAFETY_HOLD,
+          rear_warning_is_fresh ? "rear obstacle stop warning" : "rear warning timeout");
+      }
+      controller_.resetLongitudinalControl();
+      publishStop(true);
+      return;
     }
-    publishStop(true);
-    return;
-  }
-  if (state_ == State::SAFETY_HOLD) {
-    changeState(State::TRACKING, "safety inputs recovered");
+    if (state_ == State::SAFETY_HOLD) {
+      changeState(State::TRACKING, "rear safety input recovered");
+    }
   }
 
   VehicleState vehicle;
@@ -197,7 +212,12 @@ void HighPrecisionReverseNode::onTimer()
   vehicle.y = odometry_->pose.pose.position.y;
   vehicle.yaw = tf2::getYaw(odometry_->pose.pose.orientation);
   vehicle.speed = odometry_->twist.twist.linear.x;
-  const auto result = controller_.compute(vehicle, 1.0 / std::max(1.0, control_rate_));
+  std::optional<double> speed_limit;
+  if (rear_warning_level_ == kRearWarningCaution) {
+    speed_limit = caution_reverse_speed_;
+  }
+  const auto result =
+    controller_.compute(vehicle, 1.0 / std::max(1.0, control_rate_), speed_limit);
   if (!result.valid || result.tracking_error) {
     changeState(State::ABORTED, result.reason);
     publishStop(false);
@@ -231,6 +251,8 @@ void HighPrecisionReverseNode::onOdometry(nav_msgs::msg::Odometry::ConstSharedPt
 void HighPrecisionReverseNode::onRearWarning(std_msgs::msg::UInt8::ConstSharedPtr message)
 {
   rear_warning_level_ = message->data;
+  last_rear_warning_receipt_ = now();
+  has_rear_warning_ = true;
 }
 
 void HighPrecisionReverseNode::onSetGoal(
@@ -785,6 +807,12 @@ void HighPrecisionReverseNode::changeState(State state, const std::string & reas
 bool HighPrecisionReverseNode::odometryIsFresh() const
 {
   return odometry_ && (now() - last_odometry_receipt_).seconds() <= odometry_timeout_;
+}
+
+bool HighPrecisionReverseNode::rearWarningIsFresh() const
+{
+  return has_rear_warning_ &&
+    (now() - last_rear_warning_receipt_).seconds() <= rear_warning_timeout_;
 }
 
 double HighPrecisionReverseNode::normalizeAngle(double angle)

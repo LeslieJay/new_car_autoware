@@ -47,6 +47,13 @@ ros2 service call /agv_high_precision_reverse_controller/set_goal_pose \
 
 任何跟踪中止都会尝试走相同的 AUTONOMOUS 归还流程；独立安全停车和急停仍具有更高优先级。
 
+倒车期间节点订阅 `~/input/rear_warning_level`（启动文件默认映射到
+`/control/rear_warning_level`），消息类型为 `std_msgs/msg/UInt8`。等级 `0`（SAFE）和
+`1`（WARNING）不限制正常倒车；等级 `2`（CAUTION）将倒车速度平滑限制到
+`longitudinal.caution_reverse_speed`（默认 0.10 m/s）；等级 `3`（STOP）及更大的非法等级
+会进入安全保持并下发零速度和最大制动。等级降低后自动沿原路径恢复。实际倒车期间超过
+`safety.rear_warning_timeout`（默认 0.50 s）没有收到新消息时，同样进入安全保持。
+
 取消并持续停车：
 
 ```bash

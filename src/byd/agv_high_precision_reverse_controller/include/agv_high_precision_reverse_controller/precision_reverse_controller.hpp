@@ -16,6 +16,7 @@
 #define AGV_HIGH_PRECISION_REVERSE_CONTROLLER__PRECISION_REVERSE_CONTROLLER_HPP_
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -93,7 +94,10 @@ public:
   explicit PrecisionReverseController(ControllerParameters parameters = {});
 
   bool setPath(std::vector<PathPoint> path, std::string * reason = nullptr);
-  TrackingResult compute(const VehicleState & state, double dt);
+  TrackingResult compute(
+    const VehicleState & state, double dt,
+    std::optional<double> external_speed_limit = std::nullopt);
+  void resetLongitudinalControl();
   void reset();
   void clearPath();
 

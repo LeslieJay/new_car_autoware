@@ -133,6 +133,7 @@ private:
   void publishStop(bool keep_reverse_gear);
   void changeState(State state, const std::string & reason);
   bool odometryIsFresh() const;
+  bool rearWarningIsFresh() const;
   static double normalizeAngle(double angle);
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
@@ -165,17 +166,21 @@ private:
   geometry_msgs::msg::PoseStamped goal_;
   autoware_planning_msgs::msg::Trajectory trajectory_;
   rclcpp::Time last_odometry_receipt_;
+  rclcpp::Time last_rear_warning_receipt_;
   rclcpp::Time last_observability_publish_;
   State state_{State::IDLE};
   HandoffPhase handoff_phase_{HandoffPhase::NONE};
   std::uint8_t rear_warning_level_{0U};
   std::size_t settled_cycles_{0U};
   bool has_goal_{false};
+  bool has_rear_warning_{false};
   double last_steering_command_{0.0};
 
   double control_rate_{50.0};
   double trajectory_publish_rate_{10.0};
   double odometry_timeout_{0.20};
+  double rear_warning_timeout_{0.50};
+  double caution_reverse_speed_{0.10};
   double turning_radius_{2.0};
   double path_resolution_{0.02};
   double min_path_length_{0.10};

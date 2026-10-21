@@ -29,6 +29,8 @@
     longitudinal:
       # 高精度模式默认限速 0.35 m/s；标定前不要提高。
       max_reverse_speed: 0.35
+      # 后方感知进入 CAUTION 时的倒车限速。
+      caution_reverse_speed: 0.10
       min_creep_speed: 0.035
       comfortable_deceleration: 0.25
       # 当前阶段先验收自动模式切换流程；后续精度标定时再收紧。
@@ -48,6 +50,8 @@
 
     safety:
       odometry_timeout: 0.20
+      # 倒车期间超过该时长未收到后方预警消息时停车。
+      rear_warning_timeout: 0.50
       max_lateral_error: 0.40
       max_heading_error: 0.60
       overshoot_tolerance: 0.200

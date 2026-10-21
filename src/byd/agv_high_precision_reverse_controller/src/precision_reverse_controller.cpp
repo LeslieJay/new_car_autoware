@@ -88,7 +88,8 @@ bool PrecisionReverseController::setPath(std::vector<PathPoint> path, std::strin
   return true;
 }
 
-TrackingResult PrecisionReverseController::compute(const VehicleState & state, double dt)
+TrackingResult PrecisionReverseController::compute(
+  const VehicleState & state, double dt, std::optional<double> external_speed_limit)
 {
   TrackingResult result;
   if (path_.size() < 2U) {
@@ -184,6 +185,9 @@ TrackingResult PrecisionReverseController::compute(const VehicleState & state, d
   } else {
     desired_speed = 0.0;
   }
+  if (external_speed_limit) {
+    desired_speed = std::min(desired_speed, std::max(0.0, *external_speed_limit));
+  }
 
   const double maximum_up_step = parameters_.max_acceleration * bounded_dt;
   const double maximum_down_step = parameters_.max_deceleration * bounded_dt;
@@ -218,6 +222,11 @@ void PrecisionReverseController::reset()
   last_segment_index_ = 0U;
   last_projected_s_ = 0.0;
   last_steering_ = 0.0;
+  resetLongitudinalControl();
+}
+
+void PrecisionReverseController::resetLongitudinalControl()
+{
   last_target_speed_ = 0.0;
   speed_integral_ = 0.0;
 }
