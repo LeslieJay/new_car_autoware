@@ -73,8 +73,9 @@ private:
   LaneShiftResult calcLaneShift(const LCAvoidanceTarget & target) const;
   ShiftLineArray buildShiftLines(
     const LCAvoidanceTarget & target, const LaneShiftResult & shift_result) const;
+  double getManeuverPlanningSpeed() const;
   BehaviorModuleOutput adjustDrivableArea(
-    const ShiftedPath & path, const lanelet::ConstLanelets & adjacent_lanelets) const;
+    const ShiftedPath & path, const AdjacentLaneResult * adjacent_lane) const;
   BehaviorModuleOutput passThrough(InfeasibleReason reason) const;
   BehaviorModuleOutput stopBeforeTarget(
     const LCAvoidanceTarget & target, InfeasibleReason reason) const;
@@ -85,11 +86,18 @@ private:
   bool isGeneratedPathContinuous(const ShiftedPath & path) const;
   InfeasibleReason validatePathSafety(
     const ShiftedPath & path, const LCAvoidanceTarget & target,
-    const lanelet::ConstLanelets & adjacent_lanelets) const;
+    const AdjacentLaneResult * adjacent_lane) const;
   InfeasibleReason validateArticulatedPath(
     const PathWithLaneId & path, const lanelet::ConstLanelets & drivable_lanelets) const;
   bool isAdjacentLaneOccupied(
     const LCAvoidanceTarget & target, const lanelet::ConstLanelets & adjacent_lanelets) const;
+  bool hasOncomingConflict(
+    const ShiftedPath & path, const LCAvoidanceTarget & target,
+    const AdjacentLaneResult & adjacent_lane) const;
+  bool isEgoBorrowingOppositeLane() const;
+  std::vector<DrivableLanes> generateOppositeDrivableLanes(
+    const AdjacentLaneResult & adjacent_lane) const;
+  void addAdjacentLaneIds(PathWithLaneId & path, const AdjacentLaneResult & adjacent_lane) const;
   BehaviorModuleOutput makeSafeStopOutput(
     InfeasibleReason reason = InfeasibleReason::PATH_GENERATION_FAILED) const;
   void setDebugMarkersVisualization() const;
@@ -101,11 +109,14 @@ private:
   ResolvedTrailerConfiguration active_trailer_configuration_;
   PathShifter path_shifter_;
   ShiftedPath prev_output_{};
+  bool maneuver_committed_{false};
   std::optional<LCAvoidanceTarget> active_target_;
   std::optional<AdjacentLaneResult> active_adjacent_lane_;
   LCAvoidanceCycleState cycle_state_{};
   size_t completion_stable_count_{0};
   std::optional<rclcpp::Time> path_generation_failure_started_;
+  mutable std::optional<rclcpp::Time> opposite_lane_clear_since_;
+  mutable bool opposite_lane_conflict_seen_{false};
   std::optional<std::string> route_id_;
   mutable SimpleLCAvoidanceDebugData debug_data_;
 };

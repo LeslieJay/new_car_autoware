@@ -48,16 +48,29 @@ void SimpleLaneChangeAvoidanceModuleManager::init(rclcpp::Node * node)
     node->declare_parameter<double>(ns + "target_lost_time_threshold", 1.0);
   p.target_hold_lateral_hysteresis =
     node->declare_parameter<double>(ns + "target_hold_lateral_hysteresis", 0.3);
-  p.road_boundary_margin =
-    node->declare_parameter<double>(ns + "road_boundary_margin", 0.1);
+  p.road_boundary_margin = node->declare_parameter<double>(ns + "road_boundary_margin", 0.1);
   p.stop_margin_before_object =
     node->declare_parameter<double>(ns + "stop_margin_before_object", 1.0);
   p.path_generation_failure_timeout =
     node->declare_parameter<double>(ns + "path_generation_failure_timeout", 0.5);
-  p.completion_stable_count = static_cast<size_t>(std::max<int64_t>(
-    node->declare_parameter<int64_t>(ns + "completion_stable_count", 3), 1));
+  p.completion_stable_count = static_cast<size_t>(
+    std::max<int64_t>(node->declare_parameter<int64_t>(ns + "completion_stable_count", 3), 1));
   p.footprint_sampling_interval =
     node->declare_parameter<double>(ns + "footprint_sampling_interval", 0.5);
+  p.enable_opposite_lane_borrowing =
+    node->declare_parameter<bool>(ns + "enable_opposite_lane_borrowing", false);
+  p.opposite_lane_max_prediction_horizon =
+    node->declare_parameter<double>(ns + "opposite_lane.max_prediction_horizon", 30.0);
+  p.opposite_lane_time_resolution =
+    node->declare_parameter<double>(ns + "opposite_lane.time_resolution", 0.5);
+  p.opposite_lane_min_time_gap =
+    node->declare_parameter<double>(ns + "opposite_lane.min_time_gap", 3.0);
+  p.opposite_lane_longitudinal_margin =
+    node->declare_parameter<double>(ns + "opposite_lane.longitudinal_margin", 2.0);
+  p.opposite_lane_lateral_margin =
+    node->declare_parameter<double>(ns + "opposite_lane.lateral_margin", 0.5);
+  p.opposite_lane_clearance_hold_time =
+    node->declare_parameter<double>(ns + "opposite_lane.clearance_hold_time", 1.0);
   p.trailer_configuration_topic = node->declare_parameter<std::string>(
     ns + "trailer.configuration_topic", "/vehicle/status/trailer_configuration");
   p.tractor_rear_axle_to_hitch =
@@ -120,8 +133,8 @@ void SimpleLaneChangeAvoidanceModuleManager::onTrailerConfiguration(
     if (speed > parameters_->trailer_stationary_speed_threshold) {
       RCLCPP_ERROR(
         node_->get_logger(),
-        "Reject trailer configuration change while moving: speed=%.3fm/s threshold=%.3fm/s",
-        speed, parameters_->trailer_stationary_speed_threshold);
+        "Reject trailer configuration change while moving: speed=%.3fm/s threshold=%.3fm/s", speed,
+        parameters_->trailer_stationary_speed_threshold);
       return;
     }
   }
@@ -163,6 +176,18 @@ void SimpleLaneChangeAvoidanceModuleManager::updateModuleParams(
   update_param(parameters, ns + "completion_stable_count", completion_stable_count);
   p->completion_stable_count = static_cast<size_t>(std::max<int64_t>(completion_stable_count, 1));
   update_param(parameters, ns + "footprint_sampling_interval", p->footprint_sampling_interval);
+  update_param(
+    parameters, ns + "enable_opposite_lane_borrowing", p->enable_opposite_lane_borrowing);
+  update_param(
+    parameters, ns + "opposite_lane.max_prediction_horizon",
+    p->opposite_lane_max_prediction_horizon);
+  update_param(parameters, ns + "opposite_lane.time_resolution", p->opposite_lane_time_resolution);
+  update_param(parameters, ns + "opposite_lane.min_time_gap", p->opposite_lane_min_time_gap);
+  update_param(
+    parameters, ns + "opposite_lane.longitudinal_margin", p->opposite_lane_longitudinal_margin);
+  update_param(parameters, ns + "opposite_lane.lateral_margin", p->opposite_lane_lateral_margin);
+  update_param(
+    parameters, ns + "opposite_lane.clearance_hold_time", p->opposite_lane_clearance_hold_time);
   update_param(parameters, ns + "trailer.configuration_topic", p->trailer_configuration_topic);
   update_param(
     parameters, ns + "trailer.tractor_rear_axle_to_hitch", p->tractor_rear_axle_to_hitch);

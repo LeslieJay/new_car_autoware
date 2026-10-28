@@ -154,33 +154,35 @@ bool canCompleteManeuver(
   const size_t required_stable_count)
 {
   const auto threshold = std::abs(status.lateral_execution_threshold);
-  const bool geometrically_complete =
-    !status.has_active_target && status.is_active_target_passed && !status.has_shift_lines &&
-    !status.is_ego_on_shift_line && std::abs(status.base_offset) < threshold &&
-    std::abs(status.planned_shift) < threshold &&
-    std::abs(status.actual_lateral_offset) < threshold;
+  const bool geometrically_complete = !status.has_active_target && status.is_active_target_passed &&
+                                      !status.has_shift_lines && !status.is_ego_on_shift_line &&
+                                      std::abs(status.base_offset) < threshold &&
+                                      std::abs(status.planned_shift) < threshold &&
+                                      std::abs(status.actual_lateral_offset) < threshold;
   return geometrically_complete && stable_count >= std::max<size_t>(required_stable_count, 1U);
 }
 
 bool isShiftLengthWithinLimit(const double required_shift_length, const double max_shift_length)
 {
   return std::isfinite(required_shift_length) && std::isfinite(max_shift_length) &&
-         max_shift_length > 0.0 && std::abs(required_shift_length) <= std::abs(max_shift_length) + 1e-6;
+         max_shift_length > 0.0 &&
+         std::abs(required_shift_length) <= std::abs(max_shift_length) + 1e-6;
 }
 
 bool areFeasibilityParametersValid(const SimpleLCAvoidanceParameters & parameters)
 {
   return std::isfinite(parameters.th_moving_speed) && parameters.th_moving_speed >= 0.0 &&
          std::isfinite(parameters.min_forward_distance) &&
-         std::isfinite(parameters.max_forward_distance) &&
-         parameters.min_forward_distance >= 0.0 &&
+         std::isfinite(parameters.max_forward_distance) && parameters.min_forward_distance >= 0.0 &&
          parameters.max_forward_distance >= parameters.min_forward_distance &&
          std::isfinite(parameters.lateral_margin) && parameters.lateral_margin >= 0.0 &&
          std::isfinite(parameters.max_shift_length) && parameters.max_shift_length > 0.0 &&
          std::isfinite(parameters.min_prepare_distance) && parameters.min_prepare_distance >= 0.0 &&
-         std::isfinite(parameters.min_shifting_distance) && parameters.min_shifting_distance > 0.0 &&
-         std::isfinite(parameters.shifting_lateral_jerk) && parameters.shifting_lateral_jerk > 0.0 &&
-         std::isfinite(parameters.min_shifting_speed) && parameters.min_shifting_speed >= 0.0 &&
+         std::isfinite(parameters.min_shifting_distance) &&
+         parameters.min_shifting_distance > 0.0 &&
+         std::isfinite(parameters.shifting_lateral_jerk) &&
+         parameters.shifting_lateral_jerk > 0.0 && std::isfinite(parameters.min_shifting_speed) &&
+         parameters.min_shifting_speed >= 0.0 &&
          std::isfinite(parameters.return_distance_after_object) &&
          parameters.return_distance_after_object >= 0.0 &&
          std::isfinite(parameters.target_lost_time_threshold) &&
@@ -196,6 +198,18 @@ bool areFeasibilityParametersValid(const SimpleLCAvoidanceParameters & parameter
          parameters.lateral_execution_threshold > 0.0 &&
          std::isfinite(parameters.footprint_sampling_interval) &&
          parameters.footprint_sampling_interval > 0.0 &&
+         std::isfinite(parameters.opposite_lane_max_prediction_horizon) &&
+         parameters.opposite_lane_max_prediction_horizon > 0.0 &&
+         std::isfinite(parameters.opposite_lane_time_resolution) &&
+         parameters.opposite_lane_time_resolution > 0.0 &&
+         std::isfinite(parameters.opposite_lane_min_time_gap) &&
+         parameters.opposite_lane_min_time_gap >= 0.0 &&
+         std::isfinite(parameters.opposite_lane_longitudinal_margin) &&
+         parameters.opposite_lane_longitudinal_margin >= 0.0 &&
+         std::isfinite(parameters.opposite_lane_lateral_margin) &&
+         parameters.opposite_lane_lateral_margin >= 0.0 &&
+         std::isfinite(parameters.opposite_lane_clearance_hold_time) &&
+         parameters.opposite_lane_clearance_hold_time >= 0.0 &&
          !parameters.trailer_configuration_topic.empty() &&
          std::isfinite(parameters.tractor_rear_axle_to_hitch) &&
          parameters.tractor_rear_axle_to_hitch >= 0.0 &&
@@ -221,9 +235,10 @@ bool isValidShiftLineGeometry(const ShiftLineArray & shift_lines, const size_t r
   }
   size_t previous_end = 0;
   for (const auto & line : shift_lines) {
-    if (line.start_idx >= reference_path_size || line.end_idx >= reference_path_size ||
-        line.end_idx <= line.start_idx + 1 || line.start_idx < previous_end ||
-        !std::isfinite(line.start_shift_length) || !std::isfinite(line.end_shift_length)) {
+    if (
+      line.start_idx >= reference_path_size || line.end_idx >= reference_path_size ||
+      line.end_idx <= line.start_idx + 1 || line.start_idx < previous_end ||
+      !std::isfinite(line.start_shift_length) || !std::isfinite(line.end_shift_length)) {
       return false;
     }
     previous_end = line.end_idx;
@@ -239,8 +254,9 @@ FeasibilityResult checkFeasibility(
   result.min_prepare_distance = parameters.min_prepare_distance;
   result.min_shifting_distance = parameters.min_shifting_distance;
   result.ego_speed = ego_speed;
-  if (!areFeasibilityParametersValid(parameters) || !std::isfinite(shift_length) ||
-      !isShiftLengthWithinLimit(shift_length, parameters.max_shift_length)) {
+  if (
+    !areFeasibilityParametersValid(parameters) || !std::isfinite(shift_length) ||
+    !isShiftLengthWithinLimit(shift_length, parameters.max_shift_length)) {
     result.reason = InfeasibleReason::NO_ROOM;
     return result;
   }

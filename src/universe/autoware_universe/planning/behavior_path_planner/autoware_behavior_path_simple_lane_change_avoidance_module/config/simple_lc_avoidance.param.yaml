@@ -139,6 +139,17 @@
       completion_stable_count: 3
       footprint_sampling_interval: 0.5
 
+      # Borrowing an adjacent opposite-direction road lane is opt-in. When enabled, the full
+      # avoidance and return trajectory is checked against predicted oncoming traffic.
+      enable_opposite_lane_borrowing: false
+      opposite_lane:
+        max_prediction_horizon: 30.0
+        time_resolution: 0.5
+        min_time_gap: 3.0
+        longitudinal_margin: 2.0
+        lateral_margin: 0.5
+        clearance_hold_time: 1.0
+
       trailer:
         configuration_topic: /vehicle/status/trailer_configuration
         tractor_rear_axle_to_hitch: 0.6

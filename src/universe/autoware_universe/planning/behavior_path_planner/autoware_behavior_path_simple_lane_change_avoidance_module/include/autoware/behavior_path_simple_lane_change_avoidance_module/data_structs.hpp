@@ -15,12 +15,14 @@
 #ifndef AUTOWARE__BEHAVIOR_PATH_SIMPLE_LANE_CHANGE_AVOIDANCE_MODULE__DATA_STRUCTS_HPP_
 #define AUTOWARE__BEHAVIOR_PATH_SIMPLE_LANE_CHANGE_AVOIDANCE_MODULE__DATA_STRUCTS_HPP_
 
-#include "autoware/behavior_path_planner_common/utils/path_shifter/path_shifter.hpp"
 #include "autoware/behavior_path_planner_common/utils/articulated_vehicle/trailer_geometry.hpp"
+#include "autoware/behavior_path_planner_common/utils/path_shifter/path_shifter.hpp"
+
+#include <rclcpp/time.hpp>
 
 #include <geometry_msgs/msg/pose.hpp>
+
 #include <lanelet2_core/LaneletMap.h>
-#include <rclcpp/time.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -32,6 +34,8 @@ namespace autoware::behavior_path_planner
 {
 
 enum class LCAvoidanceDirection { LEFT, RIGHT };
+
+enum class AdjacentLaneType { SAME_DIRECTION, ROAD_SHOULDER, OPPOSITE_DIRECTION };
 
 enum class InfeasibleReason {
   NONE,
@@ -47,6 +51,8 @@ enum class InfeasibleReason {
   ARTICULATION_LIMIT,
   PATH_DISCONTINUITY,
   TARGET_UNCERTAIN_STOP,
+  ONCOMING_TRAFFIC,
+  NO_SAFE_EARLY_RETURN,
 };
 
 inline const char * toString(const InfeasibleReason reason)
@@ -78,6 +84,10 @@ inline const char * toString(const InfeasibleReason reason)
       return "path_discontinuity";
     case InfeasibleReason::TARGET_UNCERTAIN_STOP:
       return "target_uncertain_stop";
+    case InfeasibleReason::ONCOMING_TRAFFIC:
+      return "oncoming_traffic";
+    case InfeasibleReason::NO_SAFE_EARLY_RETURN:
+      return "no_safe_early_return";
   }
   return "unknown";
 }
@@ -102,6 +112,13 @@ struct SimpleLCAvoidanceParameters
   double path_generation_failure_timeout{0.5};
   size_t completion_stable_count{3};
   double footprint_sampling_interval{0.5};
+  bool enable_opposite_lane_borrowing{false};
+  double opposite_lane_max_prediction_horizon{30.0};
+  double opposite_lane_time_resolution{0.5};
+  double opposite_lane_min_time_gap{3.0};
+  double opposite_lane_longitudinal_margin{2.0};
+  double opposite_lane_lateral_margin{0.5};
+  double opposite_lane_clearance_hold_time{1.0};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
   double tractor_rear_axle_to_hitch{0.6};
   double trailer_footprint_sampling_interval{0.5};
@@ -131,7 +148,10 @@ struct AdjacentLaneResult
   bool found{false};
   lanelet::ConstLanelet lanelet{};
   lanelet::ConstLanelets lanelet_sequence{};
+  lanelet::ConstLanelet geometry_lanelet{};
+  lanelet::ConstLanelets geometry_lanelet_sequence{};
   LCAvoidanceDirection direction{LCAvoidanceDirection::LEFT};
+  AdjacentLaneType type{AdjacentLaneType::SAME_DIRECTION};
 };
 
 struct LaneShiftResult

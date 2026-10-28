@@ -89,10 +89,8 @@ TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthFollowsPathShifterSignConv
   constexpr double right_lane_distance_from_ego = 3.5;
   constexpr double lateral_margin = 0.3;
 
-  EXPECT_NEAR(
-    calcLaneShiftLength(left_lane_distance_from_ego, lateral_margin), 3.8, 1e-6);
-  EXPECT_NEAR(
-    calcLaneShiftLength(right_lane_distance_from_ego, lateral_margin), -3.8, 1e-6);
+  EXPECT_NEAR(calcLaneShiftLength(left_lane_distance_from_ego, lateral_margin), 3.8, 1e-6);
+  EXPECT_NEAR(calcLaneShiftLength(right_lane_distance_from_ego, lateral_margin), -3.8, 1e-6);
 }
 
 TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthDoesNotApplyExistingUpstreamShiftTwice)
@@ -104,8 +102,7 @@ TEST_F(SimpleLCAvoidanceUtilsTest, CalcLaneShiftLengthDoesNotApplyExistingUpstre
   constexpr double lateral_margin = 0.3;
 
   EXPECT_NEAR(
-    calcLaneShiftLength(adjacent_lane_distance_from_upstream_path, lateral_margin),
-    2.13, 1e-6);
+    calcLaneShiftLength(adjacent_lane_distance_from_upstream_path, lateral_margin), 2.13, 1e-6);
 }
 
 TEST_F(SimpleLCAvoidanceUtilsTest, LimitLaneShiftLengthPreservesDirection)
@@ -137,6 +134,20 @@ TEST_F(SimpleLCAvoidanceUtilsTest, InvalidFeasibilityParametersAreRejected)
   parameters = defaultParameters();
   parameters.max_shift_length = 4.5;
   EXPECT_TRUE(areFeasibilityParametersValid(parameters));
+
+  parameters.opposite_lane_time_resolution = 0.0;
+  EXPECT_FALSE(areFeasibilityParametersValid(parameters));
+
+  parameters = defaultParameters();
+  parameters.opposite_lane_min_time_gap = -0.1;
+  EXPECT_FALSE(areFeasibilityParametersValid(parameters));
+}
+
+TEST_F(SimpleLCAvoidanceUtilsTest, OppositeLaneSafetyReasonsAreStable)
+{
+  EXPECT_STREQ(toString(InfeasibleReason::ONCOMING_TRAFFIC), "oncoming_traffic");
+  EXPECT_STREQ(toString(InfeasibleReason::NO_SAFE_EARLY_RETURN), "no_safe_early_return");
+  EXPECT_FALSE(defaultParameters().enable_opposite_lane_borrowing);
 }
 
 TEST_F(SimpleLCAvoidanceUtilsTest, CompletionRequiresStableSafeGeometry)

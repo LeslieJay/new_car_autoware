@@ -15,12 +15,13 @@
 #include "autoware/behavior_path_simple_lane_change_avoidance_module/scene.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
-#include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
+#include <autoware/planning_factor_interface/planning_factor_interface.hpp>
 #include <autoware/route_handler/route_handler.hpp>
+#include <autoware/vehicle_info_utils/vehicle_info.hpp>
 #include <autoware_test_utils/autoware_test_utils.hpp>
 #include <autoware_test_utils/mock_data_parser.hpp>
-#include <autoware/planning_factor_interface/planning_factor_interface.hpp>
-#include <autoware/vehicle_info_utils/vehicle_info.hpp>
+
+#include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
 
 #include <gtest/gtest.h>
 
@@ -76,8 +77,8 @@ autoware_planning_msgs::msg::LaneletRoute loadLaneChangeRoute()
 std::shared_ptr<autoware::route_handler::RouteHandler> makeRouteHandler(
   const autoware_planning_msgs::msg::LaneletRoute & route)
 {
-  const auto map_path = autoware::test_utils::get_absolute_path_to_lanelet_map(
-    "autoware_test_utils", "2km_test.osm");
+  const auto map_path =
+    autoware::test_utils::get_absolute_path_to_lanelet_map("autoware_test_utils", "2km_test.osm");
   const auto map_bin = autoware::test_utils::make_map_bin_msg(map_path, 1.0);
   auto route_handler = std::make_shared<autoware::route_handler::RouteHandler>(map_bin);
   route_handler->setRoute(route);
@@ -131,13 +132,14 @@ struct NoRoomReengagementScenario
 
     const auto start_pose = autoware::test_utils::createPose(-50.0, 1.75, 0.0, 0.0, 0.0, 0.0);
     lanelet::ConstLanelet closest_lane;
-    EXPECT_TRUE(planner_data->route_handler->getClosestLaneletWithinRoute(
-      start_pose, &closest_lane));
+    EXPECT_TRUE(
+      planner_data->route_handler->getClosestLaneletWithinRoute(start_pose, &closest_lane));
     const auto lanes = planner_data->route_handler->getLaneletSequence(
       closest_lane, start_pose, planner_data->parameters.backward_path_length,
       planner_data->parameters.forward_path_length);
     EXPECT_FALSE(lanes.empty());
-    const auto adjacent_lane = planner_data->route_handler->getRightLanelet(closest_lane, false, false);
+    const auto adjacent_lane =
+      planner_data->route_handler->getRightLanelet(closest_lane, false, false);
     EXPECT_TRUE(adjacent_lane.has_value());
     const auto adjacent_lanes = planner_data->route_handler->getLaneletSequence(
       *adjacent_lane, start_pose, planner_data->parameters.backward_path_length,
@@ -166,8 +168,8 @@ struct NoRoomReengagementScenario
       std::make_shared<autoware::planning_factor_interface::PlanningFactorInterface>(
         &node, "simple_lane_change_avoidance_reengagement_test");
     module = std::make_unique<SimpleLaneChangeAvoidanceModule>(
-      "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces,
-      marker_interfaces, planning_factor_interface);
+      "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+      planning_factor_interface);
     module->setData(planner_data);
     module->setPreviousModuleOutput(upstream);
     module->onEntry();
@@ -279,7 +281,12 @@ TEST_F(
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
     marker_interfaces;
   SimpleLaneChangeAvoidanceModule module{
-    "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+    "simple_lane_change_avoidance",
+    node,
+    parameters,
+    nullptr,
+    rtc_interfaces,
+    marker_interfaces,
     nullptr};
 
   auto planner_data = std::make_shared<PlannerData>();
@@ -354,7 +361,12 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, EmptyInputsProduceNonEmptySafeStop)
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>>
     marker_interfaces;
   SimpleLaneChangeAvoidanceModule module{
-    "simple_lane_change_avoidance", node, parameters, nullptr, rtc_interfaces, marker_interfaces,
+    "simple_lane_change_avoidance",
+    node,
+    parameters,
+    nullptr,
+    rtc_interfaces,
+    marker_interfaces,
     nullptr};
 
   auto planner_data = std::make_shared<PlannerData>();
@@ -373,8 +385,7 @@ TEST_F(SimpleLaneChangeAvoidanceSceneTest, EmptyInputsProduceNonEmptySafeStop)
 }
 
 TEST_F(
-  SimpleLaneChangeAvoidanceSceneTest,
-  ReengageAfterManualPassingOfNoRoomTargetGeneratesRecoveryPath)
+  SimpleLaneChangeAvoidanceSceneTest, ReengageAfterManualPassingOfNoRoomTargetGeneratesRecoveryPath)
 {
   NoRoomReengagementScenario scenario{"simple_lane_change_avoidance_reengage_test"};
   const auto stopped_output = scenario.module->run();
@@ -400,8 +411,7 @@ TEST_F(
 }
 
 TEST_F(
-  SimpleLaneChangeAvoidanceSceneTest,
-  PassingTargetReconcilesStateWithoutOperationModeTransition)
+  SimpleLaneChangeAvoidanceSceneTest, PassingTargetReconcilesStateWithoutOperationModeTransition)
 {
   NoRoomReengagementScenario scenario{"simple_lane_change_avoidance_periodic_state_test"};
   scenario.parameters->max_shift_length = 4.5;
@@ -410,9 +420,8 @@ TEST_F(
   scenario.parameters->shifting_lateral_jerk = 2.0;
   scenario.parameters->return_distance_after_object = 2.0;
   scenario.parameters->road_boundary_margin = 0.0;
-  scenario.planner_data->parameters.vehicle_info =
-    autoware::vehicle_info_utils::createVehicleInfo(
-      0.1, 0.1, 1.0, 0.2, 0.1, 0.1, 0.1, 0.1, 0.5, 0.2);
+  scenario.planner_data->parameters.vehicle_info = autoware::vehicle_info_utils::createVehicleInfo(
+    0.1, 0.1, 1.0, 0.2, 0.1, 0.1, 0.1, 0.1, 0.5, 0.2);
   scenario.planner_data->parameters.vehicle_width =
     scenario.planner_data->parameters.vehicle_info.vehicle_width_m;
   scenario.self_odometry->pose.pose = scenario.upstream.path.points.at(3).point.pose;
@@ -436,12 +445,12 @@ TEST_F(
       scenario.self_odometry->pose.pose),
     0.6);
   EXPECT_LT(
-    std::abs(autoware::motion_utils::calcLateralOffset(
-      recovery_output.path.points, scenario.self_odometry->pose.pose.position)),
+    std::abs(
+      autoware::motion_utils::calcLateralOffset(
+        recovery_output.path.points, scenario.self_odometry->pose.pose.position)),
     0.1);
   EXPECT_EQ(
-    scenario.operation_mode->mode,
-    autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS);
+    scenario.operation_mode->mode, autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS);
   EXPECT_TRUE(scenario.operation_mode->is_autoware_control_enabled);
 }
 
@@ -462,6 +471,37 @@ TEST_F(
 
   ASSERT_FALSE(recovery_output.path.points.empty());
   EXPECT_GT(recovery_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
+  EXPECT_TRUE(scenario.operation_mode->is_autoware_control_enabled);
+}
+
+TEST_F(SimpleLaneChangeAvoidanceSceneTest, CommittedManeuverContinuesWhenTargetLeavesPerception)
+{
+  NoRoomReengagementScenario scenario{"simple_lane_change_avoidance_committed_target_loss_test"};
+  scenario.parameters->max_shift_length = 4.5;
+  scenario.parameters->min_prepare_distance = 1.0;
+  scenario.parameters->min_shifting_distance = 2.0;
+  scenario.parameters->shifting_lateral_jerk = 2.0;
+  scenario.parameters->return_distance_after_object = 2.0;
+  scenario.parameters->road_boundary_margin = 0.0;
+  scenario.planner_data->parameters.vehicle_info = autoware::vehicle_info_utils::createVehicleInfo(
+    0.1, 0.1, 1.0, 0.2, 0.1, 0.1, 0.1, 0.1, 0.5, 0.2);
+  scenario.planner_data->parameters.vehicle_width =
+    scenario.planner_data->parameters.vehicle_info.vehicle_width_m;
+  scenario.self_odometry->pose.pose = scenario.upstream.path.points.at(3).point.pose;
+  scenario.planner_data->dynamic_object = makeObstacleAt(scenario.upstream.path.points.at(21));
+
+  const auto avoidance_output = scenario.module->run();
+  ASSERT_FALSE(avoidance_output.path.points.empty());
+  ASSERT_GT(avoidance_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
+
+  scenario.parameters->target_lost_time_threshold = 0.0;
+  scenario.planner_data->dynamic_object =
+    std::make_shared<autoware_perception_msgs::msg::PredictedObjects>();
+  scenario.module->updateData();
+  const auto held_target_output = scenario.module->run();
+
+  ASSERT_FALSE(held_target_output.path.points.empty());
+  EXPECT_GT(held_target_output.path.points.back().point.longitudinal_velocity_mps, 0.1);
   EXPECT_TRUE(scenario.operation_mode->is_autoware_control_enabled);
 }
 
