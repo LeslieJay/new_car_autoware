@@ -67,6 +67,13 @@ class PedestrianSafetyConfigTest(unittest.TestCase):
 
 class PedestrianSafetyLaunchTest(unittest.TestCase):
 
+    def test_parallel_bringup_delegates_map_default_to_autoware(self):
+        source = (ROOT / 'parallel_bringup.launch.py').read_text()
+        self.assertNotIn('default_map_path', source)
+        self.assertNotIn(
+            '"map_path": LaunchConfiguration("map_path")', source
+        )
+
     def test_bringup_variants_gate_auto_engage_on_safety_ready(self):
         for launch_name in ('bringup.launch.py', 'parallel_bringup.launch.py'):
             source = (ROOT / launch_name).read_text()

@@ -24,7 +24,6 @@ _LAUNCH_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _LAUNCH_DIR)
 from launch_utils import (  # noqa: E402
     as_bool,
-    default_map_path,
     make_wait_process,
     register_stage_transition,
     set_console_format,
@@ -141,7 +140,6 @@ def _launch_everything(context: LaunchContext):
         IncludeLaunchDescription(
             FrontendLaunchDescriptionSource(autoware_launch),
             launch_arguments={
-                "map_path": LaunchConfiguration("map_path"),
                 "rviz": LaunchConfiguration("enable_rviz"),
                 "launch_sensing_driver": "false",
                 # Keep the localization point-cloud filters beside the LiDAR
@@ -242,11 +240,6 @@ def _launch_everything(context: LaunchContext):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument(
-                "map_path",
-                default_value=default_map_path(),
-                description="Point cloud and lanelet2 map directory path",
-            ),
             DeclareLaunchArgument(
                 "log_level",
                 default_value="info",
