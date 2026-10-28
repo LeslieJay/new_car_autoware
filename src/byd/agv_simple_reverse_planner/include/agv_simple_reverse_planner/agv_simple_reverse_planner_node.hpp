@@ -143,7 +143,7 @@ private:
   double goal_yaw_threshold_{0.03};
   double stop_velocity_threshold_{0.02};
 
-  double max_steering_angle_{0.6};
+  double max_steering_angle_{1.0};
   double lat_kp_{0.4};
   double yaw_kp_{0.8};
   double max_acceleration_{0.5};

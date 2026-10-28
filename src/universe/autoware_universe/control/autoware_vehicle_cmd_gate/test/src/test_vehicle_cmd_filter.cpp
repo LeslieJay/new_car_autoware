@@ -61,6 +61,24 @@ Control genCmd(double s, double sr, double v, double a)
   return cmd;
 }
 
+TEST(VehicleCmdFilter, SteeringLimitIsPreservedAfterFeedbackDifferenceLimit)
+{
+  autoware::vehicle_cmd_gate::VehicleCmdFilter filter;
+  setFilterParams(
+    filter, 2.0, {0.0}, {10.0}, {10.0}, {10.0}, {10.0}, {0.65}, {1.0}, {10.0}, 1.008,
+    10.0);
+  filter.setCurrentSpeed(0.0);
+  filter.setPrevCmd(genCmd(0.0, 0.0, 0.0, 0.0));
+
+  for (const double feedback : {2.0, -2.0}) {
+    auto cmd = genCmd(0.0, 0.0, 0.0, 0.0);
+    autoware_vehicle_cmd_gate::msg::IsFilterActivated activated;
+    filter.filterAll(0.1, feedback, cmd, activated);
+    EXPECT_NEAR(cmd.lateral.steering_tire_angle, std::copysign(1.0, feedback), THRESHOLD);
+    EXPECT_TRUE(activated.is_activated_on_steering);
+  }
+}
+
 // calc from ego velocity
 double calcLatAcc(const Control & cmd, const double wheelbase, const double ego_v)
 {

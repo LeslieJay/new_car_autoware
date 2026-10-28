@@ -190,6 +190,8 @@ void VehicleCmdFilter::filterAll(
   limitLateralWithLatJerk(dt, cmd);
   limitLateralWithLatAcc(dt, cmd);
   limitActualSteerDiff(current_steer_angle, cmd);
+  // The feedback-difference limit can move the command outside the steering limit.
+  limitLateralSteer(cmd);
 
   is_activated = checkIsActivated(cmd, cmd_orig);
   return;

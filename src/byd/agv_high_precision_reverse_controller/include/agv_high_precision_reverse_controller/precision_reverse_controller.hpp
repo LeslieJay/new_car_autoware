@@ -43,7 +43,7 @@ struct VehicleState
 struct ControllerParameters
 {
   double wheel_base{1.01};
-  double max_steering_angle{0.60};
+  double max_steering_angle{1.0};
   double max_steering_rate{0.50};
   double steering_offset{0.0};
   double lateral_gain{1.20};

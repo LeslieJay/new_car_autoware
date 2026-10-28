@@ -23,7 +23,7 @@
     min_lookahead_distance: 0.3
     lookahead_ratio: 2.0
     reverse_lookahead_distance: 0.4
-    max_steering_angle: 0.6
+    max_steering_angle: 1.0
     stanley_gain: 1.5
 
     # PID 纵向参数

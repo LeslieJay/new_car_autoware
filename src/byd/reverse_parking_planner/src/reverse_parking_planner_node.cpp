@@ -49,7 +49,7 @@ ReverseParkingPlannerNode::ReverseParkingPlannerNode(const rclcpp::NodeOptions &
   goal_distance_threshold_ = declare_parameter<double>("goal_distance_threshold", 0.3);
   goal_yaw_threshold_ = declare_parameter<double>("goal_yaw_threshold", 0.1);
   stop_velocity_threshold_ = declare_parameter<double>("stop_velocity_threshold", 0.05);
-  max_steering_angle_ = declare_parameter<double>("max_steering_angle", 0.6);
+  max_steering_angle_ = declare_parameter<double>("max_steering_angle", 1.0);
   reverse_lookahead_distance_ = declare_parameter<double>("reverse_lookahead_distance", 0.5);
   stanley_gain_ = declare_parameter<double>("stanley_gain", 1.5);
   final_approach_distance_ = declare_parameter<double>("final_approach_distance", 1.0);

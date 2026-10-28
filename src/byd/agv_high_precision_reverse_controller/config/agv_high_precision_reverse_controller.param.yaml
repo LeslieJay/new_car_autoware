@@ -18,7 +18,7 @@
       max_path_length: 15.0
 
     lateral:
-      max_steering_angle: 0.60
+      max_steering_angle: 1.0
       max_steering_rate: 0.50
       # 实车直线倒车偏航时，用标定值补偿机械/零位偏差。
       steering_offset: 0.0
