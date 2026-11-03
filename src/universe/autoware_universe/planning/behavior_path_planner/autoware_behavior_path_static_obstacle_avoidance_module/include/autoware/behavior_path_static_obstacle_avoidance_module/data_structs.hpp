@@ -47,7 +47,6 @@ enum class ObjectInfo {
   FURTHER_THAN_GOAL,
   IS_NOT_TARGET_OBJECT,
   IS_NOT_PARKING_OBJECT,
-  TOO_NEAR_TO_CENTERLINE,
   TOO_NEAR_TO_GOAL,
   MOVING_OBJECT,
   UNSTABLE_OBJECT,
@@ -173,10 +172,6 @@ struct AvoidanceParameters
 
   // lower distance for envelope polygon expansion.
   double lower_distance_for_polygon_expansion{0.0};
-
-  // Vehicles whose distance to the center of the path is
-  // less than this will not be considered for avoidance.
-  double threshold_distance_object_is_on_center{0.0};
 
   // execute only when there is no intersection behind of the stopped vehicle.
   double object_ignore_section_traffic_light_in_front_distance{0.0};

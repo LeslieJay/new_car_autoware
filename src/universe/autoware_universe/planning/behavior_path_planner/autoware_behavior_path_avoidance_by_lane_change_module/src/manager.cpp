@@ -127,8 +127,6 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
 
   {
     const std::string ns = "avoidance.target_filtering.parked_vehicle.";
-    p.threshold_distance_object_is_on_center =
-      get_or_declare_parameter<double>(*node, ns + "th_offset_from_centerline");
     p.object_check_shiftable_ratio =
       get_or_declare_parameter<double>(*node, ns + "th_shiftable_ratio");
     p.object_check_min_road_shoulder_width =

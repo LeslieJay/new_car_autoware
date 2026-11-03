@@ -685,7 +685,7 @@ bool isParkedVehicle(
     return false;
   }
 
-  return std::abs(object.to_centerline) >= parameters->threshold_distance_object_is_on_center;
+  return true;
 }
 
 bool isAdjacentLaneStopVehicle(const ObjectData & object)
@@ -1046,13 +1046,9 @@ bool isSatisfiedWithNonVehicleCondition(
     return false;
   }
 
-  // Object is on center line -> ignore.
+  // Keep the lateral position for the following side/lane checks and debug output.
   object.to_centerline =
     lanelet::utils::getArcCoordinates(data.current_lanelets, object.getPose()).distance;
-  if (std::abs(object.to_centerline) < parameters->threshold_distance_object_is_on_center) {
-    object.info = ObjectInfo::TOO_NEAR_TO_CENTERLINE;
-    return false;
-  }
 
   if (object.is_within_intersection) {
     RCLCPP_DEBUG(

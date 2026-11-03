@@ -27,6 +27,25 @@ a complete `control_cmd` calibration:
 Jerk and steering rotation rate have no `0x201` field and are recorded only; do not fit parameters
 for them.
 
+For vehicle-speed calibration, use `/sensing/gnss/rtk/velocity_twist` as the independent ground
+truth and keep `/vehicle/status/velocity_status` as the VCU feedback channel. Comparing only the
+latter can hide a common CAN scaling error.
+
+The unified forward collector records the full ROS chain, RTK/CAN feedback, raw `0x201`/`0x181`
+frames, and the actual SocketCAN write timestamp:
+
+```bash
+python3 src/byd/scripts/run_forward_speed_link_calibration.py --arm
+python3 src/byd/scripts/analyze_forward_speed_link_calibration.py \
+  log/forward_speed_link_calibration/<run-directory>
+```
+
+The collector refuses to run without `--arm` or when another `control_cmd` publisher is active.
+It covers forward 0--1 m/s, five acceleration/deceleration rates, and three repetitions by
+default. Use `--command-topic /external/selected/control_cmd` only after the gate is explicitly in
+EXTERNAL mode to include the command-gate path. It generates `calibration_candidates.yaml`; review
+it before copying values into the vehicle parameter file.
+
 ## Low-speed calibration
 
 Use lifted drive wheels or a roller bed first. Ensure no other node publishes
@@ -94,6 +113,18 @@ Non-zero results are clamped to 1-255. During positive acceleration Byte6 uses i
 during negative acceleration Byte5 uses its fixed fallback. Undefined or zero acceleration uses both
 fixed fallbacks.
 
+The driver also accepts optional monotonic lookup tables for the forward calibration range:
+`speed_command_breakpoints_mps`/`speed_command_values`,
+`acceleration_breakpoints_mps2`/`acceleration_step_values`, and
+`deceleration_breakpoints_mps2`/`deceleration_step_values`. Empty arrays preserve the legacy
+linear conversion. Values inside the calibrated range are linearly interpolated; values outside
+the range are clamped to the nearest endpoint. Invalid lengths, non-monotonic values, or counts
+outside the CAN range are rejected during node startup.
+
+`can_tx_log_path` records `timestamp_epoch_s,interface,can_id,dlc,data` immediately after a
+successful SocketCAN write. This is the timestamp to use when separating ROS/gate delay from VCU
+and feedback delay; `/can_driver/debug/control_cmd_can` remains a pre-queue diagnostic.
+
 ## Acceptance criteria
 
 - ROS control input and CAN `0x201` both average approximately 50 Hz.
@@ -101,7 +132,9 @@ fixed fallbacks.
   interval is no more than 40 ms. See `can_period_stats.txt` in the calibration result directory.
 - Missing control input warns at 60 ms and switches to the zero-speed brake frame by 100-120 ms;
   the safety frame continues at 50 Hz.
-- Steady speed error: no more than 0.02 m/s from 0 to 0.5 m/s.
+- Steady RTK speed error: no more than 0.02 m/s from 0.1 to 1.0 m/s.
+- Report the independent `0x181`-to-RTK scale, bias, and response delay separately.
+- Ramp tracking RMSE should be no more than 0.03 m/s and maximum error no more than 0.05 m/s.
 - Acceleration and deceleration error: no more than 10%.
 - Steering angle error: no more than 0.5 degrees.
 - Report command delay, 10%-90% rise/fall time, stopping distance, and three-run repeatability.

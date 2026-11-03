@@ -12,8 +12,10 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <fstream>
 #include <mutex>
 #include <queue>
+#include <string>
 #include <vector>
 
 #include <linux/can.h>
@@ -47,6 +49,10 @@ public:
     /// Configure the periodic control-frame interval (20 ms for the VCU protocol).
     void setControlFramePeriodMs(int period_ms);
 
+    /// Record the timestamp immediately after a frame is written to SocketCAN.
+    /// An empty path disables this additional calibration log.
+    void setTransmitLogPath(const std::string & path);
+
     /**
      * @brief 取出并清空队列中所有待发送帧
      * @return 包含所有待发送帧的 vector
@@ -63,14 +69,21 @@ public:
         int socket_handle,
         const std::vector<struct ::can_frame> &frames,
         const SendOptions &options = SendOptions{});
-    void sendTask(int socket,  std::atomic<bool> &running);
+    void sendTask(int socket, std::atomic<bool> &running);
+    void sendTaskOnInterface(int socket, std::atomic<bool> &running,
+                             const std::string & interface_name);
 
 private:
+    void recordTransmittedFrame(const std::string & interface_name,
+                                const struct ::can_frame & frame);
     std::queue<struct ::can_frame> queue_;
     struct ::can_frame latest_control_frame_{};
     bool has_latest_control_frame_{false};
     std::atomic<int> control_frame_period_ms_{20};
     
     mutable std::mutex mtx_; // 保护队列的互斥锁
+    std::mutex tx_log_mtx_;
+    std::ofstream tx_log_;
+    std::string tx_log_path_;
 };
 }

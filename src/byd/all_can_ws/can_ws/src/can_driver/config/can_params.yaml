@@ -35,6 +35,17 @@ can_node:
     steering_command_scale_right: 5729.5779513082325
     steering_command_offset: 0.0
 
+    # Optional calibrated monotonic lookup tables. Empty arrays preserve the
+    # legacy scale/offset and linear Byte5/Byte6 behavior.
+    speed_command_breakpoints_mps: []
+    speed_command_values: []
+    acceleration_breakpoints_mps2: []
+    acceleration_step_values: []
+    deceleration_breakpoints_mps2: []
+    deceleration_step_values: []
+    # Timestamped immediately after SocketCAN write; useful for calibration.
+    can_tx_log_path: "/tmp/can_driver_tx.csv"
+
     # 心跳统一配置
     #heartbeat_base_id: 1    # 实际 ID: can0 → 700, can1 → 701
     #heartbeat_period: 25     # 两个接口共用周期（单位：毫秒）

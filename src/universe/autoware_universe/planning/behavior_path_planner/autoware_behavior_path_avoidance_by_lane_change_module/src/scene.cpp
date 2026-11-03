@@ -254,12 +254,6 @@ std::optional<ObjectData> AvoidanceByLaneChange::createObjectData(
   object_data.to_centerline =
     lanelet::utils::getArcCoordinates(data.current_lanelets, object_pose).distance;
 
-  if (
-    std::abs(object_data.to_centerline) <
-    avoidance_parameters_->threshold_distance_object_is_on_center) {
-    return std::nullopt;
-  }
-
   object_data.object = object;
 
   const auto lower = p->lower_distance_for_polygon_expansion;

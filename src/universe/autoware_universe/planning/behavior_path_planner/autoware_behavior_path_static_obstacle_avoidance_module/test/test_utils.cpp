@@ -86,7 +86,6 @@ auto get_parameters() -> std::shared_ptr<AvoidanceParameters>
   parameters.object_check_shiftable_ratio = 0.6;
   parameters.object_check_min_road_shoulder_width = 0.5;
   parameters.object_last_seen_threshold = 0.2;
-  parameters.threshold_distance_object_is_on_center = 1.0;
   parameters.hard_drivable_bound_margin = 0.1;
   parameters.soft_drivable_bound_margin = 0.5;
   parameters.lateral_execution_threshold = 0.5;
@@ -158,6 +157,18 @@ TEST(TestUtils, isMovingObject)
 
     EXPECT_TRUE(filtering_utils::isMovingObject(object_data, get_parameters()));
   }
+}
+
+TEST(TestUtils, parkedVehicleDoesNotDependOnCenterlineDistance)
+{
+  auto parameters = get_parameters();
+  ObjectData object;
+  object.direction = Direction::RIGHT;
+  object.shiftable_ratio = parameters->object_check_shiftable_ratio + 0.1;
+  object.to_centerline = 0.0;
+  object.is_within_intersection = false;
+
+  EXPECT_TRUE(filtering_utils::isParkedVehicle(object, parameters));
 }
 
 TEST(TestUtils, getObjectBehavior)

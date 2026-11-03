@@ -741,11 +741,6 @@
             "parked_vehicle": {
               "type": "object",
               "properties": {
-                "th_offset_from_centerline": {
-                  "type": "number",
-                  "description": "Vehicles around the center line within this distance will be excluded from avoidance target.",
-                  "default": 1.0
-                },
                 "th_shiftable_ratio": {
                   "type": "number",
                   "description": "Vehicles around the center line within this distance will be excluded from avoidance target.",
@@ -760,7 +755,6 @@
                 }
               },
               "required": [
-                "th_offset_from_centerline",
                 "th_shiftable_ratio",
                 "min_road_shoulder_width"
               ],

@@ -236,6 +236,13 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         double steering_command_scale_left_{5729.5779513082325};
         double steering_command_scale_right_{5729.5779513082325};
         double steering_command_offset_{0.0};
+        std::vector<double> speed_command_breakpoints_mps_;
+        std::vector<int64_t> speed_command_values_;
+        std::vector<double> acceleration_breakpoints_mps2_;
+        std::vector<int64_t> acceleration_step_values_;
+        std::vector<double> deceleration_breakpoints_mps2_;
+        std::vector<int64_t> deceleration_step_values_;
+        std::string can_tx_log_path_;
         rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
           calibration_parameter_callback_;
     };
