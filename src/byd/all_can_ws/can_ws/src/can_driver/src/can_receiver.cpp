@@ -14,7 +14,6 @@
 #include <fcntl.h>
 #include <linux/can/raw.h>
 #include <poll.h>
-#include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -115,13 +114,6 @@ namespace can_driver
         node_->declare_parameter("steering_command_scale_left", 100.0 * 180.0 / kPi);
         node_->declare_parameter("steering_command_scale_right", 100.0 * 180.0 / kPi);
         node_->declare_parameter("steering_command_offset", 0.0);
-        node_->declare_parameter("speed_command_breakpoints_mps", std::vector<double>{});
-        node_->declare_parameter("speed_command_values", std::vector<int64_t>{});
-        node_->declare_parameter("acceleration_breakpoints_mps2", std::vector<double>{});
-        node_->declare_parameter("acceleration_step_values", std::vector<int64_t>{});
-        node_->declare_parameter("deceleration_breakpoints_mps2", std::vector<double>{});
-        node_->declare_parameter("deceleration_step_values", std::vector<int64_t>{});
-        node_->declare_parameter("can_tx_log_path", std::string{"/tmp/can_driver_tx.csv"});
 
         node_->get_parameter("engage_service_wait_timeout", engage_srv_wait_timeout_);
         node_->get_parameter("engage_service_call_timeout", engage_srv_call_timeout_);
@@ -145,24 +137,6 @@ namespace can_driver
         node_->get_parameter("steering_command_scale_left", steering_command_scale_left_);
         node_->get_parameter("steering_command_scale_right", steering_command_scale_right_);
         node_->get_parameter("steering_command_offset", steering_command_offset_);
-        node_->get_parameter("speed_command_breakpoints_mps", speed_command_breakpoints_mps_);
-        node_->get_parameter("speed_command_values", speed_command_values_);
-        node_->get_parameter("acceleration_breakpoints_mps2", acceleration_breakpoints_mps2_);
-        node_->get_parameter("acceleration_step_values", acceleration_step_values_);
-        node_->get_parameter("deceleration_breakpoints_mps2", deceleration_breakpoints_mps2_);
-        node_->get_parameter("deceleration_step_values", deceleration_step_values_);
-        node_->get_parameter("can_tx_log_path", can_tx_log_path_);
-
-        const auto validate_lookup = [](const std::string & name,
-          const std::vector<double> & breakpoints,
-          const std::vector<int64_t> & commands) {
-          if (!isValidMonotonicLookupTable(breakpoints, commands)) {
-            throw std::invalid_argument(name + " must have equal lengths and be finite, monotonic, and within CAN range");
-          }
-        };
-        validate_lookup("speed_command", speed_command_breakpoints_mps_, speed_command_values_);
-        validate_lookup("acceleration", acceleration_breakpoints_mps2_, acceleration_step_values_);
-        validate_lookup("deceleration", deceleration_breakpoints_mps2_, deceleration_step_values_);
         voice_frame_period_ms_ = std::max(voice_frame_period_ms_, 0);
         engage_frame_period_ms_ = std::max(engage_frame_period_ms_, 0);
         control_frame_period_ms_ = std::max(control_frame_period_ms_, 1);
@@ -184,7 +158,6 @@ namespace can_driver
         }
         CreateSafetyFrame();
         send_queue_->setControlFramePeriodMs(control_frame_period_ms_);
-        send_queue_->setTransmitLogPath(can_tx_log_path_);
         send_queue_->setLatestControlFrame(safe_frame);
         last_control_steady_ns_.store(steady_now_ns(), std::memory_order_relaxed);
         sendSafetyFrameCallback();
@@ -902,32 +875,18 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         // 默认1 count = 0.001 m/s；正反向比例和零点可独立标定。
         const int16_t speed_limit = static_cast<int16_t>(
           std::clamp(speed_upper_bound_, 1, static_cast<int>(INT16_MAX)));
-        const int16_t speed_command = !speed_command_breakpoints_mps_.empty() && velocity > 0.0
-          ? encodePiecewiseCommand(
-            velocity, speed_command_breakpoints_mps_, speed_command_values_, speed_limit)
-          : encodeSignedCommand(
-            velocity, speed_command_scale_forward_, speed_command_scale_reverse_,
-            speed_command_offset_forward_, speed_command_offset_reverse_, speed_limit);
+        const int16_t speed_command = encodeSignedCommand(
+          velocity, speed_command_scale_forward_, speed_command_scale_reverse_,
+          speed_command_offset_forward_, speed_command_offset_reverse_, speed_limit);
 
-        const auto acceleration = msg->longitudinal.acceleration;
-        const bool dynamic_acceleration =
-          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration;
-        const uint8_t acceleration_step_command =
-          dynamic_acceleration && acceleration > 0.0 && !acceleration_breakpoints_mps2_.empty()
-          ? static_cast<uint8_t>(encodePiecewiseCommand(
-              acceleration, acceleration_breakpoints_mps2_, acceleration_step_values_, 255))
-          : encodeDirectionalMotorSpeedStep(
-              acceleration, acceleration_step_counts_per_mps2_,
-              static_cast<uint8_t>(default_acceleration_step_command_.load(std::memory_order_relaxed)),
-              dynamic_acceleration && acceleration_breakpoints_mps2_.empty(), true);
-        const uint8_t deceleration_step_command =
-          dynamic_acceleration && acceleration < 0.0 && !deceleration_breakpoints_mps2_.empty()
-          ? static_cast<uint8_t>(encodePiecewiseCommand(
-              std::abs(acceleration), deceleration_breakpoints_mps2_, deceleration_step_values_, 255))
-          : encodeDirectionalMotorSpeedStep(
-              acceleration, deceleration_step_counts_per_mps2_,
-              static_cast<uint8_t>(default_deceleration_step_command_.load(std::memory_order_relaxed)),
-              dynamic_acceleration && deceleration_breakpoints_mps2_.empty(), false);
+        const uint8_t acceleration_step_command = encodeDirectionalMotorSpeedStep(
+          msg->longitudinal.acceleration, acceleration_step_counts_per_mps2_,
+          static_cast<uint8_t>(default_acceleration_step_command_.load(std::memory_order_relaxed)),
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration, true);
+        const uint8_t deceleration_step_command = encodeDirectionalMotorSpeedStep(
+          msg->longitudinal.acceleration, deceleration_step_counts_per_mps2_,
+          static_cast<uint8_t>(default_deceleration_step_command_.load(std::memory_order_relaxed)),
+          use_dynamic_acceleration_steps_ && msg->longitudinal.is_defined_acceleration, false);
 
         // // 舵轮转角超过阈值时, 再次降低车速
         // // TODO: 分阶段降低; 参数化

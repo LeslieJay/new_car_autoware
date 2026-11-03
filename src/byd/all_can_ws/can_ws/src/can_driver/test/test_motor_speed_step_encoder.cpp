@@ -8,8 +8,6 @@ int main()
   using can_driver::encodeMotorSpeedStep;
   using can_driver::encodeDirectionalMotorSpeedStep;
   using can_driver::encodeSignedCommand;
-  using can_driver::encodePiecewiseCommand;
-  using can_driver::isValidMonotonicLookupTable;
 
   assert(encodeMotorSpeedStep(0.2, 25.0, 10, true) == 5);
   assert(encodeMotorSpeedStep(-0.4, 25.0, 10, true) == 10);
@@ -28,18 +26,5 @@ int main()
   assert(encodeSignedCommand(0.2, 1000.0, 1000.0, 0.0, 0.0, 4000) == 200);
   assert(encodeSignedCommand(-0.2, 1000.0, 900.0, 0.0, 5.0, 4000) == -185);
   assert(encodeSignedCommand(10.0, 1000.0, 1000.0, 0.0, 0.0, 4000) == 4000);
-
-  const std::vector<double> speed_breakpoints{0.1, 0.5, 1.0};
-  const std::vector<int64_t> speed_commands{90, 500, 1020};
-  assert(encodePiecewiseCommand(0.0, speed_breakpoints, speed_commands, 4000) == 0);
-  assert(encodePiecewiseCommand(0.05, speed_breakpoints, speed_commands, 4000) == 90);
-  assert(encodePiecewiseCommand(0.3, speed_breakpoints, speed_commands, 4000) == 295);
-  assert(encodePiecewiseCommand(2.0, speed_breakpoints, speed_commands, 4000) == 1020);
-  assert(encodePiecewiseCommand(0.3, speed_breakpoints, speed_commands, 200) == 200);
-  assert(isValidMonotonicLookupTable(speed_breakpoints, speed_commands));
-  assert(!isValidMonotonicLookupTable({0.1, 0.1}, {1, 2}));
-  assert(!isValidMonotonicLookupTable({0.1}, {1, 2}));
-  assert(!isValidMonotonicLookupTable({0.1, 0.2}, {2, 1}));
-  assert(!isValidMonotonicLookupTable({0.1}, {40000}));
   return 0;
 }

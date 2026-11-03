@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
-#include <iomanip>
 #include <iostream>
 #include <sys/select.h>
 #include <thread>
@@ -49,43 +48,6 @@ void CanSend::setControlFramePeriodMs(const int period_ms)
     control_frame_period_ms_.store(std::max(period_ms, 1), std::memory_order_relaxed);
 }
 
-void CanSend::setTransmitLogPath(const std::string & path)
-{
-    std::lock_guard<std::mutex> lock(tx_log_mtx_);
-    if (tx_log_.is_open()) {
-        tx_log_.close();
-    }
-    tx_log_path_ = path;
-    if (tx_log_path_.empty()) {
-        return;
-    }
-    tx_log_.open(tx_log_path_, std::ios::app);
-    if (tx_log_.is_open() && tx_log_.tellp() == std::streampos(0)) {
-        tx_log_ << "timestamp_epoch_s,interface,can_id,dlc,data\n";
-    }
-}
-
-void CanSend::recordTransmittedFrame(
-  const std::string & interface_name, const struct ::can_frame & frame)
-{
-    std::lock_guard<std::mutex> lock(tx_log_mtx_);
-    if (!tx_log_.is_open()) {
-        return;
-    }
-    const auto now = std::chrono::system_clock::now();
-    const double timestamp = std::chrono::duration<double>(now.time_since_epoch()).count();
-    tx_log_ << std::fixed << std::setprecision(9) << timestamp << ','
-            << interface_name << ",0x" << std::hex << (frame.can_id & CAN_EFF_MASK)
-            << std::dec << ',' << static_cast<int>(frame.can_dlc) << ',';
-    for (int i = 0; i < frame.can_dlc; ++i) {
-        if (i > 0) tx_log_ << ' ';
-        tx_log_ << std::hex << std::setw(2) << std::setfill('0')
-                << static_cast<int>(frame.data[i]);
-    }
-    tx_log_ << std::dec << std::setfill(' ') << '\n';
-    tx_log_.flush();
-}
-
 std::vector<::can_frame> CanSend::pop_all()
 {
     std::queue<::can_frame> tmp;
@@ -107,8 +69,7 @@ bool CanSend::empty() const {
     std::lock_guard<std::mutex> lock(mtx_);
     return queue_.empty();
 }
-void CanSend::sendTaskOnInterface(
-  int socket, std::atomic<bool> &running, const std::string & interface_name)
+void CanSend::sendTask(int socket,  std::atomic<bool> &running)
 {
     SendOptions opt;
     opt.timeout_per_frame_ms = 50;
@@ -133,11 +94,7 @@ void CanSend::sendTaskOnInterface(
 
         if (!frames.empty())
         {
-            for (const auto & frame : frames) {
-                if (sendFrames(socket, {frame}, opt)) {
-                    recordTransmittedFrame(interface_name, frame);
-                }
-            }
+            sendFrames(socket, frames, opt);
         }
 
         const auto period = std::chrono::milliseconds(
@@ -149,11 +106,6 @@ void CanSend::sendTaskOnInterface(
         }
         std::this_thread::sleep_until(next_send_time);
     }
-}
-
-void CanSend::sendTask(int socket, std::atomic<bool> & running)
-{
-    sendTaskOnInterface(socket, running, "");
 }
 
 bool CanSend::sendFrames(

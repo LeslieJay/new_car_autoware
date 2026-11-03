@@ -70,8 +70,7 @@ int main(int argc, char * argv[])
 
     receive_threads.emplace_back(&can_driver::CanReceiver::receiveTask, receiver.get(), socket, if_name);
     send_threads.emplace_back(
-      &can_driver::CanSend::sendTaskOnInterface, can_driver::send_queue_.get(), socket,
-      std::ref(g_running), if_name);
+      &can_driver::CanSend::sendTask, can_driver::send_queue_.get(), socket, std::ref(g_running));
   };
 
   create_interface(socket0, interface0);

@@ -4,31 +4,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <vector>
 
 namespace can_driver
 {
-
-inline bool isValidMonotonicLookupTable(
-  const std::vector<double> & breakpoints, const std::vector<int64_t> & commands,
-  const int64_t max_command = 32767) noexcept
-{
-  if (breakpoints.empty() && commands.empty()) {
-    return true;
-  }
-  if (breakpoints.empty() || breakpoints.size() != commands.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < breakpoints.size(); ++i) {
-    if (!std::isfinite(breakpoints[i]) || breakpoints[i] <= 0.0 ||
-        commands[i] < 0 || commands[i] > max_command ||
-        (i > 0 && (breakpoints[i] <= breakpoints[i - 1] ||
-                   commands[i] < commands[i - 1]))) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /// Encode the motor-speed increment applied by the VCU every 20 ms.
 /// One command count means that the target motor speed changes by 1 r/s per cycle.
@@ -65,42 +43,6 @@ inline int16_t encodeSignedCommand(
   const double offset = value > 0.0 ? positive_offset : (value < 0.0 ? -negative_offset : 0.0);
   const long command = std::lround(value * scale + offset);
   return static_cast<int16_t>(std::clamp(command, -static_cast<long>(limit), static_cast<long>(limit)));
-}
-
-/// Map a non-negative physical command through a calibrated monotonic lookup
-/// table.  The table contains physical breakpoints and wire values, both in
-/// ascending order.  Values outside the calibrated range are clamped to the
-/// nearest endpoint; no extrapolation is performed.
-inline int16_t encodePiecewiseCommand(
-  const double value, const std::vector<double> & breakpoints,
-  const std::vector<int64_t> & commands, const int16_t limit) noexcept
-{
-  if (!std::isfinite(value) || value <= 0.0 || breakpoints.empty() ||
-      breakpoints.size() != commands.size()) {
-    return 0;
-  }
-
-  double wire = static_cast<double>(commands.front());
-  if (value <= breakpoints.front()) {
-    wire = static_cast<double>(commands.front());
-  } else if (value >= breakpoints.back()) {
-    wire = static_cast<double>(commands.back());
-  } else {
-    for (std::size_t i = 1; i < breakpoints.size(); ++i) {
-      if (value <= breakpoints[i]) {
-        const double denominator = breakpoints[i] - breakpoints[i - 1];
-        const double ratio = denominator > 0.0 ?
-          (value - breakpoints[i - 1]) / denominator : 0.0;
-        wire = static_cast<double>(commands[i - 1]) +
-          ratio * static_cast<double>(commands[i] - commands[i - 1]);
-        break;
-      }
-    }
-  }
-
-  const long rounded = std::lround(wire);
-  return static_cast<int16_t>(std::clamp(
-    rounded, 0L, static_cast<long>(std::max<int16_t>(limit, 0))));
 }
 
 }  // namespace can_driver
