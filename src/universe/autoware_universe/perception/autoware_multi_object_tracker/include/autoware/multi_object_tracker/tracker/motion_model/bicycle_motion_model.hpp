@@ -66,6 +66,8 @@ private:
     double q_cov_length = 0.25;                  // [m^2] covariance of the length uncertainty, 0.5m
   } motion_params_;
 
+  int reverse_vel_count_{0};
+
 public:
   BicycleMotionModel();
 

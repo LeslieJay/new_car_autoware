@@ -108,6 +108,7 @@ bool BicycleMotionModel::initialize(
   P(IDX::U, IDX::U) = vel_long_cov;
   P(IDX::V, IDX::V) = vel_lat_cov * motion_params_.wheel_pos_ratio;
 
+  reverse_vel_count_ = 0;
   return MotionModel::initialize(time, X, P);
 }
 
@@ -403,36 +404,46 @@ bool BicycleMotionModel::limitStates()
   ekf_.getX(X_t);
   ekf_.getP(P_t);
 
-  // maximum reverse velocity
+  // maximum reverse velocity with hysteresis
   if (motion_params_.max_reverse_vel < 0 && X_t(IDX::U) < motion_params_.max_reverse_vel) {
-    // rotate the object orientation by 180 degrees
-    // replace X1 and Y1 with X2 and Y2
-    const double x_center =
-      (X_t(IDX::X1) * motion_params_.lf_ratio + X_t(IDX::X2) * motion_params_.lr_ratio) *
-      motion_params_.wheel_base_ratio_inv;
-    const double y_center =
-      (X_t(IDX::Y1) * motion_params_.lf_ratio + X_t(IDX::Y2) * motion_params_.lr_ratio) *
-      motion_params_.wheel_base_ratio_inv;
-    const double x1_rel = X_t(IDX::X1) - x_center;
-    const double y1_rel = X_t(IDX::Y1) - y_center;
-    const double x2_rel = X_t(IDX::X2) - x_center;
-    const double y2_rel = X_t(IDX::Y2) - y_center;
+    ++reverse_vel_count_;
+    constexpr int MIN_REVERSE_VEL_COUNT = 5;  // require at least 5 consecutive frames
+    if (reverse_vel_count_ >= MIN_REVERSE_VEL_COUNT) {
+      // rotate the object orientation by 180 degrees
+      // replace X1 and Y1 with X2 and Y2
+      const double x_center =
+        (X_t(IDX::X1) * motion_params_.lf_ratio + X_t(IDX::X2) * motion_params_.lr_ratio) *
+        motion_params_.wheel_base_ratio_inv;
+      const double y_center =
+        (X_t(IDX::Y1) * motion_params_.lf_ratio + X_t(IDX::Y2) * motion_params_.lr_ratio) *
+        motion_params_.wheel_base_ratio_inv;
+      const double x1_rel = X_t(IDX::X1) - x_center;
+      const double y1_rel = X_t(IDX::Y1) - y_center;
+      const double x2_rel = X_t(IDX::X2) - x_center;
+      const double y2_rel = X_t(IDX::Y2) - y_center;
 
-    X_t(IDX::X1) = x_center + x2_rel;
-    X_t(IDX::Y1) = y_center + y2_rel;
-    X_t(IDX::X2) = x_center + x1_rel;
-    X_t(IDX::Y2) = y_center + y1_rel;
+      X_t(IDX::X1) = x_center + x2_rel;
+      X_t(IDX::Y1) = y_center + y2_rel;
+      X_t(IDX::X2) = x_center + x1_rel;
+      X_t(IDX::Y2) = y_center + y1_rel;
 
-    // reverse the velocity
-    X_t(IDX::U) = -X_t(IDX::U);
-    // rotation velocity does not change
+      // reverse the velocity
+      X_t(IDX::U) = -X_t(IDX::U);
+      // rotation velocity does not change
 
-    // replace covariance
-    // Swap rows and columns
-    P_t.row(IDX::X1).swap(P_t.row(IDX::X2));
-    P_t.row(IDX::Y1).swap(P_t.row(IDX::Y2));
-    P_t.col(IDX::X1).swap(P_t.col(IDX::X2));
-    P_t.col(IDX::Y1).swap(P_t.col(IDX::Y2));
+      // replace covariance
+      // Swap rows and columns
+      P_t.row(IDX::X1).swap(P_t.row(IDX::X2));
+      P_t.row(IDX::Y1).swap(P_t.row(IDX::Y2));
+      P_t.col(IDX::X1).swap(P_t.col(IDX::X2));
+      P_t.col(IDX::Y1).swap(P_t.col(IDX::Y2));
+      reverse_vel_count_ = 0;
+    } else {
+      // Clamp negative velocity to max_reverse_vel to prevent negative divergence without flipping heading
+      X_t(IDX::U) = motion_params_.max_reverse_vel;
+    }
+  } else {
+    reverse_vel_count_ = 0;
   }
   // maximum velocity
   if (!(-motion_params_.max_vel <= X_t(IDX::U) && X_t(IDX::U) <= motion_params_.max_vel)) {

@@ -35,6 +35,18 @@
           "default": 0.02,
           "minimum": 0.0
         },
+        "max_fixed_frame_gap_sec": {
+          "type": "number",
+          "description": "Maximum interval between consecutive qualifying GNSS poses. [sec]",
+          "default": 0.5,
+          "minimum": 0.0
+        },
+        "min_consecutive_fixed_count": {
+          "type": "integer",
+          "description": "Minimum number of consecutive qualifying GNSS poses required for initialization.",
+          "default": 5,
+          "minimum": 1
+        },
         "pose_error_check_enabled": {
           "type": "boolean",
           "description": "If true, check error between initial pose result and GNSS pose.",

@@ -52,8 +52,8 @@
           pointcloud_deceleration: -1.0 # [m/ss] for pointcloud
           velocity_offset: -1.0 # [m/s]
 
-        obstacle_velocity_threshold_enter_fixed_stop: 0.3  # [m/s] enter fixed-stop handling for nearly stationary obstacles
-        obstacle_velocity_threshold_exit_fixed_stop: 0.5  # [m/s] leave fixed-stop handling with hysteresis
+        obstacle_velocity_threshold_enter_fixed_stop: 3.0  # [m/s] enter fixed-stop handling for low-speed obstacles
+        obstacle_velocity_threshold_exit_fixed_stop: 3.5  # [m/s] leave fixed-stop handling with hysteresis
 
       obstacle_filtering: # All parameters under this namespace can be set for each object type. If you want to set a value different from the default, please add a line.
         check_inside: # If true, the planner checks if the obstacle is inside the ego's footprint; can be tuned for each object type
@@ -97,7 +97,7 @@
         min_object_length: 0.20 # [m] minimum object length to consider for stop planning
 
         min_velocity_to_reach_collision_point: 0.8 # minimum velocity margin to calculate time to reach collision [m/s]
-        stop_obstacle_hold_time_threshold : 0.3 # maximum time for holding closest stop obstacle
+        stop_obstacle_hold_time_threshold : 1.0 # maximum time for holding closest stop obstacle
 
         outside_obstacle: # Parameters for predicting if an obstacle will cut in. Pointcloud obstacles are not supported.
           estimation_time_horizon: 0.5

@@ -7,7 +7,7 @@
     threshold_gnss_stddev_z_max: 0.5
 
     # If GNSS position XY standard deviation values are lower than this, trust only GNSS
-    threshold_gnss_stddev_xy_bound_lower: 0.1
+    threshold_gnss_stddev_xy_bound_lower: 0.12
 
     # If GNSS position XY standard deviation values are higher than this, trust only NDT
     threshold_gnss_stddev_xy_bound_upper: 0.25
@@ -20,13 +20,14 @@
 
     # If GNSS data is not received for this duration, trust only NDT
     gnss_pose_timeout_sec: 1.0
+    ndt_pose_timeout_sec: 1.0 # Timeout threshold to detect NDT stall and activate emergency GNSS fallback
 
     # Require consecutive samples to prevent state=4/5 chattering at building entrances
     switch_to_ndt_count_threshold: 5
     switch_to_gnss_count_threshold: 20
 
     # Do not recover GNSS unless its pose is continuous with the active NDT solution
-    gnss_ndt_position_difference_threshold: 0.3
+    gnss_ndt_position_difference_threshold: 0.5
     gnss_ndt_yaw_difference_threshold_deg: 3.0
 
     # Outdoor experiment: keep GNSS position and use NDT orientation while GNSS remains usable.
@@ -35,8 +36,8 @@
     # Automatic outdoor attitude alignment and smooth transition to GNSS
     attitude_alignment:
       enable_auto_attitude_switch: true
-      min_align_velocity_mps: 0.8
-      max_align_yaw_diff_deg: 2.5
+      min_align_velocity_mps: 0.4
+      max_align_yaw_diff_deg: 3.0
       max_align_pos_diff_m: 0.8
       required_stable_duration_sec: 1.5
       max_angular_velocity_radps: 0.05

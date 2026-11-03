@@ -41,6 +41,11 @@ private:
   PoseWithCovarianceStamped::ConstSharedPtr pose_;
   double timeout_;
   double max_position_variance_;
+  double max_fixed_frame_gap_sec_{0.5};
+  rclcpp::Time last_pose_received_time_{0, 0, RCL_ROS_TIME};
+  bool has_last_pose_received_time_{false};
+  int min_consecutive_fixed_count_{5};
+  int consecutive_fixed_count_{0};
 };
 }  // namespace autoware::pose_initializer
 

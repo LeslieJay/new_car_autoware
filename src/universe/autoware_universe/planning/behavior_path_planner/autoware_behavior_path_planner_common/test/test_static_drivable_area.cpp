@@ -238,6 +238,70 @@ TEST(StaticDrivableArea, cutOverlappedLanes)
   }
 }
 
+TEST(StaticDrivableArea, cutOverlappedLanesKeepsOppositeDirectionRouteOverlap)
+{
+  using autoware::behavior_path_planner::utils::cutOverlappedLanes;
+
+  const auto outgoing_lane =
+    make_drivable_lanes(make_lanelet({0.0, 1.0}, {10.0, 1.0}, {0.0, -1.0}, {10.0, -1.0}));
+  const auto connecting_lane =
+    make_drivable_lanes(make_lanelet({10.0, 1.0}, {20.0, 1.0}, {10.0, -1.0}, {20.0, -1.0}));
+  const auto returning_lane =
+    make_drivable_lanes(make_lanelet({10.0, -1.0}, {0.0, -1.0}, {10.0, 1.0}, {0.0, 1.0}));
+  const std::vector<DrivableLanes> lanes = {outgoing_lane, connecting_lane, returning_lane};
+
+  autoware_internal_planning_msgs::msg::PathWithLaneId path;
+  const auto append_path_point = [&path](const double x, const lanelet::Id lane_id) {
+    path.points.emplace_back();
+    auto & point = path.points.back();
+    point.point.pose.position.x = x;
+    point.lane_ids.push_back(lane_id);
+  };
+
+  for (const auto x : {0.0, 5.0, 10.0}) {
+    append_path_point(x, outgoing_lane.left_lane.id());
+  }
+  for (const auto x : {15.0, 20.0}) {
+    append_path_point(x, connecting_lane.left_lane.id());
+  }
+  for (const auto x : {10.0, 5.0, 0.0}) {
+    append_path_point(x, returning_lane.left_lane.id());
+  }
+
+  const auto result = cutOverlappedLanes(path, lanes);
+
+  EXPECT_EQ(result.size(), lanes.size());
+  EXPECT_EQ(path.points.size(), 8UL);
+  EXPECT_EQ(path.points.back().lane_ids.front(), returning_lane.left_lane.id());
+}
+
+TEST(StaticDrivableArea, cutOverlappedLanesKeepsOppositeDirectionOverlapAfterPathCrop)
+{
+  using autoware::behavior_path_planner::utils::cutOverlappedLanes;
+
+  const auto outgoing_lane =
+    make_drivable_lanes(make_lanelet({0.0, 1.0}, {10.0, 1.0}, {0.0, -1.0}, {10.0, -1.0}));
+  const auto connecting_lane =
+    make_drivable_lanes(make_lanelet({10.0, 1.0}, {20.0, 1.0}, {10.0, -1.0}, {20.0, -1.0}));
+  const auto returning_lane =
+    make_drivable_lanes(make_lanelet({10.0, -1.0}, {0.0, -1.0}, {10.0, 1.0}, {0.0, 1.0}));
+  const std::vector<DrivableLanes> lanes = {outgoing_lane, connecting_lane, returning_lane};
+
+  autoware_internal_planning_msgs::msg::PathWithLaneId path;
+  for (const auto x : {10.0, 5.0, 0.0}) {
+    path.points.emplace_back();
+    auto & point = path.points.back();
+    point.point.pose.position.x = x;
+    point.lane_ids.push_back(returning_lane.left_lane.id());
+  }
+
+  const auto result = cutOverlappedLanes(path, lanes);
+
+  EXPECT_EQ(result.size(), lanes.size());
+  EXPECT_EQ(path.points.size(), 3UL);
+  EXPECT_EQ(path.points.front().lane_ids.front(), returning_lane.left_lane.id());
+}
+
 TEST(StaticDrivableArea, generateDrivableLanes)
 {
   using autoware::behavior_path_planner::utils::generateDrivableLanes;

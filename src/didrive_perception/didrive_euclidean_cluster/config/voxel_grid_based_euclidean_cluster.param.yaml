@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    tolerance: 2.0
+    tolerance: 1.0
     voxel_leaf_size: 0.2
     min_points_number_per_voxel: 3
     min_cluster_size: 3
@@ -11,7 +11,7 @@
     use_crop_filter: true
     max_x: 150.0
     min_x: -50.0
-    max_y: 2.5
+    max_y: 0.5
     min_y: -2.5
     max_z: 3.5
     min_z: 0.18

@@ -49,7 +49,7 @@ float updateProbability(
 float decayProbability(const float & prior, const float & delta_time)
 {
   constexpr float minimum_probability = 0.001;
-  const float decay_rate = log(0.5f) / 0.5f;  // half-life (50% decay) of 0.5s
+  const float decay_rate = log(0.5f) / 1.0f;  // half-life (50% decay) of 1.0s
   return std::max(prior * std::exp(decay_rate * delta_time), minimum_probability);
 }
 }  // namespace
@@ -282,9 +282,9 @@ bool Tracker::createPseudoMeasurement(
   // Enlarge covariance if requested (for weak updates)
   if (enlarge_covariance) {
     using autoware_utils_geometry::xyzrpy_covariance_index::XYZRPY_COV_IDX;
-    constexpr double additional_position_cov = 9.0;     // [m^2] additional variance
-    constexpr double additional_orientation_cov = 0.5;  // [rad^2] additional variance
-    constexpr double additional_velocity_cov = 25.0;    // [m^2/s^2] additional variance
+    constexpr double additional_position_cov = 1.5;     // [m^2] additional variance (reduced from 9.0)
+    constexpr double additional_orientation_cov = 0.2;  // [rad^2] additional variance (reduced from 0.5)
+    constexpr double additional_velocity_cov = 4.0;     // [m^2/s^2] additional variance (reduced from 25.0)
 
     pred.pose_covariance[XYZRPY_COV_IDX::X_X] += additional_position_cov;
     pred.pose_covariance[XYZRPY_COV_IDX::Y_Y] += additional_position_cov;
@@ -506,7 +506,10 @@ bool Tracker::isConfident(
   // base threshold is 1.6, fallback threshold is 2.6;
   const double adaptive_threshold = computeAdaptiveThreshold(1.6, 2.6, cache, ego_pose);
 
-  if (getTotalExistenceProbability() > 0.50 && major_axis_sq < adaptive_threshold) {
+  // Hysteresis: Confirmed trackers with multiple measurements (count >= 3) retain confidence at a lower threshold (0.35)
+  // to avoid output flickering during transient occlusions or single missed frames.
+  const float min_prob_threshold = (count >= 3) ? 0.35f : 0.50f;
+  if (getTotalExistenceProbability() > min_prob_threshold && major_axis_sq < adaptive_threshold) {
     return true;
   }
 
@@ -515,14 +518,14 @@ bool Tracker::isConfident(
 
 bool Tracker::isExpired(
   const rclcpp::Time & time, const AdaptiveThresholdCache & cache,
-  const std::optional<geometry_msgs::msg::Pose> & ego_pose) const
+  const std::optional<geometry_msgs::msg::Pose> & ego_pose,
+  const double max_lifetime) const
 {
   // check the number of no measurements
   const double elapsed_time = getElapsedTimeFromLastUpdate(time);
 
   // if the last measurement is too old, the tracker is expired
-  constexpr double EXPIRED_TIME_THRESHOLD = 1.0;  // [sec]
-  if (elapsed_time > EXPIRED_TIME_THRESHOLD) {
+  if (elapsed_time > max_lifetime) {
     return true;
   }
 
@@ -534,9 +537,8 @@ bool Tracker::isExpired(
   }
 
   // if the tracker is a bit old and the existence probability is low, check the covariance size
-  // constexpr double TIME_TO_CHECK_COV = 0.18;  // [sec]
-  constexpr double TIME_TO_CHECK_COV = 0.8;  // [sec]
-  constexpr double EXISTENCE_PROBABILITY_TO_CHECK_COV = 0.3;
+  constexpr double TIME_TO_CHECK_COV = 0.40;  // [sec]
+  constexpr double EXISTENCE_PROBABILITY_TO_CHECK_COV = 0.25;
   if (
     elapsed_time > TIME_TO_CHECK_COV &&
     existence_probability < EXISTENCE_PROBABILITY_TO_CHECK_COV) {

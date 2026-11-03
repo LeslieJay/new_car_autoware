@@ -18,6 +18,7 @@
 
 #include <autoware_adapi_v1_msgs/msg/response_status.hpp>
 
+#include <cmath>
 #include <memory>
 
 namespace autoware::pose_initializer
@@ -27,7 +28,9 @@ GnssModule::GnssModule(rclcpp::Node * node)
   clock_(node->get_clock()),
   logger_(node->get_logger()),
   timeout_(node->declare_parameter<double>("gnss_pose_timeout")),
-  max_position_variance_(node->declare_parameter<double>("max_gnss_position_variance", 0.02))
+  max_position_variance_(node->declare_parameter<double>("max_gnss_position_variance", 0.02)),
+  max_fixed_frame_gap_sec_(node->declare_parameter<double>("max_fixed_frame_gap_sec", 0.5)),
+  min_consecutive_fixed_count_(node->declare_parameter<int>("min_consecutive_fixed_count", 5))
 {
   sub_gnss_pose_ = node->create_subscription<PoseWithCovarianceStamped>(
     "gnss_pose_cov", 1, std::bind(&GnssModule::on_pose, this, std::placeholders::_1));
@@ -36,6 +39,23 @@ GnssModule::GnssModule(rclcpp::Node * node)
 void GnssModule::on_pose(PoseWithCovarianceStamped::ConstSharedPtr msg)
 {
   pose_ = msg;
+  const auto now = clock_->now();
+  if (has_last_pose_received_time_ &&
+      (now - last_pose_received_time_).seconds() > max_fixed_frame_gap_sec_) {
+    consecutive_fixed_count_ = 0;
+  }
+  last_pose_received_time_ = now;
+  has_last_pose_received_time_ = true;
+
+  if (msg && std::isfinite(msg->pose.covariance[0]) &&
+      std::isfinite(msg->pose.covariance[7]) &&
+      msg->pose.covariance[0] >= 0.0 && msg->pose.covariance[7] >= 0.0 &&
+      msg->pose.covariance[0] <= max_position_variance_ &&
+      msg->pose.covariance[7] <= max_position_variance_) {
+    consecutive_fixed_count_++;
+  } else {
+    consecutive_fixed_count_ = 0;
+  }
 }
 
 geometry_msgs::msg::PoseWithCovarianceStamped GnssModule::get_pose()
@@ -59,10 +79,19 @@ geometry_msgs::msg::PoseWithCovarianceStamped GnssModule::get_pose()
     throw respose_status;
   }
 
+  if (consecutive_fixed_count_ < min_consecutive_fixed_count_) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "GNSS pose initialization rejected: consecutive fixed frames (%d) < required (%d). Waiting for stable signal.",
+      consecutive_fixed_count_, min_consecutive_fixed_count_);
+    autoware_adapi_v1_msgs::msg::ResponseStatus respose_status;
+    respose_status.success = false;
+    respose_status.code = Initialize::Service::Response::ERROR_GNSS;
+    respose_status.message = "The GNSS pose is not stable (waiting for consecutive fixed frames).";
+    throw respose_status;
+  }
+
   // Check position covariance:
-  // RTK Fixed (status 4) has variance 0.0025 (position_variance_fixed)
-  // RTK Float (status 5) has variance 0.09 (position_variance_float)
-  // Threshold 0.02 ensures only RTK Fixed is used for initial pose estimation.
   if (pose_->pose.covariance[0] > max_position_variance_ ||
       pose_->pose.covariance[7] > max_position_variance_) {
     RCLCPP_WARN_THROTTLE(

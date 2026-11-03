@@ -52,6 +52,7 @@ PoseCovarianceModifierNode::PoseCovarianceModifierNode(const rclcpp::NodeOptions
   ndt_std_dev_bound_lower_ = this->declare_parameter<double>("ndt_std_dev_bound_lower", 0.14);
   ndt_std_dev_bound_upper_ = this->declare_parameter<double>("ndt_std_dev_bound_upper", 0.30);
   gnss_pose_timeout_sec_ = this->declare_parameter<double>("gnss_pose_timeout_sec", 1.0);
+  ndt_pose_timeout_sec_ = this->declare_parameter<double>("ndt_pose_timeout_sec", 1.0);
   switch_to_ndt_count_threshold_ = this->declare_parameter<int>("switch_to_ndt_count_threshold", 5);
   switch_to_gnss_count_threshold_ = this->declare_parameter<int>("switch_to_gnss_count_threshold", 20);
   gnss_ndt_position_difference_threshold_ =
@@ -169,15 +170,40 @@ void PoseCovarianceModifierNode::callback_gnss_pose_with_cov(
   // When auto attitude switch is enabled, publishing is synchronized from the NDT callback
   // for hybrid, transition, and fallback states.
   if (enable_auto_attitude_switch_) {
-    if (pose_source_ == PoseSource::GNSS && !in_transition_) {
-      // In steady full RTK mode, publish at GNSS rate as well
+    const bool ndt_timed_out = ndt_pose_has_timed_out(ndt_pose_received_time_last_);
+    // Fallback protection: if in GNSS mode, or if NDT has timed out / never received,
+    // fallback to publishing GNSS immediately to prevent downstream EKF stall!
+    if (pose_source_ == PoseSource::GNSS || ndt_timed_out || !ndt_pose_with_cov_last_) {
+      if (ndt_timed_out && pose_source_ != PoseSource::GNSS) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "NDT pose timed out or unavailable in auto attitude mode! Fallback to GNSS-only publishing to prevent downstream stall.");
+      }
+      if (ndt_timed_out || !ndt_pose_with_cov_last_) {
+        pose_source_ = PoseSource::GNSS;
+        candidate_pose_source_ = PoseSource::GNSS;
+        candidate_pose_source_count_ = 0;
+        attitude_converged_ = false;
+        in_transition_ = false;
+        ndt_timeout_fallback_active_ = true;
+      }
       pub_pose_with_covariance_stamped_->publish(*msg_pose_with_cov_in);
       publish_pose_type(pose_source_);
+      return;
     }
     return;
   }
 
   // Legacy manual mode handling
+  if (ndt_timeout_fallback_active_) {
+    if (ndt_pose_has_timed_out(ndt_pose_received_time_last_)) {
+      pub_pose_with_covariance_stamped_->publish(*msg_pose_with_cov_in);
+      publish_pose_type(PoseSource::GNSS);
+      return;
+    }
+    ndt_timeout_fallback_active_ = false;
+  }
+
   const auto requested_pose_source =
     pose_source_from_gnss_stddev(gnss_pose_yaw_stddev_deg, gnss_pose_stddev_z, gnss_pose_stddev_xy);
   update_pose_source(requested_pose_source);
@@ -188,6 +214,17 @@ void PoseCovarianceModifierNode::callback_gnss_pose_with_cov(
   }
 
   if (pose_source_ == PoseSource::NDT) {
+    if (ndt_pose_has_timed_out(ndt_pose_received_time_last_)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+          "NDT timed out while in NDT mode! Emergency fallback to GNSS to prevent starvation.");
+      pose_source_ = PoseSource::GNSS;
+      candidate_pose_source_ = PoseSource::GNSS;
+      candidate_pose_source_count_ = 0;
+      ndt_timeout_fallback_active_ = true;
+      pub_pose_with_covariance_stamped_->publish(*msg_pose_with_cov_in);
+      publish_pose_type(pose_source_);
+    }
     return;
   }
 
@@ -197,7 +234,9 @@ void PoseCovarianceModifierNode::callback_gnss_pose_with_cov(
 void PoseCovarianceModifierNode::callback_ndt_pose_with_cov(
   const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr & msg_pose_with_cov_in)
 {
+  ndt_pose_received_time_last_ = this->now();
   ndt_pose_with_cov_last_ = msg_pose_with_cov_in;
+  ndt_timeout_fallback_active_ = false;
 
   const bool gnss_timed_out = gnss_pose_has_timed_out(gnss_pose_received_time_last_);
   const bool gnss_stamp_invalid =
@@ -443,6 +482,16 @@ bool PoseCovarianceModifierNode::check_attitude_convergence()
     get_logger(), *get_clock(), 500,
     "[AttitudeAlign] Stabilizing... (%.1f / %.1f s)", stable_duration, required_stable_duration_sec_);
   return stable_duration >= required_stable_duration_sec_;
+}
+
+bool PoseCovarianceModifierNode::ndt_pose_has_timed_out(
+  const rclcpp::Time & ndt_pose_received_time_last)
+{
+  if (ndt_pose_received_time_last.nanoseconds() == 0) {
+    return true;
+  }
+  auto duration = this->now() - ndt_pose_received_time_last;
+  return duration.seconds() > ndt_pose_timeout_sec_;
 }
 
 bool PoseCovarianceModifierNode::gnss_pose_has_timed_out(

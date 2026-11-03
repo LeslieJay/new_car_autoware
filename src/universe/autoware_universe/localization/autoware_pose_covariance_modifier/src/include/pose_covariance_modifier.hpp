@@ -56,6 +56,7 @@ private:
   double ndt_std_dev_bound_lower_;
   double ndt_std_dev_bound_upper_;
   double gnss_pose_timeout_sec_;
+  double ndt_pose_timeout_sec_;
   int switch_to_ndt_count_threshold_;
   int switch_to_gnss_count_threshold_;
   double gnss_ndt_position_difference_threshold_;
@@ -75,6 +76,7 @@ private:
 
   // State variables
   rclcpp::Time gnss_pose_received_time_last_;
+  rclcpp::Time ndt_pose_received_time_last_{0, 0, RCL_ROS_TIME};
   geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr gnss_pose_with_cov_last_;
   geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr ndt_pose_with_cov_last_;
   geometry_msgs::msg::TwistWithCovarianceStamped::ConstSharedPtr current_twist_;
@@ -82,6 +84,7 @@ private:
   PoseSource pose_source_;
   PoseSource candidate_pose_source_;
   std::size_t candidate_pose_source_count_;
+  bool ndt_timeout_fallback_active_{false};
 
   // Attitude convergence & transition tracking
   bool attitude_converged_{false};
@@ -119,6 +122,7 @@ private:
     const geometry_msgs::msg::TwistWithCovarianceStamped::ConstSharedPtr & msg_twist_in);
 
   bool gnss_pose_has_timed_out(const rclcpp::Time & gnss_pose_received_time_last);
+  bool ndt_pose_has_timed_out(const rclcpp::Time & ndt_pose_received_time_last);
 
   PoseSource pose_source_from_gnss_stddev(
     double gnss_pose_yaw_stddev_deg, double gnss_pose_stddev_z, double gnss_pose_stddev_xy) const;

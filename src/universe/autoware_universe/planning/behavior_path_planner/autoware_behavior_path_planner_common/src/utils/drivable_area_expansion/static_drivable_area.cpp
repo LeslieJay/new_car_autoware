@@ -647,38 +647,48 @@ std::vector<Point> updateBoundary(
 
 namespace autoware::behavior_path_planner::utils
 {
-std::optional<size_t> getOverlappedLaneletId(const std::vector<DrivableLanes> & lanes)
+namespace
 {
-  auto overlaps = [](const DrivableLanes & lanes, const DrivableLanes & target_lanes) {
-    const auto lanelets = utils::transformToLanelets(lanes);
-    const auto target_lanelets = utils::transformToLanelets(target_lanes);
+struct LaneletOverlap
+{
+  size_t first_lane_idx;
+  size_t second_lane_idx;
+  lanelet::Id first_lanelet_id;
+  lanelet::Id second_lanelet_id;
+  lanelet::ConstLanelet first_lanelet;
+  lanelet::ConstLanelet second_lanelet;
+};
 
-    for (const auto & lanelet : lanelets) {
-      for (const auto & target_lanelet : target_lanelets) {
-        std::vector<Polygon2d> intersections{};
-        boost::geometry::intersection(
-          toPolygon2d(lanelet), toPolygon2d(target_lanelet), intersections);
+struct PathTraversal
+{
+  size_t first_point_idx;
+  size_t last_point_idx;
+};
 
-        for (const auto & polygon : intersections) {
-          if (boost::geometry::area(polygon) > 1e-3) {
-            return true;
-          }
-        }
-      }
-    }
-
-    // No overlapping
-    return false;
-  };
-
+std::optional<LaneletOverlap> findFirstOverlappedLaneletPair(
+  const std::vector<DrivableLanes> & lanes)
+{
   if (lanes.size() <= 2) {
     return {};
   }
 
   for (size_t i = 0; i < lanes.size() - 2; ++i) {
+    const auto lanelets = utils::transformToLanelets(lanes.at(i));
     for (size_t j = i + 2; j < lanes.size(); ++j) {
-      if (overlaps(lanes.at(i), lanes.at(j))) {
-        return j;
+      const auto target_lanelets = utils::transformToLanelets(lanes.at(j));
+      for (const auto & lanelet : lanelets) {
+        for (const auto & target_lanelet : target_lanelets) {
+          std::vector<Polygon2d> intersections{};
+          boost::geometry::intersection(
+            toPolygon2d(lanelet), toPolygon2d(target_lanelet), intersections);
+
+          for (const auto & polygon : intersections) {
+            if (boost::geometry::area(polygon) > 1e-3) {
+              return LaneletOverlap{
+                i, j, lanelet.id(), target_lanelet.id(), lanelet, target_lanelet};
+            }
+          }
+        }
       }
     }
   }
@@ -686,15 +696,106 @@ std::optional<size_t> getOverlappedLaneletId(const std::vector<DrivableLanes> & 
   return {};
 }
 
+std::optional<PathTraversal> getPathTraversal(
+  const PathWithLaneId & path, const lanelet::Id lanelet_id)
+{
+  std::optional<PathTraversal> traversal;
+  for (size_t i = 0; i < path.points.size(); ++i) {
+    const auto & lane_ids = path.points.at(i).lane_ids;
+    if (std::find(lane_ids.begin(), lane_ids.end(), lanelet_id) == lane_ids.end()) {
+      continue;
+    }
+
+    if (!traversal) {
+      traversal = PathTraversal{i, i};
+    } else {
+      traversal->last_point_idx = i;
+    }
+  }
+
+  if (!traversal || traversal->first_point_idx == traversal->last_point_idx) {
+    return {};
+  }
+
+  return traversal;
+}
+
+bool hasOppositeDirection(
+  const double first_x, const double first_y, const double second_x, const double second_y)
+{
+  constexpr double direction_epsilon = 1e-6;
+  if (
+    first_x * first_x + first_y * first_y < direction_epsilon ||
+    second_x * second_x + second_y * second_y < direction_epsilon) {
+    return false;
+  }
+
+  return first_x * second_x + first_y * second_y < 0.0;
+}
+
+bool hasOppositeLaneletDirection(const LaneletOverlap & overlap)
+{
+  const auto first_centerline = overlap.first_lanelet.centerline2d();
+  const auto second_centerline = overlap.second_lanelet.centerline2d();
+  if (first_centerline.size() < 2 || second_centerline.size() < 2) {
+    return false;
+  }
+
+  const auto & first_start = first_centerline.front();
+  const auto & first_end = first_centerline.back();
+  const auto & second_start = second_centerline.front();
+  const auto & second_end = second_centerline.back();
+  return hasOppositeDirection(
+    first_end.x() - first_start.x(), first_end.y() - first_start.y(),
+    second_end.x() - second_start.x(), second_end.y() - second_start.y());
+}
+
+bool isOppositeDirectionRouteOverlap(const PathWithLaneId & path, const LaneletOverlap & overlap)
+{
+  const auto first_traversal = getPathTraversal(path, overlap.first_lanelet_id);
+  const auto second_traversal = getPathTraversal(path, overlap.second_lanelet_id);
+  if (!second_traversal) {
+    return false;
+  }
+
+  if (!first_traversal) {
+    return hasOppositeLaneletDirection(overlap);
+  }
+
+  if (first_traversal->last_point_idx >= second_traversal->first_point_idx) {
+    return false;
+  }
+
+  const auto & first_start = path.points.at(first_traversal->first_point_idx).point.pose.position;
+  const auto & first_end = path.points.at(first_traversal->last_point_idx).point.pose.position;
+  const auto & second_start = path.points.at(second_traversal->first_point_idx).point.pose.position;
+  const auto & second_end = path.points.at(second_traversal->last_point_idx).point.pose.position;
+
+  return hasOppositeDirection(
+    first_end.x - first_start.x, first_end.y - first_start.y, second_end.x - second_start.x,
+    second_end.y - second_start.y);
+}
+}  // namespace
+
+std::optional<size_t> getOverlappedLaneletId(const std::vector<DrivableLanes> & lanes)
+{
+  const auto overlap = findFirstOverlappedLaneletPair(lanes);
+  if (!overlap) {
+    return {};
+  }
+
+  return overlap->second_lane_idx;
+}
+
 std::vector<DrivableLanes> cutOverlappedLanes(
   PathWithLaneId & path, const std::vector<DrivableLanes> & lanes)
 {
-  const auto overlapped_lanelet_idx = getOverlappedLaneletId(lanes);
-  if (!overlapped_lanelet_idx) {
+  const auto overlap = findFirstOverlappedLaneletPair(lanes);
+  if (!overlap || isOppositeDirectionRouteOverlap(path, *overlap)) {
     return lanes;
   }
 
-  std::vector<DrivableLanes> shorten_lanes{lanes.begin(), lanes.begin() + *overlapped_lanelet_idx};
+  std::vector<DrivableLanes> shorten_lanes{lanes.begin(), lanes.begin() + overlap->second_lane_idx};
   const auto shorten_lanelets = utils::transformToLanelets(shorten_lanes);
 
   const auto original_points = path.points;
