@@ -6,6 +6,11 @@
     min_cluster_size: 3
     max_cluster_size: 50000
     use_height: true
+    use_concave_footprint: true
+    footprint_resolution: 0.1
+    footprint_connection_radius: 0.5
+    footprint_min_extent: 6.0
+    footprint_min_area_reduction: 0.15
     input_frame: "base_link"
     # low height crop box filter param
     use_crop_filter: true

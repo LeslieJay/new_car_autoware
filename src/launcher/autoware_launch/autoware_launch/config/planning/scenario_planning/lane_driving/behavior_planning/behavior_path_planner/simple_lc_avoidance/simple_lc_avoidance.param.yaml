@@ -22,7 +22,7 @@
       path_generation_failure_timeout: 0.5
       completion_stable_count: 3
       footprint_sampling_interval: 0.5
-      # This simulation profile explicitly opts in to borrowing a directly adjacent opposite lane.
+      # This simulation profile explicitly opts in to borrowing a directly adjacent opposite lane. 允许借用对向车道
       enable_opposite_lane_borrowing: true
       opposite_lane:
         max_prediction_horizon: 30.0

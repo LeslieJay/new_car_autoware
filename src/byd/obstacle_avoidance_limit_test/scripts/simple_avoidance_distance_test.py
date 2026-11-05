@@ -22,6 +22,7 @@ from pathlib import Path
 import rclpy
 import yaml
 from autoware_adapi_v1_msgs.msg import RouteOption
+from autoware_adapi_v1_msgs.msg import RouteState
 from autoware_adapi_v1_msgs.srv import ChangeOperationMode, InitializeLocalization, SetRoutePoints
 from autoware_control_msgs.msg import Control
 from autoware_internal_planning_msgs.msg import PathWithLaneId, PlanningFactorArray
@@ -232,6 +233,7 @@ class DistanceNode(Node):
         self.latest_gear_report: int | None = None
         self.latest_control_mode: int | None = None
         self.object_seen = False
+        self.route_state = RouteState.UNKNOWN
         self.simple_shift = False
         self.obstacle_stop = False
         self.failure_reasons: set[str] = set()
@@ -266,6 +268,7 @@ class DistanceNode(Node):
         self.create_subscription(PathWithLaneId, topics["behavior_path"], self._behavior_path, 10)
         self.create_subscription(Trajectory, topics["trajectory"], self._trajectory, 10)
         self.create_subscription(Odometry, topics["odometry"], self._odom, 10)
+        self.create_subscription(RouteState, "/api/routing/state", self._route_state, qos)
         self.create_subscription(AccelWithCovarianceStamped, "/localization/acceleration", self._accel, 10)
         self.create_subscription(Control, "/control/trajectory_follower/control_cmd", self._follower_control, 10)
         self.create_subscription(Control, "/control/command/control_cmd", self._gate_control, 10)
@@ -295,6 +298,9 @@ class DistanceNode(Node):
         if points:
             self.latest_candidate = points
             self.candidate_history.append(points)
+
+    def _route_state(self, msg: RouteState) -> None:
+        self.route_state = msg.state
 
     def _trajectory(self, msg: Trajectory) -> None:
         points = path_points(msg)
@@ -1120,6 +1126,8 @@ class DistanceNode(Node):
                 self.publish_trailer_configuration()
             rclpy.spin_once(self, timeout_sec=0.0)
             time.sleep(period)
+        if self.cfg.get("test", {}).get("require_route_arrival", False) and self.route_state != RouteState.ARRIVED:
+            self.failure_reasons.add("ROUTE_NOT_ARRIVED")
         if bag_process is not None:
             try:
                 os.killpg(bag_process.pid, signal.SIGINT)

@@ -48,6 +48,14 @@ class VoxelGridBasedEuclideanCluster : public EuclideanClusterInterface {
   void setMinPointsNumberPerVoxel(int min_points_number_per_voxel) {
     min_points_number_per_voxel_ = min_points_number_per_voxel;
   }
+  void setConcaveFootprint(bool enabled, float resolution, float connection_radius,
+                           float min_extent, float min_area_reduction) {
+    use_concave_footprint_ = enabled;
+    footprint_resolution_ = resolution;
+    footprint_connection_radius_ = connection_radius;
+    footprint_min_extent_ = min_extent;
+    footprint_min_area_reduction_ = min_area_reduction;
+  }
 
  private:
   bool estimate_shape(const pcl::PointCloud<pcl::PointXYZ>& cluster,
@@ -57,6 +65,11 @@ class VoxelGridBasedEuclideanCluster : public EuclideanClusterInterface {
   float tolerance_;
   float voxel_leaf_size_;
   int min_points_number_per_voxel_;
+  bool use_concave_footprint_ = false;
+  float footprint_resolution_ = 0.1f;
+  float footprint_connection_radius_ = 0.5f;
+  float footprint_min_extent_ = 6.0f;
+  float footprint_min_area_reduction_ = 0.15f;
 };
 
 }  // namespace didrive::euclidean_cluster

@@ -13,7 +13,7 @@
     enable_keep_stopped_until_steer_convergence: false
 
     # state transition
-    drive_state_stop_dist: 0.15
+    drive_state_stop_dist: 5.0
     drive_state_offset_stop_dist: 0.5
     stopping_state_stop_dist: 0.05
     stopped_state_entry_duration_time: 0.1

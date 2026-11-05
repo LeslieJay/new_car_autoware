@@ -20,10 +20,92 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <omp.h>
 
 namespace didrive::euclidean_cluster {
+namespace {
+// Keep the result inside the original convex hull: the raster is used only to
+// remove unsupported space, never to enlarge an obstacle beyond its input points.
+bool makeConcaveFootprint(
+    const std::vector<cv::Point>& points_mm, const std::vector<cv::Point>& hull_mm,
+    float resolution, float connection_radius, float min_extent,
+    float min_area_reduction, std::vector<cv::Point>& footprint_mm) {
+  if (points_mm.size() < 3 || hull_mm.size() < 3 || resolution <= 0.0f ||
+      connection_radius < 0.0f || min_area_reduction < 0.0f ||
+      min_area_reduction >= 1.0f) {
+    return false;
+  }
+
+  const cv::Rect bounds = cv::boundingRect(hull_mm);
+  if (std::max(bounds.width, bounds.height) < min_extent * 1000.0f ||
+      cv::contourArea(hull_mm) < 3.0e6) {
+    return false;
+  }
+
+  const double scale = 1000.0 * resolution;
+  const int padding = static_cast<int>(std::ceil(connection_radius / resolution)) + 2;
+  const int width = static_cast<int>(std::ceil(bounds.width / scale)) + 2 * padding + 1;
+  const int height = static_cast<int>(std::ceil(bounds.height / scale)) + 2 * padding + 1;
+  // Bound the cost for unexpectedly large or malformed clusters.
+  if (width <= 0 || height <= 0 || static_cast<int64_t>(width) * height > 2000000) {
+    return false;
+  }
+
+  const double origin_x = bounds.x - padding * scale;
+  const double origin_y = bounds.y - padding * scale;
+  const auto pixel = [&](const cv::Point& p) {
+    return cv::Point(
+        static_cast<int>(std::round((p.x - origin_x) / scale)),
+        static_cast<int>(std::round((p.y - origin_y) / scale)));
+  };
+  cv::Mat occupied = cv::Mat::zeros(height, width, CV_8UC1);
+  for (const auto& point : points_mm) {
+    const auto p = pixel(point);
+    occupied.at<uint8_t>(p.y, p.x) = 255;
+  }
+  const int radius = static_cast<int>(std::ceil(connection_radius / resolution));
+  if (radius > 0) {
+    const auto kernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(2 * radius + 1, 2 * radius + 1));
+    cv::dilate(occupied, occupied, kernel);
+  }
+
+  std::vector<cv::Point> hull_pixels;
+  hull_pixels.reserve(hull_mm.size());
+  for (const auto& point : hull_mm) hull_pixels.push_back(pixel(point));
+  cv::Mat hull_mask = cv::Mat::zeros(height, width, CV_8UC1);
+  cv::fillConvexPoly(hull_mask, hull_pixels, cv::Scalar(255));
+  cv::bitwise_and(occupied, hull_mask, occupied);
+
+  std::vector<std::vector<cv::Point>> contours;
+  cv::findContours(occupied, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+  // A single polygon cannot represent disconnected components. Preserve the
+  // original hull rather than silently dropping a component.
+  if (contours.size() != 1) return false;
+
+  std::vector<cv::Point> simplified;
+  cv::approxPolyDP(contours.front(), simplified, 0.1 / resolution, true);
+  if (simplified.size() < 3 || simplified.size() > 200) return false;
+  const double footprint_area = cv::contourArea(simplified) * scale * scale;
+  if (footprint_area <= 0.0 ||
+      footprint_area > cv::contourArea(hull_mm) * (1.0 - min_area_reduction)) {
+    return false;
+  }
+
+  footprint_mm.clear();
+  footprint_mm.reserve(simplified.size());
+  for (const auto& p : simplified) {
+    footprint_mm.emplace_back(
+        static_cast<int>(std::round(origin_x + p.x * scale)),
+        static_cast<int>(std::round(origin_y + p.y * scale)));
+  }
+  return true;
+}
+}  // namespace
+
 VoxelGridBasedEuclideanCluster::VoxelGridBasedEuclideanCluster() {}
 
 VoxelGridBasedEuclideanCluster::VoxelGridBasedEuclideanCluster(
@@ -81,6 +163,15 @@ bool VoxelGridBasedEuclideanCluster::estimate_shape(
                                      (cluster.at(i).y - centroid.y) * 1000.0));
   }
   cv::convexHull(v_pointcloud, v_polygon_points);
+  if (use_concave_footprint_) {
+    std::vector<cv::Point> concave_footprint;
+    if (makeConcaveFootprint(
+            v_pointcloud, v_polygon_points, footprint_resolution_,
+            footprint_connection_radius_, footprint_min_extent_,
+            footprint_min_area_reduction_, concave_footprint)) {
+      v_polygon_points = std::move(concave_footprint);
+    }
+  }
 
   pcl::PointXYZ polygon_centroid;
   polygon_centroid.x = 0;

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.14)
 project(didrive_euclidean_cluster)
 add_compile_options(-O3 -DNDEBUG)
 
-set (BUILD_TESTING false)
 find_package(autoware_cmake REQUIRED)
 autoware_package()
 
@@ -71,6 +70,11 @@ if(BUILD_TESTING)
   ament_auto_add_gtest(test_voxel_grid_based_euclidean_cluster_fusion
     test/test_voxel_grid_based_euclidean_cluster.cpp
   )
+  target_link_libraries(test_voxel_grid_based_euclidean_cluster_fusion ${PROJECT_NAME}_lib)
+  ament_auto_add_gtest(test_concave_footprint
+    test/test_concave_footprint.cpp
+  )
+  target_link_libraries(test_concave_footprint ${PROJECT_NAME}_lib ${OpenCV_LIBS})
 endif()
 
 ament_auto_package(INSTALL_TO_SHARE

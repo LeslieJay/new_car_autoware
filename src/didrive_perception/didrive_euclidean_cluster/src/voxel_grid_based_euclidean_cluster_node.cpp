@@ -42,6 +42,12 @@ VoxelGridBasedEuclideanClusterNode::VoxelGridBasedEuclideanClusterNode(
   cluster_ = std::make_shared<VoxelGridBasedEuclideanCluster>(
       use_height, min_cluster_size, max_cluster_size, tolerance,
       voxel_leaf_size, min_points_number_per_voxel);
+  cluster_->setConcaveFootprint(
+      this->declare_parameter("use_concave_footprint", false),
+      this->declare_parameter("footprint_resolution", 0.1),
+      this->declare_parameter("footprint_connection_radius", 0.5),
+      this->declare_parameter("footprint_min_extent", 6.0),
+      this->declare_parameter("footprint_min_area_reduction", 0.15));
 
   using std::placeholders::_1;
   pointcloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
