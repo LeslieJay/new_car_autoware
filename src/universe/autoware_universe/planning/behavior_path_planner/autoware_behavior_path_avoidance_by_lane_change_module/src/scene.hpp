@@ -46,6 +46,10 @@ public:
 
   void updateSpecialData() override;
 
+  std::optional<ObjectData> nearestAvoidanceTarget() const;
+  void refreshUnapprovedLaneChangeData();
+
+
 private:
   std::shared_ptr<AvoidanceByLCParameters> avoidance_parameters_;
 

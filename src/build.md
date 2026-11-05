@@ -27,3 +27,6 @@ colcon build \
   autoware_multi_object_tracker \
   --symlink-install \
   --event-handlers console_direct+
+
+
+  我希望它能这样执行：1.如果新障碍物距离回正终点纵向距离小于某个阈值，则规划新的返回路径，直接绕过新障碍物后再返回原车道 2.如果大于阈值，则正常返回原车道，继续行驶。

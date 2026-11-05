@@ -22,6 +22,8 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <memory>
+#include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -182,6 +184,68 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
       get_or_declare_parameter<double>(*node, ns + "hysteresis_factor_expand_rate");
   }
 
+  // Opposite borrowing is opt-in; defaults also allow older parameter files to load.
+  {
+    const std::string ns = "avoidance_by_lane_change.";
+    auto & o = p.opposite_lane;
+    o.enabled = get_or_declare_parameter<bool>(*node, ns + "enable_opposite_lane_borrowing", false);
+    const auto number = [&](const std::string & name, double fallback, bool allow_zero = false) {
+      const double value = get_or_declare_parameter<double>(*node, ns + name, fallback);
+      if (!std::isfinite(value) || (allow_zero ? value < 0.0 : value <= 0.0)) {
+        throw std::invalid_argument(ns + name + " must be finite and " +
+          (allow_zero ? "nonnegative" : "positive"));
+      }
+      return value;
+    };
+    o.max_speed = number("opposite_lane.max_speed", 2.0);
+    o.max_prediction_horizon = number("opposite_lane.max_prediction_horizon", 30.0);
+    o.time_resolution = number("opposite_lane.time_resolution", 0.5);
+    o.min_time_gap = number("opposite_lane.min_time_gap", 3.0);
+    o.longitudinal_margin = number("opposite_lane.longitudinal_margin", 2.0);
+    o.lateral_margin = number("opposite_lane.lateral_margin", 0.5);
+    o.clearance_hold_time = number("opposite_lane.clearance_hold_time", 1.0, true);
+    o.return_distance_after_object = number("opposite_lane.return_distance_after_object", 5.0);
+    o.data_timeout = number("opposite_lane.data_timeout", 0.5);
+    o.max_planning_time_ms = number("opposite_lane.max_planning_time_ms", 50.0);
+    o.prepare_distance = number("opposite_lane.prepare_distance", 3.0);
+    o.min_shift_distance = number("opposite_lane.min_shift_distance", 5.0);
+    o.road_boundary_margin = number("opposite_lane.road_boundary_margin", 0.1);
+    o.tractor_rear_axle_to_hitch = number("trailer.tractor_rear_axle_to_hitch", 0.6, true);
+    o.trailer_configuration_topic = get_or_declare_parameter<std::string>(
+      *node, ns + "trailer.configuration_topic", "/vehicle/status/trailer_configuration");
+    const auto types = get_or_declare_parameter<std::vector<std::string>>(
+      *node, ns + "trailer.type_names", std::vector<std::string>{"default"});
+    for (const auto & type : types) {
+      const auto prefix = "trailer.types." + type + ".";
+      TrailerGeometry geometry;
+      geometry.type = type;
+      geometry.width = number(prefix + "width", 1.305);
+      geometry.axle_to_body_front = number(prefix + "axle_to_body_front", 1.0);
+      geometry.axle_to_body_rear = number(prefix + "axle_to_body_rear", 0.7);
+      geometry.front_hitch_to_axle = number(prefix + "front_hitch_to_axle", 0.9);
+      geometry.axle_to_rear_hitch = number(prefix + "axle_to_rear_hitch", 0.6, true);
+      geometry.max_articulation_angle_rad =
+        number(prefix + "max_articulation_angle_deg", 45.0) * 0.017453292519943295;
+      if (!isValidTrailerGeometry(geometry)) {
+        throw std::invalid_argument("invalid opposite-borrowing trailer geometry: " + type);
+      }
+      o.trailer_types.emplace(type, geometry);
+    }
+    if (o.time_resolution < 0.05 || o.time_resolution > 0.5 ||
+        o.max_prediction_horizon <= o.min_time_gap) {
+      throw std::invalid_argument("opposite prediction requires resolution in [0.05, 0.5]s and horizon > gap");
+    }
+  }
+
+  if (p.opposite_lane.enabled &&
+      (!std::isfinite(parameters_->trajectory.lateral_jerk) ||
+       parameters_->trajectory.lateral_jerk <= 0.0 ||
+       !std::isfinite(parameters_->trajectory.max_longitudinal_acc) ||
+       parameters_->trajectory.max_longitudinal_acc <= 0.0 ||
+       !std::isfinite(parameters_->trajectory.min_longitudinal_acc) ||
+       parameters_->trajectory.min_longitudinal_acc >= 0.0)) {
+    throw std::invalid_argument("opposite borrowing requires positive jerk/acceleration and negative deceleration");
+  }
   avoidance_parameters_ = std::make_shared<AvoidanceByLCParameters>(p);
 }
 

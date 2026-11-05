@@ -152,6 +152,11 @@ def _launch_everything(context: LaunchContext):
             executable="can_rtk_node",
             name="can_six_node",
             parameters=[LaunchConfiguration("can_rtk_params_file")],
+            ros_arguments=[
+                "--disable-stdout-logs",
+                "--disable-rosout-logs",
+                "--disable-external-lib-logs",
+            ],
             **driver_common,
         ),
         IncludeLaunchDescription(

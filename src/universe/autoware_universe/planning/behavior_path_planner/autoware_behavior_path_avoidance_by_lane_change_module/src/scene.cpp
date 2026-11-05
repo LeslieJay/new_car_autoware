@@ -30,6 +30,7 @@
 #include <boost/geometry/strategies/cartesian/centroid_bashein_detmer.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -119,7 +120,9 @@ bool AvoidanceByLaneChange::specialRequiredCheck() const
     return false;
   }
 
-  const auto & nearest_object = data.target_objects.front();
+  const auto target = nearestAvoidanceTarget();
+  if (!target) return false;
+  const auto & nearest_object = *target;
   const auto minimum_avoid_length = calcMinAvoidanceLength(nearest_object);
   const auto minimum_lane_change_length = calc_minimum_dist_buffer();
 
@@ -145,14 +148,6 @@ void AvoidanceByLaneChange::updateSpecialData()
   avoidance_debug_data_ = DebugData();
   avoidance_data_ = calcAvoidancePlanningData(avoidance_debug_data_);
 
-  if (avoidance_data_.target_objects.empty()) {
-    direction_ = Direction::NONE;
-  } else {
-    direction_ = utils::static_obstacle_avoidance::isOnRight(avoidance_data_.target_objects.front())
-                   ? Direction::LEFT
-                   : Direction::RIGHT;
-  }
-
   auto current_target_objects = avoidance_data_.target_objects;
   utils::static_obstacle_avoidance::compensateLostTargetObjects(
     avoidance_data_, registered_objects_, planner_data_);
@@ -161,7 +156,43 @@ void AvoidanceByLaneChange::updateSpecialData()
 
   std::sort(
     avoidance_data_.target_objects.begin(), avoidance_data_.target_objects.end(),
-    [](auto a, auto b) { return a.longitudinal < b.longitudinal; });
+    [](const auto & a, const auto & b) { return a.longitudinal < b.longitudinal; });
+
+  const auto target = nearestAvoidanceTarget();
+  direction_ = Direction::NONE;
+  if (target) {
+    direction_ = utils::static_obstacle_avoidance::isOnRight(*target) ? Direction::LEFT
+                                                                  : Direction::RIGHT;
+  }
+}
+
+void AvoidanceByLaneChange::refreshUnapprovedLaneChangeData()
+{
+  // NormalLaneChange retains old lanes when its target lookup fails. Clear them here so a
+  // disappeared same-direction lane cannot mask a valid opposite-borrowing request.
+  common_data_ptr_->direction = direction_;
+  common_data_ptr_->lanes_ptr->current.clear();
+  common_data_ptr_->lanes_ptr->target.clear();
+  update_lanes(false);
+  update_transient_data(false);
+  update_filtered_objects();
+  updateLaneChangeStatus();
+}
+
+std::optional<ObjectData> AvoidanceByLaneChange::nearestAvoidanceTarget() const
+{
+  for (const auto & target : avoidance_data_.target_objects) {
+    const auto type = utils::getHighestProbLabel(target.object.classification);
+    const auto param = avoidance_parameters_->object_parameters.find(type);
+    if (param != avoidance_parameters_->object_parameters.end() &&
+        param->second.is_avoidance_target && target.avoid_required && target.longitudinal > 0.0 &&
+        std::hypot(target.object.kinematics.initial_twist_with_covariance.twist.linear.x,
+                   target.object.kinematics.initial_twist_with_covariance.twist.linear.y) <=
+          param->second.moving_speed_threshold) {
+      return target;
+    }
+  }
+  return std::nullopt;
 }
 
 AvoidancePlanningData AvoidanceByLaneChange::calcAvoidancePlanningData(
@@ -177,7 +208,12 @@ AvoidancePlanningData AvoidanceByLaneChange::calcAvoidancePlanningData(
   const auto resample_interval = avoidance_parameters_->resample_interval_for_planning;
   data.reference_path = utils::resamplePathWithSpline(data.reference_path_rough, resample_interval);
 
-  data.current_lanelets = get_current_lanes();
+  // NormalLaneChange has no lane data when no same-direction target exists. Opposite borrowing
+  // must still detect obstacles in the upstream route lane, independently of that target.
+  data.current_lanelets = utils::getCurrentLanesFromPath(prev_module_output_.path, planner_data_);
+  if (data.current_lanelets.empty() || data.reference_path.points.empty()) {
+    return data;
+  }
 
   fillAvoidanceTargetObjects(data, debug);
 

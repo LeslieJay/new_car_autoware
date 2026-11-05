@@ -47,6 +47,10 @@ modes:
     candidate_path: /planning/path_candidate/simple_lane_change_avoidance
     planning_factors: /planning/planning_factors/simple_lane_change_avoidance
 
+  avoidance_by_lane_change:
+    candidate_path: /planning/path_candidate/avoidance_by_lane_change
+    planning_factors: /planning/planning_factors/avoidance_by_lane_change
+
 test:
   longitudinal_distances_m: [3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 25.0, 35.0, 40.0, 50.0, 55.0]
   speeds_mps: [2.0, 0.3]

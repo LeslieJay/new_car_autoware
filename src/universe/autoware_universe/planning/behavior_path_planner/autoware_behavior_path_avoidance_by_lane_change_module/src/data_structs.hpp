@@ -15,13 +15,40 @@
 #define DATA_STRUCTS_HPP_
 
 #include "autoware/behavior_path_static_obstacle_avoidance_module/data_structs.hpp"
+#include "autoware/behavior_path_planner_common/utils/articulated_vehicle/trailer_geometry.hpp"
+
+#include <string>
+#include <unordered_map>
 
 namespace autoware::behavior_path_planner
 {
 using autoware::behavior_path_planner::AvoidanceParameters;
 
+struct OppositeLaneParameters
+{
+  bool enabled{false};
+  double max_speed{2.0};
+  double max_prediction_horizon{30.0};
+  double time_resolution{0.5};
+  double min_time_gap{3.0};
+  double longitudinal_margin{2.0};
+  double lateral_margin{0.5};
+  double clearance_hold_time{1.0};
+  double return_distance_after_object{5.0};
+  double data_timeout{0.5};
+  double max_planning_time_ms{50.0};
+  double prepare_distance{3.0};
+  double min_shift_distance{5.0};
+  double road_boundary_margin{0.1};
+  double tractor_rear_axle_to_hitch{0.6};
+  std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
+  std::unordered_map<std::string, TrailerGeometry> trailer_types;
+};
+
 struct AvoidanceByLCParameters : public AvoidanceParameters
 {
+  OppositeLaneParameters opposite_lane;
+
   // execute only when the target object longitudinal distance is larger than this param.
   double execute_object_longitudinal_margin{0.0};
 

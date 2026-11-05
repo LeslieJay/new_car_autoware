@@ -43,6 +43,7 @@ from tier4_external_api_msgs.srv import Engage, InitializePose
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+from opposite_borrowing_metrics import new_metrics, observe, failures as borrowing_failures  # noqa: E402
 from dummy_object_utils import (  # noqa: E402
     compute_obstacle_pose,
     make_delete_all,
@@ -169,6 +170,7 @@ class DistanceNode(Node):
         self.cfg = cfg
         self.mode = mode
         self.module_params = module_params or {}
+        self.borrowing_metrics = new_metrics()
         self.lock_mode = lock_mode
         self.launch_log = launch_log
         self.ego = cfg["ego"]
@@ -387,10 +389,14 @@ class DistanceNode(Node):
         """
         if not self.obstacle_active:
             return
-        module_name = "simple_avoidance" if self.mode == "simple_avoidance" else "simple_lane_change_avoidance"
-        if not str(msg.name).endswith(module_name):
-            return
+        module_name = {"simple_avoidance": "simple_avoidance", "simple_lc_avoidance": "simple_lane_change_avoidance", "avoidance_by_lane_change": "avoidance_by_lane_change"}[self.mode]
         text = str(msg.msg)
+        if self.mode == "avoidance_by_lane_change":
+            if "[OPPOSITE_BORROWING]" not in text:
+                return
+            observe(self.borrowing_metrics, text)
+        elif not str(msg.name).endswith(module_name):
+            return
         stamp = float(msg.stamp.sec) + 1.0e-9 * float(msg.stamp.nanosec)
         reason_match = re.search(r"reason=([a-z_]+)", text)
         if reason_match:
@@ -656,7 +662,11 @@ class DistanceNode(Node):
         """
         if self.launch_log is None or not self.launch_log.exists():
             return
-        module_name = "simple_avoidance" if self.mode == "simple_avoidance" else "simple_lane_change_avoidance"
+        module_name = {"simple_avoidance": "simple_avoidance", "simple_lc_avoidance": "simple_lane_change_avoidance", "avoidance_by_lane_change": "avoidance_by_lane_change"}[self.mode]
+        if self.mode == "avoidance_by_lane_change":
+            # Use case-scoped live rosout for borrowing. Re-reading a multi-case launch log
+            # could incorrectly reuse an earlier case's COMPLETE event.
+            return
         prefix = re.compile(r"^\s*(\d+(?:\.\d+)?)")
         lock_re = re.compile(
             r"active target locked uuid=([0-9a-f]+) lon=([+-]?\d+(?:\.\d+)?)m lat=([+-]?\d+(?:\.\d+)?)m"
@@ -941,6 +951,7 @@ class DistanceNode(Node):
         self.baseline_path = []
         self.obstacle_active = False
         self.first_target_lock = None
+        self.borrowing_metrics = new_metrics()
         self.first_feasible = None
         self.first_infeasible = None
         self.first_decision = None
@@ -1125,6 +1136,14 @@ class DistanceNode(Node):
         self.parse_launch_log(self.case_start_epoch, case_end)
         self._apply_log_metrics()
         metrics = self.metrics(speed, longitudinal, intrusion, shoulder, ox, oy)
+        if self.mode == "avoidance_by_lane_change":
+            errors = borrowing_failures(self.borrowing_metrics, metrics["result"] == "SUCCESS")
+            metrics.update(self.borrowing_metrics)
+            if errors:
+                metrics["failure_reasons"] += ";" + ";".join(errors)
+                metrics["result"] = (
+                    "COLLISION" if "ARTICULATED_BODY_COLLISION" in errors else "INVALID"
+                )
         metrics["launch_log"] = str(self.launch_log) if self.launch_log else ""
         metrics["lock_mode"] = self.lock_mode
         metrics["requested_distance_m"] = longitudinal
@@ -1246,13 +1265,13 @@ class DistanceNode(Node):
 
         if self.invalid_reason:
             result = "INVALID"
-        elif self.mode == "simple_lc_avoidance" and not path_valid:
+        elif self.mode in ("simple_lc_avoidance", "avoidance_by_lane_change") and not path_valid:
             result = "INVALID"
         elif not clear:
             result = "COLLISION"
         elif not self.first_target_lock:
             result = "INVALID"
-        elif self.mode == "simple_lc_avoidance" and (
+        elif self.mode in ("simple_lc_avoidance", "avoidance_by_lane_change") and (
             self.obstacle_stop or self.first_decision == "INFEASIBLE_DISTANCE" or
             (not shift and not obstacle_passed)
         ):
@@ -1368,7 +1387,7 @@ def main() -> None:
     parser.add_argument("--distance", type=float, default=None)
     parser.add_argument("--intrusion", type=float, default=None)
     parser.add_argument("--shoulder", choices=("left", "right"), default=None)
-    parser.add_argument("--mode", choices=("simple_avoidance", "simple_lc_avoidance"), default="simple_avoidance")
+    parser.add_argument("--mode", choices=("simple_avoidance", "simple_lc_avoidance", "avoidance_by_lane_change"), default="simple_avoidance")
     parser.add_argument(
         "--lock-mode",
         choices=("start_lock", "steady_speed_lock"),
@@ -1436,6 +1455,12 @@ def main() -> None:
             "lane_driving/behavior_planning/behavior_path_planner/simple_lc_avoidance/"
             "simple_lc_avoidance.param.yaml"
         )
+    if args.mode == "avoidance_by_lane_change" and args.module_param is None:
+        default_module_param = Path(
+            "src/launcher/autoware_launch/autoware_launch/config/planning/scenario_planning/"
+            "lane_driving/behavior_planning/behavior_path_planner/avoidance_by_lane_change/"
+            "avoidance_by_lane_change.param.yaml"
+        )
     simple_params = load_yaml(args.module_param or default_module_param)
     trailer_types = [item for item in args.trailer_types.split(",") if item]
     node = DistanceNode(
@@ -1490,6 +1515,7 @@ def main() -> None:
         "preflight_speed_max_mps", "speed_valid", "path_valid", "tracking_valid",
         "stop_front_clearance_m", "outbound_signal_seen", "return_signal_seen",
         "signal_off_after_case",
+        *new_metrics().keys(),
     ]
     with trajectory_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=trajectory_fields)
@@ -1497,7 +1523,7 @@ def main() -> None:
         writer.writerows({key: row.get(key) for key in trajectory_fields} for row in rows)
     success = [r for r in rows if r["result"] == "SUCCESS"]
     report = args.output_dir / "README.md"
-    mode_label = "Simple Avoidance" if args.mode == "simple_avoidance" else "Simple Lane Change Avoidance"
+    mode_label = {"simple_avoidance": "Simple Avoidance", "simple_lc_avoidance": "Simple Lane Change Avoidance", "avoidance_by_lane_change": "Avoidance By Lane Change"}[args.mode]
     with report.open("w", encoding="utf-8") as f:
         f.write(f"# {mode_label} distance test\n\n")
         f.write(f"cases: {len(rows)}\n\n")

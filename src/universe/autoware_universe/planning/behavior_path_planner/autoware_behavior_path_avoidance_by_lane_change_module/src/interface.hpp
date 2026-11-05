@@ -18,6 +18,7 @@
 #include "autoware/behavior_path_lane_change_module/interface.hpp"
 #include "data_structs.hpp"
 #include "scene.hpp"
+#include "opposite_lane.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -46,6 +47,26 @@ public:
   bool isExecutionRequested() const override;
 
   void processOnEntry() override;
+  void processOnExit() override;
+  void updateData() override;
+  void postProcess() override;
+  bool isExecutionReady() const override;
+  BehaviorModuleOutput plan() override;
+  BehaviorModuleOutput planWaitingApproval() override;
+  CandidateOutput planCandidate() const override;
+  MarkerArray getModuleVirtualWall() override;
+  bool isCurrentRouteLaneletToBeReset() const override;
+
+
+protected:
+  bool canTransitSuccessState() override;
+  bool canTransitFailureState() override;
+
+private:
+  BehaviorModuleOutput planOpposite(bool waiting);
+  std::unique_ptr<OppositeLaneBorrowing> opposite_;
+  bool opposite_selected_{false};
+  std::string approval_key_;
 
 protected:
   void updateRTCStatus(const double start_distance, const double finish_distance) override;

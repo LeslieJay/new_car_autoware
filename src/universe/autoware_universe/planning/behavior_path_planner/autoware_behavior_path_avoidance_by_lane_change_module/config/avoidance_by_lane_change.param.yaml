@@ -4,6 +4,50 @@
       execute_object_longitudinal_margin: 80.0
       execute_only_when_lane_change_finish_before_object: false
 
+      # Closed-site opposite borrowing: approve the complete outgoing and return maneuver.
+      enable_opposite_lane_borrowing: false
+      opposite_lane:
+        max_speed: 2.0
+        max_prediction_horizon: 30.0
+        time_resolution: 0.5
+        min_time_gap: 3.0
+        longitudinal_margin: 2.0
+        lateral_margin: 0.5
+        clearance_hold_time: 1.0
+        return_distance_after_object: 5.0
+        data_timeout: 0.5
+        max_planning_time_ms: 50.0
+        prepare_distance: 3.0
+        min_shift_distance: 5.0
+        road_boundary_margin: 0.1
+      trailer:
+        # A latched empty configuration explicitly identifies an unhitched tractor.
+        configuration_topic: /vehicle/status/trailer_configuration
+        tractor_rear_axle_to_hitch: 0.6
+        type_names: [default, wide, articulation]
+        types:
+          default:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          wide:
+            width: 3.0
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 45.0
+          articulation:
+            width: 1.305
+            axle_to_body_front: 1.0
+            axle_to_body_rear: 0.7
+            front_hitch_to_axle: 0.9
+            axle_to_rear_hitch: 0.6
+            max_articulation_angle_deg: 10.0
+
       # avoidance is performed for the object type with true
       target_object:
         car:
