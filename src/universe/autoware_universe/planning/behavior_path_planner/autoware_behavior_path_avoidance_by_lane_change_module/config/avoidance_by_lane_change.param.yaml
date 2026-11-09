@@ -21,7 +21,10 @@
         min_shift_distance: 5.0
         road_boundary_margin: 0.1
       trailer:
-        # A latched empty configuration explicitly identifies an unhitched tractor.
+        # Static configuration used at startup; a vehicle message overrides it.
+        # Set count to 0 for an unhitched tractor, or list attached types front to rear.
+        count: 0
+        ordered_types: [default]
         configuration_topic: /vehicle/status/trailer_configuration
         tractor_rear_axle_to_hitch: 0.6
         type_names: [default, wide, articulation]

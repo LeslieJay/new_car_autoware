@@ -25,6 +25,7 @@
 #include <autoware/behavior_path_static_obstacle_avoidance_module/data_structs.hpp>
 #include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <rclcpp/logging.hpp>
+#include <tf2/utils.hpp>
 
 #include <boost/geometry/algorithms/centroid.hpp>
 #include <boost/geometry/strategies/cartesian/centroid_bashein_detmer.hpp>
@@ -181,6 +182,41 @@ void AvoidanceByLaneChange::refreshUnapprovedLaneChangeData()
 
 std::optional<ObjectData> AvoidanceByLaneChange::nearestAvoidanceTarget() const
 {
+  if (avoidance_parameters_->opposite_lane.campus_agv && planner_data_->dynamic_object &&
+      prev_module_output_.path.points.size() >= 2) {
+    const auto & points = prev_module_output_.path.points;
+    std::optional<ObjectData> nearest;
+    for (const auto & object : planner_data_->dynamic_object->objects) {
+      const auto label = utils::getHighestProbLabel(object.classification);
+      using C = autoware_perception_msgs::msg::ObjectClassification;
+      if (label == C::PEDESTRIAN || label == C::BICYCLE || label == C::MOTORCYCLE) continue;
+      const auto & pose = object.kinematics.initial_pose_with_covariance.pose;
+      const auto & velocity = object.kinematics.initial_twist_with_covariance.twist.linear;
+      if (!std::isfinite(velocity.x) || !std::isfinite(velocity.y) ||
+          std::hypot(velocity.x, velocity.y) >
+            avoidance_parameters_->opposite_lane.static_speed_threshold) continue;
+      const double lon = autoware::motion_utils::calcSignedArcLength(
+        points, getEgoPose().position, pose.position);
+      if (!std::isfinite(lon) || lon <= 0.0 ||
+          lon > avoidance_parameters_->opposite_lane.attention_distance) continue;
+      const auto index = autoware::motion_utils::findNearestIndex(points, pose.position);
+      const double lat = autoware_utils::calc_lateral_deviation(points[index].point.pose, pose.position);
+      const double angle = tf2::getYaw(pose.orientation) - tf2::getYaw(points[index].point.pose.orientation);
+      const double length = std::abs(std::cos(angle)) * object.shape.dimensions.x +
+        std::abs(std::sin(angle)) * object.shape.dimensions.y;
+      const double half_width = 0.5 * (std::abs(std::sin(angle)) * object.shape.dimensions.x +
+        std::abs(std::cos(angle)) * object.shape.dimensions.y);
+      if (!std::isfinite(length) || !std::isfinite(half_width) || length <= 0.0 || half_width <= 0.0 ||
+          std::abs(lat) > 0.5 * planner_data_->parameters.vehicle_info.vehicle_width_m +
+            half_width + avoidance_parameters_->opposite_lane.lateral_margin) continue;
+      if (!nearest || lon < nearest->longitudinal) {
+        nearest = ObjectData(object, lat, lon, length);
+        nearest->direction = lat > 0.0 ? Direction::LEFT : Direction::RIGHT;
+        nearest->avoid_required = true;
+      }
+    }
+    if (nearest) return nearest;
+  }
   for (const auto & target : avoidance_data_.target_objects) {
     const auto type = utils::getHighestProbLabel(target.object.classification);
     const auto param = avoidance_parameters_->object_parameters.find(type);

@@ -10,6 +10,8 @@ The `obstacle_stop` module does the stop planning when there is a static obstacl
 
 The obstacles meeting the following condition are determined as obstacles for stopping.
 
+- The collision point is within `obstacle_filtering.max_detection_distance` meters along the forward trajectory from the ego vehicle's front bumper (default: 10.0 m).
+
 - The object type is for stopping according to `obstacle_filtering.object_type.*`.
 - The lateral distance from the object to the ego's trajectory is smaller than `obstacle_filtering.max_lat_margin`.
   - `obstacle_filtering.max_lat_margin_against_predicted_object_unknown` is applied to the predicted object of unknown.

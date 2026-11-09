@@ -71,7 +71,8 @@ void AvoidanceByLaneChangeInterface::updateRTCStatus(
     return (dir == Direction::LEFT) ? "left" : "right";
   });
 
-  const auto state = isWaitingApproval() ? State::WAITING_FOR_EXECUTION : State::RUNNING;
+  const auto state = isWaitingApproval() && !(opposite_selected_ && opposite_->committed())
+    ? State::WAITING_FOR_EXECUTION : State::RUNNING;
 
   rtc_interface_ptr_map_.at(direction)->updateCooperateStatus(
     uuid_map_.at(direction), isExecutionReady(), state, start_distance, finish_distance,
@@ -110,6 +111,12 @@ void AvoidanceByLaneChangeInterface::updateData()
     approval_key_ = key;
     waitApproval();
   }
+  if (opposite_selected_ && (opposite_->committed() || opposite_->ready())) {
+    const auto & direction = opposite_->left() ? "left" : "right";
+    if (rtc_interface_ptr_map_.at(direction)->isActivated(uuid_map_.at(direction))) {
+      clearWaitingApproval();
+    }
+  }
   if (opposite_selected_) {
     debug_marker_.markers.clear();
     const auto candidate = opposite_->candidate();
@@ -141,7 +148,9 @@ void AvoidanceByLaneChangeInterface::updateData()
 
 bool AvoidanceByLaneChangeInterface::isExecutionReady() const
 {
-  return opposite_selected_ ? opposite_->ready() : LaneChangeInterface::isExecutionReady();
+  // A committed borrowing maneuver retains ownership while its output brakes on safety failures.
+  return opposite_selected_ ? (opposite_->committed() || opposite_->ready())
+                            : LaneChangeInterface::isExecutionReady();
 }
 
 void AvoidanceByLaneChangeInterface::postProcess()
@@ -156,8 +165,8 @@ BehaviorModuleOutput AvoidanceByLaneChangeInterface::planOpposite(bool waiting)
   // Report safety on the borrowed side for the entire outgoing and returning maneuver.
   const auto & direction = opposite_->left() ? "left" : "right";
   rtc_interface_ptr_map_.at(direction)->updateCooperateStatus(
-    uuid_map_.at(direction), opposite_->ready(),
-    waiting ? State::WAITING_FOR_EXECUTION : State::RUNNING,
+    uuid_map_.at(direction), opposite_->committed() || opposite_->ready(),
+    waiting && !opposite_->committed() ? State::WAITING_FOR_EXECUTION : State::RUNNING,
     candidate.start_distance_to_path_change, candidate.finish_distance_to_path_change,
     clock_->now());
   auto output = opposite_->output(waiting);
@@ -207,7 +216,7 @@ MarkerArray AvoidanceByLaneChangeInterface::getModuleVirtualWall()
 {
   if (!opposite_selected_) return LaneChangeInterface::getModuleVirtualWall();
   // The generic scene interface publishes the longitudinal stop factor from stop_pose_.
-  return {};
+  return MarkerArray{};
 }
 
 void AvoidanceByLaneChangeInterface::processOnExit()

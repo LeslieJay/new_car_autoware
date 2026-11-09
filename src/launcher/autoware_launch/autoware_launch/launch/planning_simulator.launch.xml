@@ -41,6 +41,7 @@
   <!-- Vcu emulation -->
   <arg name="vehicle_simulation" default="true" description="use vehicle simulation"/>
   <!-- Auto mode setting-->
+  <arg name="avoidance_by_lane_change_profile" default="default"/>
   <arg name="enable_all_modules_auto_mode" default="$(var scenario_simulation)" description="enable all module's auto mode"/>
   <!-- Simulated time -->
   <arg name="use_sim_time" default="$(var scenario_simulation)"/>
@@ -90,6 +91,7 @@
       <arg name="rviz_config" value="$(var rviz_config)"/>
       <arg name="rviz_respawn" value="$(var rviz_respawn)"/>
       <!-- Auto mode setting-->
+      <arg name="avoidance_by_lane_change_profile" value="$(var avoidance_by_lane_change_profile)"/>
       <arg name="enable_all_modules_auto_mode" value="$(var enable_all_modules_auto_mode)"/>
       <arg name="is_simulation" value="true"/>
     </include>

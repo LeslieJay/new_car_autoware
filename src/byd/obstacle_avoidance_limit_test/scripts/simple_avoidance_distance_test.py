@@ -488,8 +488,6 @@ class DistanceNode(Node):
         self.velocity_limit_pub.publish(msg)
 
     def publish_trailer_configuration(self) -> None:
-        if not self.trailer_types:
-            return
         msg = TrailerConfiguration()
         msg.header.frame_id = self.cfg["frame_id"]
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -971,6 +969,10 @@ class DistanceNode(Node):
         self.preflight_speed_max_mps = None
         self.turn_signal_history = []
 
+    def scenario_complete(self) -> bool:
+        """Optional completion condition for specialized simulator scenarios."""
+        return False
+
     def run_case(
         self, speed: float, longitudinal: float, intrusion: float, shoulder: str,
         bag_dir: Path | None = None,
@@ -1022,12 +1024,8 @@ class DistanceNode(Node):
                 self.invalid_reason = "STABLE_2MPS_NOT_REACHED"
             obstacle_anchor = self.latest_pose
         else:
-            # The requested startup sequence is pose -> goal -> autonomous
-            # mode.  Require a small amount of real simulator motion before
-            # placing the target, so command-gate/startup failures cannot be
-            # mistaken for a distance-infeasible avoidance case.
-            if not self.wait_for_vehicle_motion():
-                self.invalid_reason = "VEHICLE_NOT_MOVING_AFTER_MODE_SWITCH"
+            # In start_lock mode the obstacle must exist before autonomous
+            # engagement; waiting for motion here consumes the approach distance.
             obstacle_anchor = self.latest_pose
         # Snapshot motion before the target is introduced.  This separates a
         # command/startup failure from a later avoidance stop in the report.
@@ -1061,6 +1059,8 @@ class DistanceNode(Node):
                 self.publish_secondary_obstacle(longitudinal + 3.0, shoulder, obstacle_anchor)
             if self.lock_mode == "start_lock" and not self.activate_vehicle():
                 self.invalid_reason = "ENGAGE_FAILED"
+            elif self.lock_mode == "start_lock" and not self.wait_for_vehicle_motion():
+                self.invalid_reason = "VEHICLE_NOT_MOVING_AFTER_MODE_SWITCH"
             # Start scenario timing after the mode hand-off. This keeps the
             # loss/recovery windows deterministic even when service discovery
             # takes several seconds.
@@ -1089,6 +1089,15 @@ class DistanceNode(Node):
             topics.append(self.candidate_topic)
             topics.append(self.factors_topic)
             topics.extend([
+                self.cfg["topics"]["dummy_object"],
+                "/api/routing/state",
+                "/perception/object_recognition/detection/objects",
+                "/perception/object_recognition/tracking/objects",
+                "/planning/planning_validator/validation_status",
+                *["/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/debug/" + name + "/processing_time_ms"
+                  for name in ("total_time", "avoidance_by_lane_change", "lane_change_left", "lane_change_right")],
+                "/vehicle/engage",
+                "/control/command/gear_cmd",
                 "/vehicle/status/trailer_configuration",
                 "/planning/scenario_planning/max_velocity_default",
                 "/planning/turn_indicators_cmd",
@@ -1111,6 +1120,7 @@ class DistanceNode(Node):
             time.sleep(1.0)
         deadline = time.monotonic() + float(test["settle_sec"]) + float(test["sample_sec"])
         period = 1.0 / float(test["publish_rate_hz"])
+        arrived_since = None
         while rclpy.ok() and time.monotonic() < deadline:
             if self.obstacle_active:
                 elapsed = time.time() - self.case_start_epoch
@@ -1124,8 +1134,16 @@ class DistanceNode(Node):
                 self.publish_turn_indicator()
                 self.publish_speed_limit()
                 self.publish_trailer_configuration()
-            rclpy.spin_once(self, timeout_sec=0.0)
-            time.sleep(period)
+            callback_deadline = time.monotonic() + period
+            while rclpy.ok() and time.monotonic() < callback_deadline:
+                rclpy.spin_once(self, timeout_sec=max(0.0, min(0.01, callback_deadline-time.monotonic())))
+            if self.scenario_complete():
+                break
+            if self.route_state == RouteState.ARRIVED:
+                if arrived_since is None:
+                    arrived_since = time.monotonic()
+                elif time.monotonic() - arrived_since >= 0.5:
+                    break
         if self.cfg.get("test", {}).get("require_route_arrival", False) and self.route_state != RouteState.ARRIVED:
             self.failure_reasons.add("ROUTE_NOT_ARRIVED")
         if bag_process is not None:

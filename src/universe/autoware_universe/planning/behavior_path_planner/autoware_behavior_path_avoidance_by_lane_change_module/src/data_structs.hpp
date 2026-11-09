@@ -17,8 +17,10 @@
 #include "autoware/behavior_path_static_obstacle_avoidance_module/data_structs.hpp"
 #include "autoware/behavior_path_planner_common/utils/articulated_vehicle/trailer_geometry.hpp"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace autoware::behavior_path_planner
 {
@@ -27,6 +29,11 @@ using autoware::behavior_path_planner::AvoidanceParameters;
 struct OppositeLaneParameters
 {
   bool enabled{false};
+  bool campus_agv{false};
+  double attention_distance{50.0};
+  double static_speed_threshold{0.4};
+  double static_observation_time{1.0};
+  std::vector<double> candidate_speeds{2.0, 1.5, 1.0, 0.5};
   double max_speed{2.0};
   double max_prediction_horizon{30.0};
   double time_resolution{0.5};
@@ -39,9 +46,13 @@ struct OppositeLaneParameters
   double max_planning_time_ms{50.0};
   double prepare_distance{3.0};
   double min_shift_distance{5.0};
+  double max_return_extension_distance{20.0};
+  double return_extension_step{1.0};
   double road_boundary_margin{0.1};
   double tractor_rear_axle_to_hitch{0.6};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
+  int64_t trailer_count{0};
+  std::vector<std::string> trailer_ordered_types{"default"};
   std::unordered_map<std::string, TrailerGeometry> trailer_types;
 };
 

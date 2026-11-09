@@ -293,25 +293,40 @@ VelocityPlanningResult ObstacleStopModule::plan(
     planner_data->ego_nearest_dist_threshold, planner_data->ego_nearest_yaw_threshold,
     planner_data->trajectory_polygon_collision_check.decimate_trajectory_step_length,
     stop_planning_param_.stop_margin);
+  const auto detection_traj_points = autoware::motion_utils::cropForwardPoints(
+    decimated_traj_points, decimated_traj_points.front().pose.position, 0,
+    obstacle_filtering_params_.at(StopObstacleClassification::Type::POINTCLOUD)
+      .max_detection_distance + std::abs(x_offset_to_bumper) +
+      planner_data->trajectory_polygon_collision_check.decimate_trajectory_step_length);
 
   // 3. filter obstacles of predicted objects
   auto stop_obstacles_for_predicted_object = filter_stop_obstacle_for_predicted_object(
     planner_data->current_odometry, planner_data->ego_nearest_dist_threshold,
     planner_data->ego_nearest_yaw_threshold,
     rclcpp::Time(planner_data->predicted_objects_header.stamp), raw_trajectory_points,
-    decimated_traj_points, planner_data->objects, planner_data->vehicle_info_, x_offset_to_bumper,
+    detection_traj_points, planner_data->objects, planner_data->vehicle_info_, x_offset_to_bumper,
     planner_data->trajectory_polygon_collision_check);
 
   // 4. filter obstacles of point cloud
   auto stop_obstacles_for_point_cloud = filter_stop_obstacle_for_point_cloud(
-    planner_data->current_odometry, raw_trajectory_points, decimated_traj_points,
+    planner_data->current_odometry, raw_trajectory_points, detection_traj_points,
     planner_data->no_ground_pointcloud, planner_data->vehicle_info_, x_offset_to_bumper,
     planner_data->trajectory_polygon_collision_check);
 
   // 5. concat stop obstacles by predicted objects and point cloud
-  const std::vector<StopObstacle> stop_obstacles =
+  auto stop_obstacles =
     autoware::motion_velocity_planner::utils::concat_vectors(
       std::move(stop_obstacles_for_predicted_object), std::move(stop_obstacles_for_point_cloud));
+  const double max_detection_distance =
+    obstacle_filtering_params_.at(StopObstacleClassification::Type::POINTCLOUD)
+      .max_detection_distance;
+  std::erase_if(stop_obstacles, [&](const StopObstacle & obstacle) {
+    const double distance_from_bumper =
+      autoware::motion_utils::calcSignedArcLength(
+        raw_trajectory_points, planner_data->current_odometry.pose.pose.position,
+        obstacle.collision_point) - std::abs(x_offset_to_bumper);
+    return distance_from_bumper > max_detection_distance;
+  });
 
   // 6. plan stop
   const auto stop_point =

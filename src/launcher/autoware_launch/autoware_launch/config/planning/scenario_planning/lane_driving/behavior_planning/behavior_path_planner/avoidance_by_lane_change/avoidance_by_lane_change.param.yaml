@@ -15,13 +15,18 @@
         lateral_margin: 0.5
         clearance_hold_time: 1.0
         return_distance_after_object: 5.0
-        data_timeout: 0.5
+        data_timeout: 5.0
         max_planning_time_ms: 50.0
         prepare_distance: 3.0
         min_shift_distance: 5.0
+        max_return_extension_distance: 20.0
+        return_extension_step: 1.0
         road_boundary_margin: 0.1
       trailer:
-        # A latched empty configuration explicitly identifies an unhitched tractor.
+        # Static configuration used at startup; a vehicle message overrides it.
+        # Set count to 0 for an unhitched tractor, or list attached types front to rear.
+        count: 0
+        ordered_types: [default]
         configuration_topic: /vehicle/status/trailer_configuration
         tractor_rear_axle_to_hitch: 0.6
         type_names: [default, wide, articulation]

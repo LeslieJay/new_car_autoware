@@ -94,11 +94,13 @@ buffer starts after the estimated rear of the complete train clears the object.
 Longer/slower maneuvers can be rejected by the 30-second horizon; such a rejection
 is not permission to shorten the prediction or increase planning speed.
 
-The latched `/vehicle/status/trailer_configuration` message is required even for
-an unhitched tractor: an **empty array explicitly means no trailers**. Missing
-messages and unknown trailer types block borrowing. Type geometry and hitch
-conventions match the common articulated-vehicle utility and the Simple LC
-configuration (`default`, `wide`, `articulation`).
+The `trailer.count` parameter defaults to `0` (unhitched tractor). For attached
+trailers, set `trailer.count` and list their types from front to rear in
+`trailer.ordered_types`; each type must have geometry under `trailer.types`.
+A latched `/vehicle/status/trailer_configuration` message overrides the static
+configuration when received. Unknown types in either source block borrowing.
+Type geometry and hitch conventions match the common articulated-vehicle utility
+and the Simple LC configuration (`default`, `wide`, `articulation`).
 
 The configuration message contains trailer types, not measured hitch angles.
 Trailer poses are therefore **kinematic estimates from measured tractor history**.
@@ -178,3 +180,69 @@ Before vehicle rollout, run the ROS suite, collision/return scenarios with oncom
 traffic introduced before and after departure, route/trailer changes during a
 maneuver, and map-boundary/clearance validation against simulator ground truth.
 The host-only checks do not substitute for ROS compilation or simulation.
+
+## Closed-campus AGV profile
+
+Select `avoidance_by_lane_change_profile:=campus_agv` explicitly in
+`planning_simulator.launch.xml`, `logging_simulator.launch.xml`, or `autoware.launch.xml`.
+The default profile remains available. The campus profile supports unhitched vehicles only;
+borrowing candidates are rejected when attached trailers are reported. Acceptance uses an explicit
+empty trailer configuration.
+
+The profile searches 2.0, 1.5, 1.0 and 0.5 m/s candidates within the external velocity limit.
+Each candidate includes its braking approach and recalculates shift geometry and kinematic
+limits at the selected speed. A 50 m current-path corridor selector can request borrowing
+without waiting for the static-avoidance module's `avoid_required` flag. Borrowing side and
+approval identity are associated spatially across short tracker ID changes.
+
+Objects observed below 0.4 m/s for one second are checked against their current spatial
+envelopes; sustained position changes restart confirmation. Pedestrians, bicycles and
+motorcycles always retain temporal prediction checks. Static-only maneuvers do not require
+a full-maneuver prediction horizon. Dynamic checks retain prediction extrapolation and a
+60 s maximum action horizon. Unreachable upstream stops and invalid data remain failures.
+
+Campus settings use 1.0 m longitudinal margin, 0.3 m lateral margin, 0.1 m road-boundary
+margin, 1.0 s temporal gap and 0.3 s clearance hold. Lane marking, intersection and crosswalk
+semantics do not prohibit borrowing in this profile. Physical separators, connected road
+geometry, full body sweep, steering and lateral jerk limits remain checked.
+
+Delayed returns remain bounded by 20 m from the first accepted endpoint. Returning-stage
+candidates use measured position/heading and committed local curvature, and search a longer
+return, a lateral hold, or restoration toward the borrowed lane. Candidate commits are atomic;
+failures retain the committed path with braking. The continuous-return search cursor survives
+planning-budget exhaustion, so later candidates are reachable over successive cycles.
+
+Run acceptance with ROS and this workspace sourced:
+
+```bash
+python3 src/byd/obstacle_avoidance_limit_test/scripts/run_campus_agv_acceptance.py --repeat 3
+python3 src/byd/obstacle_avoidance_limit_test/scripts/run_campus_agv_replay.py \
+  --bag /home/nvidia/autoware/log/20261105/161119_bag \
+  --output-dir /home/nvidia/autoware/log/20261105/campus_agv/replay
+```
+
+Each simulator case starts a fresh instance and keeps obstacle_stop and the planning
+validator enabled. Results include commands, effective inputs, bag, measured trajectory
+plot and `verdict.json`; any failed criterion stops the sequence. A/B edge-gap 5 m tests
+safe passage; separate passing/returning cases require an actual downstream endpoint shift.
+The blocked case requires no arrival and a stationary, collision-free vehicle. Simulation
+success is required before vehicle rollout; a safe candidate during bag replay is not a
+closed-loop vehicle validation.
+
+The campus acceptance policy checks safe avoidance and route arrival. Recorded latency
+violations are retained in `recorded_validation.invalid_fields` for diagnosis and do not fail
+acceptance; other trajectory validity failures remain gating. Validator settings are unchanged.
+
+The campus launch profile keeps the combined map bounds and disables the generic
+curvature-based dynamic drivable-area expansion. The borrowing planner already validates
+the full body sweep inside those bounds; expanding them again adds no borrowing space and
+can block the planning chain. The default profile keeps its original expansion settings.
+
+Campus candidate outputs include the existing lane-change finish buffer after the return
+endpoint. This prevents downstream path-end stopping from stopping the vehicle just before
+the completion gate. The accepted return point, 20 m extension limit and real upstream stop
+constraints are unchanged.
+
+Unhitched campus history sampling uses odometry timestamps and the configured speed cap
+to distinguish reachable progress from a pose jump. Current-pose/path continuity, freshness
+and collision checks remain active. Trailer sampling retains its dense-history requirement.

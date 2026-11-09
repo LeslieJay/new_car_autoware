@@ -16,7 +16,7 @@ from launch.launch_description_sources import (
     FrontendLaunchDescriptionSource,
     PythonLaunchDescriptionSource,
 )
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -141,6 +141,14 @@ def _launch_everything(context: LaunchContext):
             FrontendLaunchDescriptionSource(autoware_launch),
             launch_arguments={
                 "rviz": LaunchConfiguration("enable_rviz"),
+                "avoidance_by_lane_change_profile": LaunchConfiguration(
+                    "avoidance_by_lane_change_profile"
+                ),
+                "launch_static_obstacle_avoidance": LaunchConfiguration(
+                    "launch_static_obstacle_avoidance"
+                ),
+                "launch_simple_avoidance": LaunchConfiguration("launch_simple_avoidance"),
+                "launch_simple_lc_avoidance": LaunchConfiguration("launch_simple_lc_avoidance"),
                 "launch_sensing_driver": "false",
                 # Keep the localization point-cloud filters beside the LiDAR
                 # publisher so the full cloud does not cross a DDS process boundary.
@@ -153,8 +161,6 @@ def _launch_everything(context: LaunchContext):
             name="can_six_node",
             parameters=[LaunchConfiguration("can_rtk_params_file")],
             ros_arguments=[
-                "--disable-stdout-logs",
-                "--disable-rosout-logs",
                 "--disable-external-lib-logs",
             ],
             **driver_common,
@@ -245,6 +251,30 @@ def _launch_everything(context: LaunchContext):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "avoidance_by_lane_change_profile",
+                default_value="campus_agv",
+                description="Lane-change avoidance profile",
+            ),
+            DeclareLaunchArgument(
+                "launch_static_obstacle_avoidance",
+                default_value=PythonExpression([
+                    "'false' if '",
+                    LaunchConfiguration("avoidance_by_lane_change_profile"),
+                    "' == 'campus_agv' else 'true'",
+                ]),
+                description="Enable static avoidance; disabled by default for campus_agv",
+            ),
+            DeclareLaunchArgument(
+                "launch_simple_avoidance",
+                default_value="false",
+                description="Enable simple avoidance",
+            ),
+            DeclareLaunchArgument(
+                "launch_simple_lc_avoidance",
+                default_value="false",
+                description="Enable simple lane-change avoidance",
+            ),
             DeclareLaunchArgument(
                 "log_level",
                 default_value="info",

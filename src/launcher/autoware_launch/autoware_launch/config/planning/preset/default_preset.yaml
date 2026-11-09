@@ -14,7 +14,7 @@ launch:
       default: "false"
   - arg:
       name: launch_avoidance_by_lane_change_module
-      default: "false"
+      default: "true"
   - arg:
       name: launch_simple_lc_avoidance
       # The production preset uses avoidance_by_lane_change plus static_obstacle_avoidance;

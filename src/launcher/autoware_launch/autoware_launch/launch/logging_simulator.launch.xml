@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
+  <arg name="avoidance_by_lane_change_profile" default="default"/>
+  <arg name="enable_all_modules_auto_mode" default="false"/>
   <!-- Essential parameters -->
-  <arg name="map_path" default="/home/nvidia/autoware_map/3_test/" description="point cloud and lanelet2 map directory path"/>
+  <arg name="map_path" default="/home/nvidia/autoware_map/hy_1031/" description="point cloud and lanelet2 map directory path"/>
   <arg name="vehicle_model" default="byd_vehicle" description="vehicle model name"/>
   <arg name="sensor_model" default="byd_sensor_kit" description="sensor model name"/>
   <arg name="vehicle_id" default="$(env VEHICLE_ID default)" description="vehicle specific ID"/>
@@ -28,7 +30,7 @@
   <!-- Vehicle -->
   <arg name="launch_vehicle_interface" default="false"/>
   <!-- Map -->
-  <arg name="lanelet2_map_file" default="0727_lanelet2_map.osm" description="lanelet2 map file name"/>
+  <arg name="lanelet2_map_file" default="hy_1031_lanelet2_map_with_latlon.osm" description="lanelet2 map file name"/>
   <arg name="pointcloud_map_file" default="pointcloud_map.pcd" description="pointcloud map file name"/>
   <!-- System -->
   <arg name="launch_system_monitor" default="false" description="launch system monitor"/>
@@ -41,6 +43,8 @@
   <group scoped="false">
     <include file="$(find-pkg-share autoware_launch)/launch/autoware.launch.xml">
       <!-- Common -->
+      <arg name="avoidance_by_lane_change_profile" value="$(var avoidance_by_lane_change_profile)"/>
+      <arg name="enable_all_modules_auto_mode" value="$(var enable_all_modules_auto_mode)"/>
       <arg name="map_path" value="$(var map_path)"/>
       <arg name="vehicle_model" value="$(var vehicle_model)"/>
       <arg name="sensor_model" value="$(var sensor_model)"/>

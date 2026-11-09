@@ -1,6 +1,6 @@
 <launch>
   <arg name="base_frame" default="base_link" description="base frame"/>
-  <arg name="use_sim_time" default="false" description="use simulator time"/>
+  <arg name="use_sim_time" default="true" description="use simulator time"/>
   <arg name="pointcloud_container_name" default="perception_container" description="name of pointcloud container"/>
   <arg name="use_pointcloud_container" default="true"/>
   <arg name="enable_lane_detection" default="false" description="Enable lane detection module"/>
@@ -10,6 +10,8 @@
   <arg name="occupancy_grid_map_updater" default="binary_bayes_filter" description="options: binary_bayes_filter"/>
   <arg name="occupancy_grid_map_param_path" default="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/$(var occupancy_grid_map_method).param.yaml"/>
   <arg name="occupancy_grid_map_updater_param_path" default="$(find-pkg-share autoware_launch)/config/perception/occupancy_grid_map/$(var occupancy_grid_map_updater)_updater.param.yaml"/>
+  <arg name="use_vector_map_filter" default="true" description="enable vector map inside area filter"/>
+  <arg name="input_vector_map" default="/map/vector_map" description="vector map topic"/>
   
   <!--   
   启动相机ros节点
@@ -24,12 +26,28 @@
     <push-ros-namespace namespace="perception"/>
     <group>
       <!-- ground segmentation -->
+      <push-ros-namespace namespace="obstacle_segmentation"/>
+
+      <let name="ground_filter_output" value="/perception/obstacle_segmentation/raw_pointcloud" if="$(var use_vector_map_filter)"/>
+      <let name="ground_filter_output" value="/perception/obstacle_segmentation/pointcloud" unless="$(var use_vector_map_filter)"/>
+
+      <!-- ray_ground_filter -->
       <include file="$(find-pkg-share autoware_ground_segmentation)/launch/ray_ground_filter.launch.xml">
-        <arg name="input_pointcloud" value="$(var pointcloud)"/>
-        <arg name="output_ground" value="/perception/ground_segmentation/ground"/>
+        <arg name="input/pointcloud" value="$(var pointcloud)"/>
+        <arg name="output/pointcloud" value="$(var ground_filter_output)"/>
       </include>
 
-      <!-- <push-ros-namespace namespace="obstacle_segmentation"/>
+      <!-- vector_map_inside_area_filter -->
+      <group if="$(var use_vector_map_filter)">
+        <include file="$(find-pkg-share autoware_pointcloud_preprocessor)/launch/vector_map_inside_area_filter_node.launch.xml">
+          <arg name="use_sim_time" value="$(var use_sim_time)"/>
+          <arg name="input_vector_map" value="$(var input_vector_map)"/>
+          <arg name="input_pointcloud" value="$(var ground_filter_output)"/>
+          <arg name="output_pointcloud" value="/perception/obstacle_segmentation/pointcloud"/>
+        </include>
+      </group>
+
+      <!-- original patchworkpp (commented out)
       <include file="$(find-pkg-share didrive_patchwork)/launch/patchworkpp.launch.py">
         <arg name="base_frame" value="$(var base_frame)"/>
         <arg name="input_pointcloud" value="$(var pointcloud)"/>
@@ -37,9 +55,10 @@
         <arg name="use_pointcloud_container" value="$(var use_pointcloud_container)"/>
         <arg name="pointcloud_container_name" value="$(var pointcloud_container_name)"/>
         <arg name="output_ground" value="/perception/obstacle_segmentation/ground"/>
-        <arg name="output_nonground" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="output_nonground" value="$(var ground_filter_output)"/>
         <arg name="visualize" value="false"/>
-      </include> -->
+      </include>
+      -->
     </group>
 
     <!-- 

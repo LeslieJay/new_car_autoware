@@ -89,6 +89,7 @@ T get_object_parameter(
 }
 struct ObstacleFilteringParam
 {
+  double max_detection_distance{};
   bool check_inside{};
   bool check_outside{};
 
@@ -144,6 +145,8 @@ struct ObstacleFilteringParam
 
     check_inside = get_object_parameter<bool>(node, param_prefix + "check_inside", label_str);
     check_outside = get_object_parameter<bool>(node, param_prefix + "check_outside", label_str);
+    max_detection_distance = get_or_declare_parameter<double>(
+      node, param_prefix + "max_detection_distance", 10.0);
 
     trim_trajectory.enable_trimming =
       get_object_parameter<bool>(node, param_prefix + "trim_trajectory.enable_trimming", label_str);

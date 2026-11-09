@@ -21,6 +21,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+#include <algorithm>
+#include <functional>
 #include <memory>
 #include <cmath>
 #include <stdexcept>
@@ -188,15 +190,32 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
   {
     const std::string ns = "avoidance_by_lane_change.";
     auto & o = p.opposite_lane;
-    o.enabled = get_or_declare_parameter<bool>(*node, ns + "enable_opposite_lane_borrowing", false);
+    const auto parameter_with_default = [node](const std::string & name, auto fallback) {
+      using T = decltype(fallback);
+      return node->has_parameter(name) ? node->get_parameter(name).get_value<T>()
+                                       : node->declare_parameter<T>(name, fallback);
+    };
+    o.enabled = parameter_with_default(ns + "enable_opposite_lane_borrowing", false);
     const auto number = [&](const std::string & name, double fallback, bool allow_zero = false) {
-      const double value = get_or_declare_parameter<double>(*node, ns + name, fallback);
+      const double value = parameter_with_default(ns + name, fallback);
       if (!std::isfinite(value) || (allow_zero ? value < 0.0 : value <= 0.0)) {
-        throw std::invalid_argument(ns + name + " must be finite and " +
-          (allow_zero ? "nonnegative" : "positive"));
+        throw std::invalid_argument(
+          ns + name + " must be finite and " + (allow_zero ? "nonnegative" : "positive"));
       }
       return value;
     };
+    o.campus_agv = parameter_with_default(ns + "campus_agv", false);
+    o.attention_distance = number("opposite_lane.attention_distance", 50.0);
+    o.static_speed_threshold = number("opposite_lane.static_speed_threshold", 0.4);
+    o.static_observation_time = number("opposite_lane.static_observation_time", 1.0);
+    o.candidate_speeds = parameter_with_default(
+      ns + "opposite_lane.candidate_speeds", std::vector<double>{2.0, 1.5, 1.0, 0.5});
+    if (o.candidate_speeds.empty() || !std::all_of(
+        o.candidate_speeds.begin(), o.candidate_speeds.end(),
+        [](double speed) { return std::isfinite(speed) && speed > 0.0 && speed <= 2.0; })) {
+      throw std::invalid_argument("campus candidate speeds must be in (0, 2] m/s");
+    }
+    std::sort(o.candidate_speeds.begin(), o.candidate_speeds.end(), std::greater<double>{});
     o.max_speed = number("opposite_lane.max_speed", 2.0);
     o.max_prediction_horizon = number("opposite_lane.max_prediction_horizon", 30.0);
     o.time_resolution = number("opposite_lane.time_resolution", 0.5);
@@ -209,12 +228,25 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
     o.max_planning_time_ms = number("opposite_lane.max_planning_time_ms", 50.0);
     o.prepare_distance = number("opposite_lane.prepare_distance", 3.0);
     o.min_shift_distance = number("opposite_lane.min_shift_distance", 5.0);
+    o.max_return_extension_distance = number("opposite_lane.max_return_extension_distance", 20.0);
+    o.return_extension_step = number("opposite_lane.return_extension_step", 1.0);
+    if (o.return_extension_step > o.max_return_extension_distance ||
+        o.max_return_extension_distance > 100.0) {
+      throw std::invalid_argument("return extension step must not exceed a maximum extension of 100m");
+    }
     o.road_boundary_margin = number("opposite_lane.road_boundary_margin", 0.1);
     o.tractor_rear_axle_to_hitch = number("trailer.tractor_rear_axle_to_hitch", 0.6, true);
-    o.trailer_configuration_topic = get_or_declare_parameter<std::string>(
-      *node, ns + "trailer.configuration_topic", "/vehicle/status/trailer_configuration");
-    const auto types = get_or_declare_parameter<std::vector<std::string>>(
-      *node, ns + "trailer.type_names", std::vector<std::string>{"default"});
+    o.trailer_configuration_topic = parameter_with_default(
+      ns + "trailer.configuration_topic", std::string{"/vehicle/status/trailer_configuration"});
+    o.trailer_count = parameter_with_default(ns + "trailer.count", int64_t{0});
+    o.trailer_ordered_types = parameter_with_default(
+      ns + "trailer.ordered_types", std::vector<std::string>{"default"});
+    if (o.trailer_count < 0 ||
+        static_cast<size_t>(o.trailer_count) > o.trailer_ordered_types.size()) {
+      throw std::invalid_argument("trailer.count must be between 0 and trailer.ordered_types size");
+    }
+    const auto types =
+      parameter_with_default(ns + "trailer.type_names", std::vector<std::string>{"default"});
     for (const auto & type : types) {
       const auto prefix = "trailer.types." + type + ".";
       TrailerGeometry geometry;
@@ -230,6 +262,11 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
         throw std::invalid_argument("invalid opposite-borrowing trailer geometry: " + type);
       }
       o.trailer_types.emplace(type, geometry);
+    }
+    for (int64_t i = 0; i < o.trailer_count; ++i) {
+      if (o.trailer_types.count(o.trailer_ordered_types.at(i)) == 0) {
+        throw std::invalid_argument("unknown configured trailer type: " + o.trailer_ordered_types.at(i));
+      }
     }
     if (o.time_resolution < 0.05 || o.time_resolution > 0.5 ||
         o.max_prediction_horizon <= o.min_time_gap) {

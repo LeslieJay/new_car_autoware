@@ -45,11 +45,6 @@ def generate_launch_description():
         namespace='',
         output='screen',
         parameters=[LaunchConfiguration('params_file')],
-        ros_arguments=[
-            '--disable-stdout-logs',
-            '--disable-rosout-logs',
-            '--disable-external-lib-logs',
-        ],
     )
 
     # 返回 LaunchDescription 对象

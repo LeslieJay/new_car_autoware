@@ -1,4 +1,17 @@
 // Copyright 2026 BYD
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // SPDX-License-Identifier: Apache-2.0
 #ifndef AVOIDANCE_BY_LANE_CHANGE__OPPOSITE_LANE_HPP_
 #define AVOIDANCE_BY_LANE_CHANGE__OPPOSITE_LANE_HPP_
@@ -46,9 +59,14 @@ public:
   void reset();
 
 private:
+  void updateObjectHistory();
+  bool isStaticObject(const PredictedObject & object) const;
+  void applyCandidateVelocity(ShiftedPath & path) const;
   bool buildCorridor();
   bool buildPath();
   bool tryReturn();
+  bool extendReturn();
+  bool extendContinuousReturn(double clear_s, const std::string & conflict);
   bool validate(const ShiftedPath & path, bool recovery = false);
   bool contained(const autoware_utils::Polygon2d & footprint, bool source_only = false) const;
   std::vector<autoware_utils::Polygon2d> footprints(const ArticulatedPose & pose) const;
@@ -75,6 +93,7 @@ private:
   std::shared_ptr<const PlannerData> data_;
   BehaviorModuleOutput upstream_;
   std::optional<ObjectData> target_;
+  std::string associated_target_id_;
   PathWithLaneId reference_;
   ShiftedPath path_;
   ShiftLineArray lines_;
@@ -82,6 +101,7 @@ private:
   lanelet::ConstLanelets opposite_;
   std::vector<DrivableLanes> drivable_lanes_;
   std::vector<Pose> actual_history_;
+  std::optional<double> last_actual_stamp_s_;
   std::vector<Pose> observed_history_;
   std::optional<std::string> route_id_;
   bool context_changed_{false};
@@ -97,8 +117,28 @@ private:
   bool conflict_seen_{false};
   size_t completion_count_{0};
   std::optional<Pose> stop_pose_;
+  std::string return_extension_conflict_;
+  double original_return_end_arc_{0.0};
+  double extended_return_end_arc_{0.0};
+  size_t conflict_path_index_{0};
   std::optional<std::chrono::steady_clock::time_point> deadline_;
   std::vector<double> reference_velocity_limits_;
+  struct ObjectTrack {
+    Pose pose;
+    Pose stationary_anchor;
+    std::string id;
+    double filtered_speed{0.0};
+    double stationary_since{0.0};
+    double last_seen{0.0};
+    bool stationary{false};
+  };
+  std::vector<ObjectTrack> object_tracks_;
+  double last_object_stamp_{-1.0};
+  double candidate_speed_{2.0};
+  size_t next_speed_index_{0};
+  size_t continuous_search_index_{0};
+  std::string continuous_search_conflict_;
+  double required_arrival_time_{0.0};
   std::optional<BorrowingPhase> last_diagnostic_phase_;
 
 };

@@ -121,6 +121,15 @@ bool keep_input_points(const std::vector<std::shared_ptr<SceneModuleStatus>> & s
 BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & data)
 {
   resetProcessingTime();
+  auto stage_start = std::chrono::steady_clock::now();
+  const auto report_stage = [&](const char * stage) {
+    const auto now = std::chrono::steady_clock::now();
+    const double elapsed = std::chrono::duration<double, std::milli>(now - stage_start).count();
+    if (elapsed > 100.0) {
+      RCLCPP_WARN(logger_, "[BPP_STAGE_TIMING] stage=%s elapsed_ms=%.3f", stage, elapsed);
+    }
+    stage_start = now;
+  };
   StopWatch<std::chrono::milliseconds> stop_watch;
   stop_watch.tic("total_time");
   BOOST_SCOPE_EXIT((&processing_time_)(&stop_watch))
@@ -202,6 +211,7 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
     false,
   };
 
+  report_stage("reference_and_route");
   for (auto & planner_manager_slot : planner_manager_slots_) {
     if (result_output.is_upstream_failed_approved) {
       // clear all candidate/approved modules of all subsequent slots, and keep result_output as is
@@ -219,6 +229,7 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
     }
   }
 
+  report_stage("module_slots");
   std::for_each(manager_ptrs_.begin(), manager_ptrs_.end(), [](const auto & m) {
     m->updateObserver();
     m->publishRTCStatus();
@@ -228,7 +239,9 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
   result_output.valid_output.path = utils::resamplePathWithSpline(
     result_output.valid_output.path, data->parameters.output_path_interval,
     keep_input_points(getSceneModuleStatus()));
+  report_stage("observers_and_resample");
   generateCombinedDrivableArea(result_output.valid_output, data);
+  report_stage("drivable_area");
   return result_output.valid_output;
 }
 

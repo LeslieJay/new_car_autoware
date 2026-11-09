@@ -20,6 +20,7 @@ event_rosbag_recorder_node:
       allowed_event_types:
         - abnormal_stop
         - autonomous_to_manual
+        - HMI
       diagnostics_enabled: false
       service_enabled: false
     diagnostics:
