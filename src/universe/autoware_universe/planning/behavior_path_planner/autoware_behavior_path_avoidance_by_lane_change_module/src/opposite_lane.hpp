@@ -67,6 +67,7 @@ private:
   bool tryReturn();
   bool extendReturn();
   bool extendContinuousReturn(double clear_s, const std::string & conflict);
+  std::optional<std::string> returnObstacle() const;
   bool validate(const ShiftedPath & path, bool recovery = false);
   bool contained(const autoware_utils::Polygon2d & footprint, bool source_only = false) const;
   std::vector<autoware_utils::Polygon2d> footprints(const ArticulatedPose & pose) const;
@@ -120,7 +121,6 @@ private:
   std::string return_extension_conflict_;
   double original_return_end_arc_{0.0};
   double extended_return_end_arc_{0.0};
-  size_t conflict_path_index_{0};
   std::optional<std::chrono::steady_clock::time_point> deadline_;
   std::vector<double> reference_velocity_limits_;
   struct ObjectTrack {

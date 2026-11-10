@@ -10,8 +10,8 @@
       opposite_lane:
         attention_distance: 50.0
         candidate_speeds: [2.0, 1.5, 1.0, 0.5]
-        static_speed_threshold: 0.4
-        static_observation_time: 1.0
+        static_speed_threshold: 1.0
+        static_observation_time: 0.5
         max_speed: 2.0
         max_prediction_horizon: 60.0
         time_resolution: 0.5
@@ -21,10 +21,10 @@
         clearance_hold_time: 0.0
         return_distance_after_object: 5.0
         data_timeout: 5.0
-        max_planning_time_ms: 500.0
+        max_planning_time_ms: 5000.0
         prepare_distance: 3.0
         min_shift_distance: 5.0
-        max_return_extension_distance: 20.0
+        max_return_extension_distance: 100.0
         return_extension_step: 1.0
         road_boundary_margin: 0.1
       trailer:
@@ -64,45 +64,45 @@
           th_moving_speed: 0.4                         # [m/s]
           th_moving_time: 1.0                          # [s]
           max_expand_ratio: 0.0                        # [-]
-          envelope_buffer_margin: 0.3                  # [m]
+          envelope_buffer_margin: 0.0                  # [m]
           lateral_margin:
-            soft_margin: 0.3                           # [m]
+            soft_margin: 0.0                           # [m]
             hard_margin: 0.2                           # [m]
             hard_margin_for_parked_vehicle: 0.2        # [m]
         truck:
           th_moving_speed: 0.4                         # [m/s]
           th_moving_time: 1.0
           max_expand_ratio: 0.0
-          envelope_buffer_margin: 0.3
+          envelope_buffer_margin: 0.0
           lateral_margin:
-            soft_margin: 0.3                           # [m]
+            soft_margin: 0.0                           # [m]
             hard_margin: 0.2                           # [m]
             hard_margin_for_parked_vehicle: 0.2        # [m]
         bus:
           th_moving_speed: 0.4                         # [m/s]
           th_moving_time: 1.0
           max_expand_ratio: 0.0
-          envelope_buffer_margin: 0.3
+          envelope_buffer_margin: 0.0
           lateral_margin:
-            soft_margin: 0.3                           # [m]
+            soft_margin: 0.0                           # [m]
             hard_margin: 0.2                           # [m]
             hard_margin_for_parked_vehicle: 0.2        # [m]
         trailer:
           th_moving_speed: 0.4                         # [m/s]
           th_moving_time: 1.0
           max_expand_ratio: 0.0
-          envelope_buffer_margin: 0.3
+          envelope_buffer_margin: 0.0
           lateral_margin:
-            soft_margin: 0.3                           # [m]
+            soft_margin: 0.0                           # [m]
             hard_margin: 0.2                           # [m]
             hard_margin_for_parked_vehicle: 0.2        # [m]
         unknown:
           th_moving_speed: 0.4                         # [m/s]
           th_moving_time: 1.0
           max_expand_ratio: 0.0
-          envelope_buffer_margin: 0.3
+          envelope_buffer_margin: 0.0
           lateral_margin:
-            soft_margin: 0.3                           # [m]
+            soft_margin: 0.0                           # [m]
             hard_margin: 0.2                           # [m]
             hard_margin_for_parked_vehicle: 0.2        # [m]
         bicycle:

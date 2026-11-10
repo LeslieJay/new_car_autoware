@@ -119,6 +119,8 @@ public:
   }
   static bool validate(OppositeLaneBorrowing & planner) { return planner.validate(planner.path_); }
   static bool extendReturn(OppositeLaneBorrowing & planner) { return planner.extendReturn(); }
+  static std::optional<std::string> returnObstacle(const OppositeLaneBorrowing & planner)
+  { return planner.returnObstacle(); }
   static double originalReturnEnd(const OppositeLaneBorrowing & planner)
   {
     return planner.original_return_end_arc_;
@@ -363,14 +365,13 @@ TEST_F(OppositeLaneTest, RejectsProhibitedBoundaryAndDisconnectedOppositeLane)
   EXPECT_EQ(planner->reason(), "discontinuous_or_prohibited_borrowing_section");
 }
 
-TEST_F(OppositeLaneTest, RejectsInvalidPredictionsInsteadOfTreatingLaneAsClear)
+TEST_F(OppositeLaneTest, IgnoresObjectPredictionsDuringPathValidation)
 {
   auto object = obstacle(10.0, 8.0);
   object.kinematics.initial_twist_with_covariance.twist.linear.x =
     std::numeric_limits<double>::quiet_NaN();
   objects->objects.push_back(object);
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "invalid_object_prediction");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
 }
 
 TEST_F(OppositeLaneTest, RejectsTractorCurvatureAndLateralJerkViolation)
@@ -382,21 +383,21 @@ TEST_F(OppositeLaneTest, RejectsTractorCurvatureAndLateralJerkViolation)
   EXPECT_EQ(planner->reason(), "kinematic_limit");
 }
 
-TEST_F(OppositeLaneTest, RejectsStaticObstacleAndRetainsLostTarget)
+TEST_F(OppositeLaneTest, DoesNotCheckObjectCollisionsDuringPathValidation)
 {
   const auto object = obstacle(10.0, 0.0);
   objects->objects.push_back(object);
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "vehicle_collision");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
   objects->objects.clear();
   OppositeLaneBorrowingTestPeer::holdTarget(*planner, object);
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "held_target_collision");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
 }
 
 TEST_F(OppositeLaneTest, DelaysReturnBeyondNewStaticObstacle)
 {
   OppositeLaneBorrowingTestPeer::setBorrowedReturnScenario(*planner);
+  EXPECT_EQ(OppositeLaneBorrowingTestPeer::returnObstacle(*planner),
+    OppositeLaneBorrowingTestPeer::secondaryObjectId(*planner));
   lc->trajectory.lateral_jerk = 0.5;
   parameters->opposite_lane.max_return_extension_distance = 20.0;
   parameters->opposite_lane.return_extension_step = 1.0;
@@ -408,7 +409,7 @@ TEST_F(OppositeLaneTest, DelaysReturnBeyondNewStaticObstacle)
   EXPECT_EQ(planner->reason(), "return_extended_for_obstacle");
 }
 
-TEST_F(OppositeLaneTest, ChecksObjectInitiallyOutsideBorrowedLane)
+TEST_F(OppositeLaneTest, IgnoresMovingObjectDuringPathValidation)
 {
   auto object = obstacle(10.0, 8.0);
   object.kinematics.initial_twist_with_covariance.twist.linear.y = -1.0;
@@ -417,18 +418,17 @@ TEST_F(OppositeLaneTest, ChecksObjectInitiallyOutsideBorrowedLane)
   classification.probability = 1.0;
   object.classification.push_back(classification);
   objects->objects.push_back(object);
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "vehicle_collision");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
 }
 
-TEST_F(OppositeLaneTest, RejectsTruncatedPredictionAndUnreachableStop)
+TEST_F(OppositeLaneTest, IgnoresPredictionHorizonButRejectsUnreachableStop)
 {
   parameters->opposite_lane.max_prediction_horizon = 5.0;
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "prediction_does_not_cover_complete_return");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
   parameters->opposite_lane.max_prediction_horizon = 30.0;
   OppositeLaneBorrowingTestPeer::path(*planner).path.points[60].point.longitudinal_velocity_mps = 0.0;
   EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
+  EXPECT_EQ(planner->reason(), "arrival_time_unreachable");
 }
 
 TEST_F(OppositeLaneTest, RejectsBoundaryViolationAndMissingReturn)
@@ -627,11 +627,10 @@ TEST_F(OppositeLaneTest, CampusStaticLongActionDoesNotNeedPredictionHorizon)
     std::numeric_limits<double>::quiet_NaN();
   ASSERT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
   objects->objects.front().kinematics.initial_pose_with_covariance.pose.position.y = 0.0;
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "vehicle_collision");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
 }
 
-TEST_F(OppositeLaneTest, CampusStationaryPedestrianStillRequiresDynamicPrediction)
+TEST_F(OppositeLaneTest, CampusStationaryPedestrianDoesNotRequirePrediction)
 {
   parameters->opposite_lane.campus_agv = true;
   parameters->opposite_lane.max_prediction_horizon = 5.0;
@@ -645,8 +644,7 @@ TEST_F(OppositeLaneTest, CampusStationaryPedestrianStillRequiresDynamicPredictio
     OppositeLaneBorrowingTestPeer::observe(*planner);
   }
   EXPECT_FALSE(OppositeLaneBorrowingTestPeer::stationary(*planner, objects->objects.front()));
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
-  EXPECT_EQ(planner->reason(), "prediction_does_not_cover_complete_return");
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
 }
 
 TEST_F(OppositeLaneTest, CampusLowerSpeedCandidateRetainsBrakingApproach)
@@ -707,7 +705,7 @@ TEST_F(OppositeLaneTest, CampusReturningCandidateStartsAtMeasuredPoseAndHeading)
     OppositeLaneBorrowingTestPeer::originalReturnEnd(*planner) + 20.0 + 1e-6);
 }
 
-TEST_F(OppositeLaneTest, CampusUnconfirmedSecondaryRetainsTemporalChecks)
+TEST_F(OppositeLaneTest, CampusUnconfirmedSecondaryStillDelaysReturn)
 {
   parameters->opposite_lane.campus_agv = true;
   parameters->opposite_lane.longitudinal_margin = 1.0;
@@ -716,9 +714,6 @@ TEST_F(OppositeLaneTest, CampusUnconfirmedSecondaryRetainsTemporalChecks)
   OppositeLaneBorrowingTestPeer::setReturningScenario(*planner);
   OppositeLaneBorrowingTestPeer::clearObjectHistory(*planner);
   parameters->opposite_lane.max_prediction_horizon = 5.0;
-  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::extendReturn(*planner));
-  EXPECT_NE(planner->reason().find("prediction_does_not_cover_complete_return"), std::string::npos);
-  parameters->opposite_lane.max_prediction_horizon = 60.0;
   EXPECT_TRUE(OppositeLaneBorrowingTestPeer::extendReturn(*planner)) << planner->reason();
 }
 

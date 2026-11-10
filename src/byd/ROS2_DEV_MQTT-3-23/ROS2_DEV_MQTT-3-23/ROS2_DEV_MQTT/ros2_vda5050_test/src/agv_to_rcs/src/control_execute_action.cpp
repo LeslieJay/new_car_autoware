@@ -97,9 +97,17 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
 
         std::cout << "action_type ： " << order_messages.msg_state.action_states[i].action_type.c_str() << std::endl;
 
-        // 找到对应的动作，并且该动作未完成，则执行动作
-        if((order_messages.msg_state.action_states[i].action_type == "LOAD" || order_messages.msg_state.action_states[i].action_type == "pick") && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        const std::string& action_type = order_messages.msg_state.action_states[i].action_type;
+        const std::string& action_status = order_messages.msg_state.action_states[i].action_status;
+        const std::string& action_id = order_messages.msg_state.action_states[i].action_id;
+
+        // 找到对应的动作，根据 action_type 决定起升或下降，不再关注高度数值
+        if(action_type == "LOAD" || action_type == "pick"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [%s] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_type.c_str(), action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置货叉动作标志
@@ -108,17 +116,17 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
                 flag_have_fork_action_ = true;
             }
             
-            // LOAD 动作对应挂钩抬升（挂车），底盘 CAN 0x401 发送 data[4]=1（位置1）
+            // 不再关注参数中的高度数值，LOAD 动作固定对应挂钩抬升/起升（挂车），底盘 CAN 0x401 发送 data[4]=1（位置1）
             int fork_height = 1;
             
-            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "LOAD动作执行挂钩抬升: 目标位置=%d", fork_height);
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【动作执行】%s动作执行挂钩抬升/起升: 目标位置=%d", action_type.c_str(), fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height);
             bool fork_state = agv_fork_control->control();
 
             if(fork_state){
                 // 结束货叉动作
-                std::cout << "正在执行节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "正在执行节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "RUNNING";
                 {
@@ -131,8 +139,12 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
             }
 
         }
-        else if((order_messages.msg_state.action_states[i].action_type == "UNLOAD" || order_messages.msg_state.action_states[i].action_type == "drop") && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        else if(action_type == "UNLOAD" || action_type == "drop"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [%s] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_type.c_str(), action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置货叉动作标志
@@ -141,17 +153,17 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
                 flag_have_fork_action_ = true;
             }
             
-            // UNLOAD 动作对应挂钩下降（脱钩），底盘 CAN 0x401 需要发送 data[4]=2（位置2）
+            // 不再关注参数中的高度数值，UNLOAD 动作固定对应挂钩下降（脱钩），底盘 CAN 0x401 需要发送 data[4]=2（位置2）
             int fork_height = 2;
             
-            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "UNLOAD动作执行挂钩下降: 目标位置=%d", fork_height);
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【动作执行】%s动作执行挂钩下降: 目标位置=%d", action_type.c_str(), fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height);
             bool fork_state = agv_fork_control->control();
 
             if(fork_state){
                 // 结束货叉动作
-                std::cout << "正在执行节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "正在执行节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "RUNNING";
                 {
@@ -164,8 +176,12 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
             }
             
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "CHARGE" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        else if(action_type == "CHARGE"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [CHARGE] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置电池动作标志
@@ -175,33 +191,46 @@ int LaserExecuteAction::have_action(OrderMessages &order_messages,int point_inde
             }
             
             std::cout << "调度系统发布充电任务！" << std::endl;
+            order_messages.msg_state.action_states[i].action_status = "RUNNING";
 
             bool charge_state = agv_battery_control->control();
 
             if(charge_state){
                 // 结束充电
-                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "FINISHED";
             }
             else{
-
-                std::cout << "AGV充电启动失败！" << std::endl;
+                order_messages.msg_state.action_states[i].action_status = "FAILED";
+                std::cout << "AGV充电启动失败或异常终止！" << std::endl;
+                actionID = -1;
             }
 
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "WAIT" && order_messages.msg_state.action_states[i].action_status != "FINISHED") {
-            double wait_time = std::stod(order_messages.msg_state.action_states[i].action_description);
+        else if(action_type == "WAIT") {
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [WAIT] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_id.c_str());
+                continue;
+            }
+            double wait_time = 0.0;
+            try {
+                if(!order_messages.msg_state.action_states[i].action_description.empty()) {
+                    wait_time = std::stod(order_messages.msg_state.action_states[i].action_description);
+                }
+            } catch(...) {
+                wait_time = 1.0;
+            }
             std::cout << "等待时长: " << wait_time << " 秒" << std::endl;   
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000*wait_time)));
             order_messages.msg_state.action_states[i].action_status = "FINISHED";
-            std::cout << "✅ WAIT动作已完成，action_id: " << order_messages.msg_state.action_states[i].action_id << std::endl;
+            std::cout << "✅ WAIT动作已完成，action_id: " << action_id << std::endl;
         }
         else{
             std::cout << "非法动作类型！" << std::endl;
-            std::cout << "🔍 调试信息: action_type=" << order_messages.msg_state.action_states[i].action_type 
-                      << ", action_status=" << order_messages.msg_state.action_states[i].action_status 
-                      << ", action_id=" << order_messages.msg_state.action_states[i].action_id << std::endl;
+            std::cout << "🔍 调试信息: action_type=" << action_type 
+                      << ", action_status=" << action_status 
+                      << ", action_id=" << action_id << std::endl;
         }
 
         
@@ -300,9 +329,17 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
 
         std::cout << "action_type ： " << order_messages.msg_state.action_states[i].action_type.c_str() << std::endl;
 
-        // 找到对应的动作，并且该动作未完成，则执行动作
-        if(order_messages.msg_state.action_states[i].action_type == "pick" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        const std::string& action_type = order_messages.msg_state.action_states[i].action_type;
+        const std::string& action_status = order_messages.msg_state.action_states[i].action_status;
+        const std::string& action_id = order_messages.msg_state.action_states[i].action_id;
+
+        // 找到对应的动作，根据 action_type 决定起升或下降，不再关注高度数值
+        if(action_type == "LOAD" || action_type == "pick"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [%s] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_type.c_str(), action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置货叉动作标志
@@ -311,14 +348,16 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
                 flag_have_fork_action_ = true;
             }
             
-            int fork_height = std::stoi(order_messages.msg_state.action_states[i].action_description) + agv_config.fork_action_height;
+            // 不再关注参数中的高度数值，LOAD 动作固定对应挂钩抬升/起升，目标位置 1
+            int fork_height = 1;
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【动作执行】%s动作执行挂钩抬升/起升: 目标位置=%d", action_type.c_str(), fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height, 0);
             bool fork_state = agv_fork_control->control();
 
             if(fork_state){
                 // 结束货叉动作
-                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "FINISHED";
                 {
@@ -332,8 +371,12 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
             }
 
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "drop" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        else if(action_type == "UNLOAD" || action_type == "drop"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [%s] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_type.c_str(), action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置货叉动作标志
@@ -342,14 +385,16 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
                 flag_have_fork_action_ = true;
             }
             
-            int fork_height = std::stoi(order_messages.msg_state.action_states[i].action_description);
+            // 不再关注参数中的高度数值，UNLOAD 动作固定对应挂钩下降，目标位置 2
+            int fork_height = 2;
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【动作执行】%s动作执行挂钩下降: 目标位置=%d", action_type.c_str(), fork_height);
             
             agv_fork_control->setForkParameters(1, fork_height, 0);
             bool fork_state = agv_fork_control->control();
 
             if(fork_state){
                 // 结束货叉动作
-                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "FINISHED";
                 {
@@ -363,8 +408,12 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
             }
             
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "CHARGE" && order_messages.msg_state.action_states[i].action_status != "FINISHED"){
-            
+        else if(action_type == "CHARGE"){
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [CHARGE] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_id.c_str());
+                continue;
+            }
+
             actionID = i;
 
             // 设置电池动作标志
@@ -374,6 +423,7 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
             }
             
             std::cout << "调度系统发布充电任务！" << std::endl;
+            order_messages.msg_state.action_states[i].action_status = "RUNNING";
 
             // 等待小车挺稳后在切换充电模式
             std::this_thread::sleep_for(std::chrono::milliseconds(1000*15));
@@ -382,30 +432,42 @@ int QRExecuteAction::have_action(OrderMessages &order_messages,int point_index){
 
             if(charge_state){
                 // 结束充电
-                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << order_messages.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "执行完节点 " <<order_messages.msg_state.node_states[point_index].node_id << "的动作 " << action_id << std::endl;
                 // 更新全局msg_state
                 order_messages.msg_state.action_states[i].action_status = "FINISHED";
                 
             }
             else{
-
-                std::cout << "AGV充电启动失败！" << std::endl;
+                order_messages.msg_state.action_states[i].action_status = "FAILED";
+                std::cout << "AGV充电启动失败或异常终止！" << std::endl;
+                actionID = -1;
             }
 
         }
-        else if(order_messages.msg_state.action_states[i].action_type == "WAIT" && order_messages.msg_state.action_states[i].action_status != "FINISHED") {
-            double wait_time = std::stod(order_messages.msg_state.action_states[i].action_description);
+        else if(action_type == "WAIT") {
+            if(action_status == "FINISHED"){
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "动作 [WAIT] (ID: %s) 已处于 FINISHED 状态，无需重复执行", action_id.c_str());
+                continue;
+            }
+            double wait_time = 0.0;
+            try {
+                if(!order_messages.msg_state.action_states[i].action_description.empty()) {
+                    wait_time = std::stod(order_messages.msg_state.action_states[i].action_description);
+                }
+            } catch(...) {
+                wait_time = 1.0;
+            }
             std::cout << "等待时长: " << wait_time << " 秒" << std::endl;   
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000*wait_time)));
             order_messages.msg_state.action_states[i].action_status = "FINISHED";
-            std::cout << "✅ WAIT动作已完成，action_id: " << order_messages.msg_state.action_states[i].action_id << std::endl;
+            std::cout << "✅ WAIT动作已完成，action_id: " << action_id << std::endl;
             
         }
         else{
             std::cout << "非法动作类型！" << std::endl;
-            std::cout << "🔍 调试信息: action_type=" << order_messages.msg_state.action_states[i].action_type 
-                      << ", action_status=" << order_messages.msg_state.action_states[i].action_status 
-                      << ", action_id=" << order_messages.msg_state.action_states[i].action_id << std::endl;
+            std::cout << "🔍 调试信息: action_type=" << action_type 
+                      << ", action_status=" << action_status 
+                      << ", action_id=" << action_id << std::endl;
         }
 
         

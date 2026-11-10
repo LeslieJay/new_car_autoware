@@ -123,7 +123,7 @@ void LsaerForkActionClient::fork_result_callback(const rclcpp_action::ClientGoal
     switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
             RCLCPP_INFO(node_->get_logger(),"任务完成状态 %d",result.result->finish);
-            flag_finish = true;
+            flag_finish = result.result->finish;
             flag_aborted = false;
             flag_canceled = false;
             flag_driving = false;

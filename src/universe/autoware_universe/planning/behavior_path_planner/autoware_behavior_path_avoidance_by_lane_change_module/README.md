@@ -63,16 +63,14 @@ oncoming-object filtering or routing behavior.
   activation cannot bypass the planner's safety gate. After commitment, safety
   return and braking do not require another approval.
 - The outgoing path, reference lane and avoidance target are retained during
-  execution. Target disappearance does not discard the maneuver or remove the
-  held obstacle from collision checking. A recovery return is accepted only if
-  it joins the measured offset and heading and passes the full safety check.
+  execution. Target disappearance does not discard the maneuver. A recovery
+  return is accepted only if it joins the measured offset and heading and
+  passes the path geometry and motion checks.
   Otherwise, braking preserves the committed geometry.
-- Full perception is checked without class, heading or current-lane filters.
-  All predicted modes plus a constant-twist fallback are checked, including
-  objects currently outside the borrowing lane. Prediction time includes
-  perception age, acceleration bounds and the return time gap. Stops and slow
-  motion are not replaced with an artificial minimum speed. A return exceeding
-  the prediction horizon is rejected rather than truncated.
+- Object collision and prediction-horizon checks are disabled for opposite-lane
+  borrowing. A stationary object in the source lane and current return interval
+  still triggers a bounded return-point extension. Stops and slow motion are
+  not replaced with an artificial minimum speed.
 - New upstream speed limits are respected while retaining committed geometry.
   Stale perception/odometry, invalid configuration, geometry failure or exhausted
   planning budget blocks departure or triggers braking while committed.
@@ -160,9 +158,8 @@ colcon test-result --verbose
 
 Build the other two packages with `BUILD_TESTING=ON` first if they are not already
 built. ROS tests cover both borrowing sides, corridor gaps, prohibited crossing,
-obstacles outside the current lane, invalid prediction, insufficient horizon,
-held targets, trailer envelopes/articulation, same-direction priority, opt-in
-behavior and geometry-preserving braking.
+disabled object collision checks, return-point extension, trailer envelopes/articulation,
+same-direction priority, opt-in behavior and geometry-preserving braking.
 
 Host-only checks (no ROS required):
 
@@ -195,11 +192,9 @@ limits at the selected speed. A 50 m current-path corridor selector can request 
 without waiting for the static-avoidance module's `avoid_required` flag. Borrowing side and
 approval identity are associated spatially across short tracker ID changes.
 
-Objects observed below 0.4 m/s for one second are checked against their current spatial
-envelopes; sustained position changes restart confirmation. Pedestrians, bicycles and
-motorcycles always retain temporal prediction checks. Static-only maneuvers do not require
-a full-maneuver prediction horizon. Dynamic checks retain prediction extrapolation and a
-60 s maximum action horizon. Unreachable upstream stops and invalid data remain failures.
+Objects observed below 0.4 m/s for one second can trigger return-point extension;
+sustained position changes restart confirmation. Path validation still rejects
+unreachable upstream stops and invalid path geometry.
 
 Campus settings use 1.0 m longitudinal margin, 0.3 m lateral margin, 0.1 m road-boundary
 margin, 1.0 s temporal gap and 0.3 s clearance hold. Lane marking, intersection and crosswalk
@@ -244,5 +239,5 @@ the completion gate. The accepted return point, 20 m extension limit and real up
 constraints are unchanged.
 
 Unhitched campus history sampling uses odometry timestamps and the configured speed cap
-to distinguish reachable progress from a pose jump. Current-pose/path continuity, freshness
-and collision checks remain active. Trailer sampling retains its dense-history requirement.
+to distinguish reachable progress from a pose jump. Current-pose/path continuity and freshness
+checks remain active. Trailer sampling retains its dense-history requirement.

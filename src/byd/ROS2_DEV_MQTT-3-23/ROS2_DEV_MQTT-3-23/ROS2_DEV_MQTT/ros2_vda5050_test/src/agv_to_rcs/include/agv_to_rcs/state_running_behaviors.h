@@ -87,6 +87,8 @@ private:
     rclcpp::Subscription<autoware_system_msgs::msg::AutowareState>::SharedPtr autoware_state_sub_;
     std::atomic<int> current_autoware_state_{0};
     void autoware_state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg);
+    std::recursive_mutex order_messages_mutex_;
+    std::shared_ptr<rclcpp::Node> node_;
 
 
     // 数据更新
@@ -156,9 +158,16 @@ private:
     /*****************************************************************************************
     * @brief:      处理取消订单即时指令 (cancelOrder)
     * @return:     若检测到并处理了 cancelOrder 则返回 true，否则返回 false
-    * @note:       收到指令后立即取消底层 Autoware 导航（原地刹停），上报状态并清空订单
+    * @note:       收到指令后立即取消底层 Autoware 导航（原地刹停），上报状态并清空订单；
+    *              若当前正处于挂钩动作执行阶段，则暂缓取消直到挂钩到位
     ******************************************************************************************/
     bool handle_cancel_order();
+
+    /*****************************************************************************************
+    * @brief:      检测当前是否正在物理执行挂钩动作（升降运行中）
+    * @return:     若挂钩动作正在执行且尚未完成则返回 true，否则返回 false
+    ******************************************************************************************/
+    bool is_hook_executing() const;
 
     // 用于存储恢复导航后的状态（由handle_pause方法设置）
     bool restored_drive_state_;

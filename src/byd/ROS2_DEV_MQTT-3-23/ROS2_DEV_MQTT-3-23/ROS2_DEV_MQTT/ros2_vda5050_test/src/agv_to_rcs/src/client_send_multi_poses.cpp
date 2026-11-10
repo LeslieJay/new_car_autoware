@@ -45,6 +45,11 @@ rclcpp::Client<UseTrajectory>::FutureAndRequestId LaserSendMultiPose::send_reque
     // path_msg.header.stamp = node_->now();
     // path_msg.header.frame_id = "map";
 
+    if (goal_points.empty()) {
+        RCLCPP_ERROR(node_->get_logger(), "LaserSendMultiPose::send_request: goal_points is empty!");
+        return trajectory_client_->async_send_request(request);
+    }
+
     int num_poses = goal_points.size();
     int i = num_poses - 1;
     auto pose = geometry_msgs::msg::PoseStamped();
@@ -66,6 +71,11 @@ rclcpp::Client<UseTrajectory>::FutureAndRequestId LaserSendMultiPose::send_reque
 void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 {
     
+    if (goal_points.empty()) {
+        RCLCPP_ERROR(node_->get_logger(), "LaserSendMultiPose::send_goal: goal_points is empty!");
+        return;
+    }
+
     if(!action_client_->wait_for_action_server(10s)){
 
         RCLCPP_INFO(node_->get_logger(),"connecting out of time");
@@ -75,6 +85,8 @@ void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 
     int num_poses = goal_points.size();
     int i = num_poses - 1;
+        RCLCPP_INFO(node_->get_logger(), 
+    "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=%d",i);
     auto pose = geometry_msgs::msg::PoseStamped();
     pose.header.frame_id = "map";
     pose.pose.position.x = goal_points[i].x;

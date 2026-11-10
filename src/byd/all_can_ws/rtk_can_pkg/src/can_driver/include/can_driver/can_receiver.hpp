@@ -79,6 +79,12 @@ void updateLatestGGA(const std::string & gga);
 bool waitForGGA(std::string & gga, std::chrono::milliseconds timeout);
 void notifyGGA();
 
+std::string sixentsStatusToString(uint32_t status);
+std::string sixentsRetCodeToString(int32_t ret);
+std::string getLatestSixentsLog();
+uint32_t getLatestSixentsStatus();
+bool isRtcmNormal();
+
 }  // namespace can_driver
 
 #endif  // CAN_DRIVER__CAN_RECEIVER_HPP_

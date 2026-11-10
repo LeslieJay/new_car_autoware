@@ -56,7 +56,8 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
 {
   socket_handle = socket(PF_CAN, SOCK_RAW, CAN_RAW);
   if (socket_handle < 0) {
-    perror("socket");
+    RCLCPP_ERROR(
+      rclcpp::get_logger("can_node"), "socket 创建失败: %s", std::strerror(errno));
     return false;
   }
 
@@ -64,7 +65,8 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
   if (setsockopt(
         socket_handle, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &enable_canfd, sizeof(enable_canfd)) < 0)
   {
-    perror("setsockopt CAN FD");
+    RCLCPP_ERROR(
+      rclcpp::get_logger("can_node"), "setsockopt CAN_RAW_FD_FRAMES 失败: %s", std::strerror(errno));
     close(socket_handle);
     socket_handle = -1;
     return false;
@@ -72,7 +74,8 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
 
   int rcvbuf_size = 1024 * 1024;
   if (setsockopt(socket_handle, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size)) < 0) {
-    perror("setsockopt SO_RCVBUF");
+    RCLCPP_WARN(
+      rclcpp::get_logger("can_node"), "setsockopt SO_RCVBUF 失败: %s", std::strerror(errno));
   }
 
   struct can_filter filters[2];
@@ -81,7 +84,8 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
   filters[1].can_id = 0x604;
   filters[1].can_mask = CAN_SFF_MASK;
   if (setsockopt(socket_handle, SOL_CAN_RAW, CAN_RAW_FILTER, filters, sizeof(filters)) < 0) {
-    perror("setsockopt CAN filter");
+    RCLCPP_ERROR(
+      rclcpp::get_logger("can_node"), "setsockopt CAN_RAW_FILTER 失败: %s", std::strerror(errno));
     close(socket_handle);
     socket_handle = -1;
     return false;
@@ -92,7 +96,9 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
   ifr.ifr_name[IFNAMSIZ - 1] = '\0';
 
   if (ioctl(socket_handle, SIOCGIFINDEX, &ifr) < 0) {
-    perror("SIOCGIFINDEX");
+    RCLCPP_ERROR(
+      rclcpp::get_logger("can_node"), "ioctl SIOCGIFINDEX 获取接口 %s 失败: %s",
+      interface_name.c_str(), std::strerror(errno));
     close(socket_handle);
     socket_handle = -1;
     return false;
@@ -103,7 +109,9 @@ bool CanNode::initialize(const std::string & interface_name, int & socket_handle
   addr.can_ifindex = ifr.ifr_ifindex;
 
   if (bind(socket_handle, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-    perror("bind");
+    RCLCPP_ERROR(
+      rclcpp::get_logger("can_node"), "bind 接口 %s 失败: %s", interface_name.c_str(),
+      std::strerror(errno));
     close(socket_handle);
     socket_handle = -1;
     return false;

@@ -30,7 +30,6 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <boost/geometry.hpp>
-#include <boost/geometry/index/rtree.hpp>
 #include <boost/geometry/geometries/multi_polygon.hpp>
 
 #include <algorithm>
@@ -152,42 +151,6 @@ std::optional<double> objectMotionBound(
     }
   }
   return std::isfinite(speed) ? std::optional<double>{speed} : std::nullopt;
-}
-
-Pose extrapolate(const PredictedObject & object, const Pose & start, double time)
-{
-  const auto & twist = object.kinematics.initial_twist_with_covariance.twist;
-  // Object twist is expressed in its local frame, including lateral velocity.
-  const double angle = twist.angular.z * time;
-  double x = twist.linear.x * time;
-  double y = twist.linear.y * time;
-  if (std::abs(twist.angular.z) > 1e-6) {
-    x = (twist.linear.x * std::sin(angle) + twist.linear.y * (std::cos(angle) - 1.0)) /
-        twist.angular.z;
-    y = (twist.linear.x * (1.0 - std::cos(angle)) + twist.linear.y * std::sin(angle)) /
-        twist.angular.z;
-  }
-  auto pose = calc_offset_pose(start, x, y, 0.0);
-  tf2::Quaternion rotation;
-  rotation.setRPY(0.0, 0.0, tf2::getYaw(start.orientation) + angle);
-  pose.orientation = tf2::toMsg(rotation);
-  return pose;
-}
-
-Pose predictedPose(
-  const PredictedObject & object, const autoware_perception_msgs::msg::PredictedPath & path,
-  double time)
-{
-  const double step = rclcpp::Duration(path.time_step).seconds();
-  if (path.path.empty() || step <= 0.0) {
-    return extrapolate(object, object.kinematics.initial_pose_with_covariance.pose, time);
-  }
-  const double index = std::max(0.0, time) / step;
-  const size_t first = static_cast<size_t>(index);
-  if (first + 1 >= path.path.size()) {
-    return extrapolate(object, path.path.back(), std::max(0.0, time - step * (path.path.size() - 1)));
-  }
-  return autoware_utils::calc_interpolated_pose(path.path[first], path.path[first + 1], index - first);
 }
 
 Polygon objectEnvelope(const PredictedObject & object, const Pose & pose, double lon, double lat)
@@ -501,13 +464,11 @@ void OppositeLaneBorrowing::update(
       }
       applyCandidateVelocity(path_);
       safe_ = validate(path_, recovery_);
-      if (!safe_ && (reason_ == "vehicle_collision" || reason_ == "trailer_collision") &&
-          lines_.size() > 1 && conflict_path_index_ >=
-            autoware::motion_utils::findNearestIndex(path_.path.points, lines_.back().start.position) &&
-          (!target_ || conflict_object_ !=
-            autoware_utils_uuid::to_hex_string(target_->object.object_id)) &&
-          extendReturn()) {
-        safe_ = true;
+      if (safe_) {
+        if (const auto obstacle = returnObstacle()) {
+          conflict_object_ = *obstacle;
+          safe_ = extendReturn();
+        }
       }
       if (!safe_ && !p.campus_agv && tryReturn()) safe_ = true;
       if (context_changed_ && !recovery_) {
@@ -906,7 +867,6 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
 {
   reason_.clear();
   conflict_object_.clear();
-  conflict_path_index_ = 0;
   if (path.path.points.size() < 2 || path.shift_length.size() != path.path.points.size()) {
     reason_ = "invalid_path";
     return false;
@@ -919,26 +879,6 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
       return false;
     }
   }
-  std::vector<double> object_speeds;
-  std::vector<bool> static_objects;
-  std::vector<Polygon> static_envelopes;
-  bool has_dynamic_objects = false;
-  for (const auto & object : data_->dynamic_object->objects) {
-    const bool stationary = isStaticObject(object);
-    const auto speed_bound = objectMotionBound(object, !stationary);
-    if (!speed_bound) {
-      reason_ = "invalid_object_prediction";
-      return false;
-    }
-    object_speeds.push_back(*speed_bound);
-    static_objects.push_back(stationary);
-    has_dynamic_objects = has_dynamic_objects || !stationary;
-    static_envelopes.push_back(objectEnvelope(object,
-      object.kinematics.initial_pose_with_covariance.pose,
-      parameters_->opposite_lane.longitudinal_margin, parameters_->opposite_lane.lateral_margin));
-  }
-  const double perception_age = std::max(0.0, (clock_->now() - rclcpp::Time(
-    data_->dynamic_object->header.stamp, clock_->get_clock_type())).seconds());
   const size_t start = data_->findEgoIndex(path.path.points);
   const auto & ego = data_->self_odometry->pose.pose;
   if (calc_distance2d(path.path.points[start].point.pose, ego) > 0.5 ||
@@ -993,31 +933,12 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
   }
   const double acceleration = trajectory.max_longitudinal_acc;
   const double deceleration = -trajectory.min_longitudinal_acc;
-  const auto earliest = borrowing::arrivalTimes(distances, limits, speed, acceleration, deceleration, 1.0);
   const auto latest = borrowing::arrivalTimes(
     distances, limits, speed, acceleration * 0.5, deceleration, 1.0);
   required_arrival_time_ = latest.empty() ? std::numeric_limits<double>::infinity() : latest.back() + p.min_time_gap;
-  if (p.campus_agv && (latest.empty() || earliest.empty())) {
+  if (latest.empty()) {
     reason_ = "arrival_time_unreachable";
     return false;
-  }
-  if ((!p.campus_agv || has_dynamic_objects) &&
-      (!borrowing::coversReturn(latest, p.min_time_gap, p.max_prediction_horizon) || earliest.empty())) {
-    reason_ = "prediction_does_not_cover_complete_return";
-    return false;
-  }
-  using Box = boost::geometry::model::box<autoware_utils::Point2d>;
-  using IndexedEnvelope = std::pair<Box, size_t>;
-  boost::geometry::index::rtree<IndexedEnvelope, boost::geometry::index::quadratic<16>> static_index;
-  std::vector<size_t> dynamic_indices;
-  for (size_t i = 0; i < static_objects.size(); ++i) {
-    if (static_objects[i]) {
-      Box box;
-      boost::geometry::envelope(static_envelopes[i], box);
-      static_index.insert({box, i});
-    } else {
-      dynamic_indices.push_back(i);
-    }
   }
   const auto train = articulated(path.path, start);
   if (!train.articulation_valid || train.poses.size() != distances.size()) {
@@ -1086,55 +1007,6 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
         reason_ = "last_trailer_not_returned";
         return false;
       }
-      if (target_ && std::none_of(
-          data_->dynamic_object->objects.begin(), data_->dynamic_object->objects.end(),
-          [&](const auto & object) { return object.object_id == target_->object.object_id; }) &&
-          !boost::geometry::disjoint(swept, objectEnvelope(
-            target_->object, target_->getPose(), p.longitudinal_margin, p.lateral_margin))) {
-        reason_ = "held_target_collision";
-        return false;
-      }
-      Box swept_box;
-      boost::geometry::envelope(swept, swept_box);
-      std::vector<IndexedEnvelope> nearby_static;
-      static_index.query(boost::geometry::index::intersects(swept_box), std::back_inserter(nearby_static));
-      for (const auto & entry : nearby_static) {
-        if (!boost::geometry::disjoint(swept, static_envelopes[entry.second])) {
-          reason_ = body ? "trailer_collision" : "vehicle_collision";
-          conflict_object_ = autoware_utils_uuid::to_hex_string(data_->dynamic_object->objects[entry.second].object_id);
-          conflict_path_index_ = start + i;
-          return false;
-        }
-      }
-      // Dynamic objects retain all predictions, including objects initially outside the corridor.
-      for (const size_t object_index : dynamic_indices) {
-        const auto & object = data_->dynamic_object->objects[object_index];
-        const double object_speed = object_speeds[object_index];
-        const double first_time = std::max(0.0, earliest[i ? i - 1 : 0] - p.min_time_gap);
-        const double last_time = latest[i] + p.min_time_gap;
-        const double step = p.time_resolution;
-        for (double time = first_time; ; time = std::min(time + step, last_time)) {
-          // Inflate by travel between samples and uncertainty during prediction extrapolation.
-          const double padding = object_speed * step + (object_speed > 0.1 ? 0.1 * time : 0.0);
-          const auto collides = [&](const Pose & predicted) {
-            if (!finitePose(predicted)) return true;
-            return !boost::geometry::disjoint(swept, objectEnvelope(
-              object, predicted, p.longitudinal_margin + padding, p.lateral_margin + padding));
-          };
-          bool collision = collides(extrapolate(
-            object, object.kinematics.initial_pose_with_covariance.pose, time + perception_age));
-          for (const auto & prediction : object.kinematics.predicted_paths) {
-            collision = collision || collides(predictedPose(object, prediction, time + perception_age));
-          }
-          if (collision) {
-            reason_ = body ? "trailer_collision" : "vehicle_collision";
-            conflict_object_ = autoware_utils_uuid::to_hex_string(object.object_id);
-            conflict_path_index_ = start + i;
-            return false;
-          }
-          if (object_speed < 1e-6 || time >= last_time) break;
-        }
-      }
     }
     previous = current;
   }
@@ -1142,7 +1014,6 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
     reason_ = "planning_budget_exceeded";
     return false;
   }
-  // Recovery is permitted before passing the target if the whole path is collision-free.
   static_cast<void>(recovery);
   return true;
 }
@@ -1319,13 +1190,45 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
   return false;
 }
 
+std::optional<std::string> OppositeLaneBorrowing::returnObstacle() const
+{
+  if (lines_.size() < 2 || reference_.points.size() < 2 || !data_->dynamic_object) {
+    return std::nullopt;
+  }
+  const auto & p = parameters_->opposite_lane;
+  const auto & origin = reference_.points.front().point.pose.position;
+  const double return_start = autoware::motion_utils::calcSignedArcLength(
+    reference_.points, origin, lines_.back().start.position);
+  const double return_end = extended_return_end_arc_;
+  double nearest = std::numeric_limits<double>::infinity();
+  std::optional<std::string> conflict;
+  for (const auto & object : data_->dynamic_object->objects) {
+    if (target_ && object.object_id == target_->object.object_id) continue;
+    const auto id = autoware_utils_uuid::to_hex_string(object.object_id);
+    if (id == return_extension_conflict_) continue;
+    const auto speed = objectMotionBound(object, !p.campus_agv);
+    if (!speed || *speed > (p.campus_agv ? p.static_speed_threshold : 0.1)) continue;
+    const auto & position = object.kinematics.initial_pose_with_covariance.pose.position;
+    if (std::none_of(source_.begin(), source_.end(), [&](const auto & lane) {
+          return lanelet::geometry::inside(lane, lanelet::BasicPoint2d{position.x, position.y});
+        })) continue;
+    const double object_s = autoware::motion_utils::calcSignedArcLength(
+      reference_.points, origin, position);
+    const double clear_s = object_s + object.shape.dimensions.x * 0.5 +
+      trainLength() + p.longitudinal_margin;
+    if (object_s > return_end || clear_s <= return_start || object_s >= nearest) continue;
+    nearest = object_s;
+    conflict = id;
+  }
+  return conflict;
+}
+
 bool OppositeLaneBorrowing::extendReturn()
 {
   if (reference_.points.size() < 2 || lines_.size() < 2 || actual_history_.empty()) return false;
   const auto & p = parameters_->opposite_lane;
   const auto saved_reason = reason_;
   const auto conflict = conflict_object_;
-  const auto original_conflict_index = conflict_path_index_;
   bool accepted = false;
   struct RestoreConflict {
     std::function<void()> restore;
@@ -1333,7 +1236,6 @@ bool OppositeLaneBorrowing::extendReturn()
   } restore_conflict{[&]() {
     if (!accepted) {
       conflict_object_ = conflict;
-      conflict_path_index_ = original_conflict_index;
     }
   }};
   std::string candidate_failure_reason;
@@ -1345,8 +1247,8 @@ bool OppositeLaneBorrowing::extendReturn()
     [&](const auto & object) {
       return autoware_utils_uuid::to_hex_string(object.object_id) == conflict;
     });
-  // Candidate generation need not wait for static classification. Until the observation
-  // window is complete, validate() still applies the full temporal prediction checks.
+  // Candidate generation need not wait for static classification; the measured
+  // motion bound still prevents moving objects from driving return-point extension.
   const auto motion = obstacle == data_->dynamic_object->objects.end()
     ? std::optional<double>{} : objectMotionBound(*obstacle, !p.campus_agv);
   if (!motion || *motion > (p.campus_agv ? p.static_speed_threshold : 0.1)) {

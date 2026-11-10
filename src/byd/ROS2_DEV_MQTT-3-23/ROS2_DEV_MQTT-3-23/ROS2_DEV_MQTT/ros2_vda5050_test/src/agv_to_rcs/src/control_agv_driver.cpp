@@ -52,8 +52,11 @@ bool LaserDriverControl::control(){
     //     }
     //     auto future_and_requestid = send_multi_pose_->send_request(goal_points);
     //     auto result = future_and_requestid.future.get();
-    // }
-    // // 发送目标位姿
+    if (goal_points.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "LaserDriverControl::control: goal_points is empty!");
+        return false;
+    }
+    // 发送目标位姿
     std::vector<Point> multi_poses = {goal_points.back()}; //发给多点导航的点集只需要头尾即可
     send_multi_pose_->send_goal(multi_poses, forward);
 

@@ -248,7 +248,7 @@ void AGVDataPublish::connection_timer_callback(const std::string state){
 * @note:       注意动作的判断，完成动作之后，需要更新last_node_id和last_node_sequence_id
 ******************************************************************************************/
 void AGVDataPublish::State_timer_callback(){
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();
@@ -312,6 +312,8 @@ void AGVDataPublish::State_timer_callback(){
 
 void AGVDataPublish::state_timer_callback(const std::string& fault_code){
 
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+
     // RCLCPP_INFO(node_->get_logger(), "state_timer_callback回调启动！");
     
     // 更新最新数据（如果提供了listener/server指针）
@@ -365,17 +367,19 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
     message.last_node_id = order_messages_.msg_state.last_node_id;
     message.last_node_sequence_id = order_messages_.msg_state.last_node_sequence_id;
 
-    // 设置数组大小，未设置将报错
-    message.node_states.resize(order_messages_.node_size);
-    for(int i=0;i<order_messages_.node_size;i++){
+    // 安全设置数组大小，防止容器在并发或任务结算清空后越界引发 Segmentation fault
+    size_t valid_node_size = std::min(static_cast<size_t>(order_messages_.node_size), order_messages_.msg_state.node_states.size());
+    message.node_states.resize(valid_node_size);
+    for(size_t i = 0; i < valid_node_size; i++){
         message.node_states[i].node_id = order_messages_.msg_state.node_states[i].node_id;
         message.node_states[i].released = false;
         message.node_states[i].sequence_id = order_messages_.msg_state.node_states[i].sequence_id;
     }
 
-    // 设置数组大小，未设置将报错
-    message.edge_states.resize(order_messages_.edge_size);
-    for(int i=0;i<order_messages_.edge_size;i++){
+    // 安全设置边数组大小
+    size_t valid_edge_size = std::min(static_cast<size_t>(order_messages_.edge_size), order_messages_.msg_state.edge_states.size());
+    message.edge_states.resize(valid_edge_size);
+    for(size_t i = 0; i < valid_edge_size; i++){
         message.edge_states[i].edge_id = order_messages_.msg_state.edge_states[i].edge_id;
         message.edge_states[i].sequence_id = order_messages_.msg_state.edge_states[i].sequence_id;
         message.edge_states[i].released = true;
@@ -392,13 +396,12 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
     
     message.paused = order_messages_.msg_state.paused;
 
-    // 同步action_size为实际action_states的长度
-    order_messages_.action_size = order_messages_.msg_state.action_states.size();
-
-    // 设置数组大小，未设置将报错
-    message.action_states.resize(order_messages_.msg_state.action_states.size());
-    for(int i=0;i<order_messages_.msg_state.action_states.size();i++){
-        RCLCPP_INFO(node_->get_logger(),"action数据完成填充，大小 %zu",order_messages_.msg_state.action_states.size());
+    // 安全设置动作数组大小
+    size_t valid_action_size = order_messages_.msg_state.action_states.size();
+    order_messages_.action_size = valid_action_size;
+    message.action_states.resize(valid_action_size);
+    for(size_t i = 0; i < valid_action_size; i++){
+        RCLCPP_INFO(node_->get_logger(),"action数据完成填充，大小 %zu", valid_action_size);
         message.action_states[i].action_id = order_messages_.msg_state.action_states[i].action_id;
         message.action_states[i].action_type = order_messages_.msg_state.action_states[i].action_type;
         message.action_states[i].action_description = order_messages_.msg_state.action_states[i].action_description;
@@ -471,7 +474,7 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
 * @note:       后期需要补充线速度和角度
 ******************************************************************************************/
 void AGVDataPublish::visualization_timer_callback(){
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();
@@ -598,7 +601,7 @@ void AGVDataPublish::factsheet_timer_callback(){
 * @version:    V1.0
 ******************************************************************************************/
 void AGVDataPublish::status_timer_callback(){
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
     // 更新最新数据（如果提供了listener/server指针）
     if (current_pose_listener_) {
         current_pose_ = current_pose_listener_->get_current_pose();

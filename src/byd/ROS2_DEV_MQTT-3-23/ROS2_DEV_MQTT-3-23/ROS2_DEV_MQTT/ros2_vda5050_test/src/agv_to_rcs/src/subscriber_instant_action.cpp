@@ -14,6 +14,8 @@
 ******************************************************************************************/
 // subscriber_instant_action.cpp
 #include "subscriber_instant_action.h"
+#include "subscriber_order.h"
+#include "publishers_agv_state.h"
 
 /*****************************************************************************************
 * @brief:      类的构造函数
@@ -50,7 +52,7 @@ InstantActionsListener::InstantActionsListener(std::shared_ptr<rclcpp::Node> nod
 ******************************************************************************************/
 InstantActionMessages InstantActionsListener::get_instant_action_messages(){
     // 尝试获取互斥锁,离开作用域时，会自动调用unlock()释放互斥锁
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
 
     // 在回调函数中，先赋值给m_goal_node_x，然后在实际使用instant_action_messages的时候在赋值给他，能够减小每次回调都赋值给instant_action_messages，导致调用时要等的时间开销，但也很小，更多是代码设计习惯，用于区分内部状态和读取快照
     instant_action_messages.goal_x = m_goal_node_x;
@@ -132,6 +134,35 @@ void InstantActionsListener::update_interrupt_order_message_status(const std::st
     interrupt_order_message_.action_status = action_status;
 }
 
+void InstantActionsListener::set_order_listener(std::shared_ptr<OrderListener> order_listener) {
+    order_listener_ = order_listener;
+}
+
+void InstantActionsListener::set_data_publish(std::shared_ptr<AGVDataPublish> data_publish) {
+    data_publish_ = data_publish;
+}
+
+bool InstantActionsListener::has_start_charge_latched() const {
+    return start_charge_latched_.load();
+}
+
+void InstantActionsListener::clear_start_charge_latched() {
+    start_charge_latched_.store(false);
+}
+
+bool InstantActionsListener::has_stop_charge_latched() const {
+    return stop_charge_latched_.load();
+}
+
+void InstantActionsListener::clear_stop_charge_latched() {
+    stop_charge_latched_.store(false);
+}
+
+std::string InstantActionsListener::get_latched_charge_action_id() const {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return latched_charge_action_id_;
+}
+
 /*****************************************************************************************
 * @brief:      从MQTT消息同步数据（用于纯MQTT模式）
 * @param:      mqtt_instant_action_messages - MQTT解析后的消息
@@ -208,7 +239,7 @@ void InstantActionsListener::update_from_mqtt(const AGVInstantActions &mqtt_inst
 void InstantActionsListener::instant_action_callback(const AGVInstantActions &msg){
     
     // 尝试获取互斥锁,离开作用域时，会自动调用unlock()释放互斥锁
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
     // 接收到消息之后进行判断，剔除掉重复的数据
     if(receive_new_messages){
         // 旧消息的处理-重复的全局任务消息
@@ -248,6 +279,21 @@ void InstantActionsListener::instant_action_callback(const AGVInstantActions &ms
         m_goal_node_y = msg.actions[0].action_parameters[1].value.number_value;
         m_goal_node_theta = msg.actions[0].action_parameters[2].value.number_value;
         RCLCPP_INFO(node_->get_logger(), "前往最近目标点 x: %f,y: %f,theta: %f,", m_goal_node_x, m_goal_node_y, m_goal_node_theta);
+
+        if (order_listener_) {
+            ActionStates action_state;
+            action_state.action_id = msg.actions[0].action_id;
+            action_state.action_type = msg.actions[0].action_type;
+            action_state.action_description = msg.actions[0].action_description;
+            action_state.blocking_type = msg.actions[0].blocking_type;
+            action_state.action_status = "INITIALIZING";
+
+            order_listener_->set_instant_action_state(action_state);
+        }
+
+        if (data_publish_) {
+            data_publish_->state_timer_callback();
+        }
         break;
 
     case ActionType::CONNECT_FAIL_AUTO:
@@ -276,11 +322,17 @@ void InstantActionsListener::instant_action_callback(const AGVInstantActions &ms
 
     case ActionType::START_CHARGE:
         
-        RCLCPP_INFO(node_->get_logger(), "开始充电!");
+        RCLCPP_INFO(node_->get_logger(), "开始充电 (已锁存 start_charge 动作，防超时丢失)!");
+        start_charge_latched_.store(true);
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            latched_charge_action_id_ = msg.actions[0].action_id;
+        }
         break;
 
     case ActionType::STOP_CHARGE:
-        RCLCPP_INFO(node_->get_logger(), "结束充电!");
+        RCLCPP_INFO(node_->get_logger(), "结束充电 (已锁存 stop_charge 动作)!");
+        stop_charge_latched_.store(true);
         break;
 
     case ActionType::ORDER_FINISHED:
@@ -365,8 +417,14 @@ void InstantActionsListener::timer_callback(){
     // 检查自上次接收消息以来的时间是否超过了超时阈值
     if (std::chrono::duration_cast<std::chrono::seconds>(diff).count() > 10) {
         RCLCPP_ERROR(node_->get_logger(), "超过10s未接收到instant action消息");
-        std::lock_guard<std::mutex> lock(data_mutex_);
-        action_type = "no_message_received";
+        std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+        // 如果当前记录的是未消费的充电动作且已锁存，不要将其冲刷为 no_message_received
+        if ((action_type == "start_charge" && start_charge_latched_.load()) ||
+            (action_type == "stop_charge" && stop_charge_latched_.load())) {
+            RCLCPP_INFO(node_->get_logger(), "保留锁存的充电动作 (%s)，跳过超时重置", action_type.c_str());
+        } else {
+            action_type = "no_message_received";
+        }
     }
 }
 /*****************************************************************************************

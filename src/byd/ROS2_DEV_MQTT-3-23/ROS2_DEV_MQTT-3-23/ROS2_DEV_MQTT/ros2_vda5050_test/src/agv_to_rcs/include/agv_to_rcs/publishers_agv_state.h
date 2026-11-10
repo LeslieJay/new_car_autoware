@@ -222,7 +222,7 @@ private:
     BatteryMessages battery_messages_;
     VelocityMessages velocity_messages_;
     int obstacle_messages_;
-    mutable std::mutex data_mutex_;   // 添加这一行
+    mutable std::recursive_mutex data_mutex_;   // 递归互斥锁，支持嵌套与并发保护
     // 定时器的触发计数
     int count_time;
     

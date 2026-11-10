@@ -363,39 +363,49 @@ void CanReceiver::receiveTask(int handle, const std::string & /*interface_name*/
       auto now = std::chrono::steady_clock::now();
       if (std::chrono::duration_cast<std::chrono::seconds>(now - last_status_time).count() >= 1) {
         last_status_time = now;
+        const char * state_desc = "未知解";
         if (dataPos.state == 4) {
-          RCLCPP_INFO(node_->get_logger(), "RTK定位状态: 固定解(state=4, 厘米级高精度正常)");
+          state_desc = "固定解";
         } else if (dataPos.state == 5) {
-          RCLCPP_INFO(node_->get_logger(), "RTK定位状态: 浮点解(state=5)");
+          state_desc = "浮点解";
         } else if (dataPos.state == 1) {
-          RCLCPP_WARN(node_->get_logger(), "RTK定位状态: 单点定位(state=1, 未获取到RTK差分固定)");
-        } else {
-          RCLCPP_WARN(node_->get_logger(), "RTK定位状态异常(state=%d)", dataPos.state);
+          state_desc = "单点定位";
+        } else if (dataPos.state == 2) {
+          state_desc = "伪距差分";
         }
 
-        auto now_sys = std::chrono::system_clock::now();
-        int64_t now_ms =
-          std::chrono::duration_cast<std::chrono::milliseconds>(now_sys.time_since_epoch()).count();
-        int64_t last_rx = g_last_rtcm_rx_time_ms.load();
+        // 只输出当前 RTK 状态为几
+        RCLCPP_INFO(node_->get_logger(), "当前RTK状态为: %d (%s)", dataPos.state, state_desc);
 
-        if (!g_six_sdk_running) {
-          RCLCPP_WARN(
-            node_->get_logger(),
-            "六分SDK状态: 未启动或启动失败! 请检查终端报错/证书/账号/网络连通性");
-        } else if (last_rx == 0) {
-          RCLCPP_WARN(
-            node_->get_logger(),
-            "六分SDK运行中: 正在等待云端下发首次RTCM差分数据 (累计已接收 0 字节)");
-        } else if (now_ms - last_rx > 3000) {
-          RCLCPP_WARN(
-            node_->get_logger(),
-            "六分差分告警: 距上次接收RTCM已过去 %.1f 秒 (下发中断或网络波动)",
-            (now_ms - last_rx) / 1000.0);
-        } else {
-          RCLCPP_INFO(
-            node_->get_logger(),
-            "六分差分正常: 累计接收RTCM %lu 包 (%lu 字节), 最近一次下发 %.1f 秒前",
-            g_rtcm_rx_count.load(), g_rtcm_rx_bytes.load(), (now_ms - last_rx) / 1000.0);
+        // 如果差分数据不能正常更新，才输出服务器返回的状态码等所有内容
+        if (!isRtcmNormal()) {
+          auto now_sys = std::chrono::system_clock::now();
+          int64_t now_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now_sys.time_since_epoch()).count();
+          int64_t last_rx = g_last_rtcm_rx_time_ms.load();
+          uint32_t cur_status = getLatestSixentsStatus();
+          std::string cur_log = getLatestSixentsLog();
+
+          if (!g_six_sdk_running) {
+            RCLCPP_ERROR(
+              node_->get_logger(),
+              "六分差分未正常更新: 六分SDK未启动或启动失败! 服务器返回状态码: %u (%s) | 服务器最新内容: %s",
+              cur_status, sixentsStatusToString(cur_status).c_str(),
+              cur_log.empty() ? "(暂无)" : cur_log.c_str());
+          } else if (last_rx == 0) {
+            RCLCPP_WARN(
+              node_->get_logger(),
+              "六分差分未正常更新: 正在等待云端下发首次RTCM差分数据 (累计已接收 0 字节)! 服务器返回状态码: %u (%s) | 服务器最新内容: %s",
+              cur_status, sixentsStatusToString(cur_status).c_str(),
+              cur_log.empty() ? "(暂无)" : cur_log.c_str());
+          } else if (now_ms - last_rx > 3000) {
+            RCLCPP_WARN(
+              node_->get_logger(),
+              "六分差分告警: 差分数据未正常更新! 距上次接收RTCM已过去 %.1f 秒 (下发中断或网络波动)! 服务器返回状态码: %u (%s) | 服务器最新内容: %s",
+              (now_ms - last_rx) / 1000.0,
+              cur_status, sixentsStatusToString(cur_status).c_str(),
+              cur_log.empty() ? "(暂无)" : cur_log.c_str());
+          }
         }
       }
 

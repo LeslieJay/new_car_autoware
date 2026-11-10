@@ -233,6 +233,11 @@ int main(int argc, char const *argv[])
     
     auto agv_data_publish = std::make_shared<AGVDataPublish>(all_nodes, agv_current_state, current_pose_listener, order_listener, battery_subscriber, velocity_subscriber, obstacle_server, can_data_listener);
 
+    // 绑定 instant_action_listener 与 order_listener 到状态发布组件，以便在接收到任务时第一时间上报 INITIALIZING 状态
+    instant_action_listener->set_order_listener(order_listener);
+    instant_action_listener->set_data_publish(agv_data_publish);
+    order_listener->set_data_publish(agv_data_publish);
+
     // AGV运行过程中的核心重要变量
     AGVBone agv_bone(all_nodes,
                      instant_action_listener,

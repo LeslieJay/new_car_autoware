@@ -7,6 +7,7 @@
 * @brief:      订阅RCS任务消息，并将消息转输出出去
 ******************************************************************************************/
 # include "subscriber_order.h"
+# include "publishers_agv_state.h"
 
 // 节点构造函数
 OrderListener::OrderListener(std::shared_ptr<rclcpp::Node> node):node_(node){
@@ -34,7 +35,7 @@ OrderListener::OrderListener(std::shared_ptr<rclcpp::Node> node):node_(node){
 OrderMessages OrderListener::get_order_messages(){
 
     // 尝试获取互斥锁,离开作用域时，会自动调用unlock()释放互斥锁
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
 
     // 数据填充，order_messages结构体一次性获取所有的变量的值，保存为数据快照，防止数据不一致的问题
     order_messages.goal_node_id = released_goal_node_id;
@@ -66,10 +67,14 @@ OrderMessages OrderListener::get_order_messages(){
 // 设置msg_state（用于同步外部修改）
 void OrderListener::set_msg_state(const AGVState& new_msg_state){
     // 尝试获取互斥锁,离开作用域时，会自动调用unlock()释放互斥锁
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
     
     // 更新内部的msg_state
     msg_state = new_msg_state;
+}
+
+void OrderListener::set_data_publish(std::shared_ptr<AGVDataPublish> data_publish){
+    data_publish_ = data_publish;
 }
 
 // 从MQTT消息同步数据（用于纯MQTT模式）
@@ -92,6 +97,8 @@ void OrderListener::update_from_mqtt(const AGVOrder &mqtt_order_messages){
 
 void OrderListener::OrderFinished(){
 
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+
     // 更新任务状态
     get_order = false;
 
@@ -102,9 +109,10 @@ void OrderListener::OrderFinished(){
     released_edge_size = 0;
     msg_state.edge_states = {};
 
-    released_action_size = 0;
-    msg_state.action_states = {};
-
+    // 保留 msg_state.action_states 和 msg_state.order_id，以便状态上报保持 FINISHED
+    // 直到收到新订单时才由 order_callback 清空
+    // released_action_size = 0;
+    // msg_state.action_states = {};
 
     released_goal_node_id   = {};
     released_goal_x         = {};
@@ -116,9 +124,10 @@ void OrderListener::OrderFinished(){
     released_edge_obstacle_avoidance_channels={};
     released_goal_trajectory= {};
 
-    msg_state.order_id      = "";
-    msg_state.last_node_id  = "";
-    msg_state.last_node_sequence_id = -1; 
+    // msg_state.order_id      = ""; // 保留已完成任务的 order_id
+    // 保留 msg_state.last_node_id 和 msg_state.last_node_sequence_id，供状态上报持续反映当前所在最新节点
+    // msg_state.last_node_id  = "";
+    // msg_state.last_node_sequence_id = -1; 
 
     // 定时发布的数据是根据该全局变量的
     // order_messages.msg_state.order_update_id = 0;
@@ -130,46 +139,99 @@ void OrderListener::OrderFinished(){
     m_action_vec.clear();
     m_vector_size = 0;
     
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务数据清理完成，包括动作关联容器");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "任务数据清理完成，保留完成状态供状态上报");
+}
+
+void OrderListener::set_instant_action_state(const ActionStates& action_state) {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    msg_state.order_id = "";
+    msg_state.action_states.clear();
+    msg_state.action_states.push_back(action_state);
+    released_action_size = 1;
+}
+
+bool OrderListener::update_action_status(const std::string& from_status, const std::string& to_status) {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    bool changed = false;
+    for (auto & act : msg_state.action_states) {
+        if (from_status.empty() || act.action_status == from_status) {
+            act.action_status = to_status;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+bool OrderListener::has_hook_action() {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    for (const auto & act : msg_state.action_states) {
+        if (act.action_type == "LOAD" || act.action_type == "UNLOAD" ||
+            act.action_type == "pick" || act.action_type == "drop") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool OrderListener::has_device_action() {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    for (const auto & act : msg_state.action_states) {
+        if (act.action_type != "order" && act.action_type != "connect_success_auto") {
+            return true;
+        }
+    }
+    return false;
+}
+
+void OrderListener::update_last_node_to_final() {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    if (!msg_state.node_states.empty()) {
+        msg_state.last_node_id = msg_state.node_states.back().node_id;
+        msg_state.last_node_sequence_id = msg_state.node_states.back().sequence_id;
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【节点更新】last_node_id 更新为终点: %s, sequence_id: %d",
+            msg_state.last_node_id.c_str(), msg_state.last_node_sequence_id);
+    }
+}
+
+bool OrderListener::is_action_finished() {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    if (msg_state.action_states.empty()) return false;
+    for (const auto & act : msg_state.action_states) {
+        if (act.action_status != "FINISHED") return false;
+    }
+    return true;
 }
 
 // 订阅方的回调函数，解析获取到的数据
-void OrderListener::OrderListener::order_callback(const AGVOrder &msg){
+void OrderListener::order_callback(const AGVOrder &msg){
 
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"执行order话题回调函数！");
 
-    // 如果是收到的不是第一条数据，则进行两个判断
-    // 1、该数据是否为旧数据，是的话则不进行数据解析
-    // 2、该数据是否为重复数据，是的话则不进行数据解析
-    if(get_order){
-        // 需要一个if(get_order)是因为此时记录的order_id和rcs发过来的order_id（通常不会是默认值0）不相同，会一直错误地触发变量初始化，导致msg_state.order_id一直被初始化为0，但是这个变量的标志和first_order有什么不同的用处
-        if(msg_state.order_id != msg.order_id){
-            // order_id不同说明已经是全新订单，清空所有变量
+    {
+        std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+
+        // 检查是否为新订单，若 order_id 发生变化或者当前小车处于空闲/未激活订单状态(!get_order)，则必须清空旧任务及历史动作数据
+        if (msg_state.order_id != msg.order_id || !get_order) {
             OrderFinished();
+            msg_state.action_states.clear();
+            released_action_size = 0;
+        } else if (get_order) {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_id: %s msg.order_id: %s",msg_state.order_id.c_str(),msg.order_id.c_str());
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_update_id: %d msg.order_update_id: %d",msg_state.order_update_id,msg.order_update_id);
+            // 旧消息不处理
+            if (msg_state.order_update_id >= msg.order_update_id) {
+                RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"订阅到的消息为旧消息！");
+                return;
+            }
+            // 旧消息处理-重复的子任务消息
+            if (last_order_update_id == msg.order_update_id){
+                RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"进行重复的任务消息过滤！");
+                return;
+            }
         }
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_id: %s msg.order_id: %s",msg_state.order_id.c_str(),msg.order_id.c_str());
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_update_id: %d msg.order_update_id: %d",msg_state.order_update_id,msg.order_update_id);
-        // 旧消息不处理
-        if (msg_state.order_id == msg.order_id && msg_state.order_update_id >= msg.order_update_id) {
-            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"订阅到的消息为旧消息！");
-            return;
-        }
-        // 旧消息处理-重复的子任务消息
-        if (msg_state.order_id == msg.order_id && last_order_update_id == msg.order_update_id){
 
-            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"进行重复的任务消息过滤！");
-            return;
-        }
-
-    }
-
-    int new_node_action_size = 0;
-    int new_edge_action_size = 0;
-    
-    // 否则更新总任务
-
-    // 尝试获取互斥锁,离开作用域时，会自动调用unlock()释放互斥锁
-    std::lock_guard<std::mutex> lock(data_mutex_);
+        int new_node_action_size = 0;
+        int new_edge_action_size = 0;
 
 
 /*-------------------------------------------------------------------------------------------------------------------------------*/
@@ -370,6 +432,19 @@ void OrderListener::OrderListener::order_callback(const AGVOrder &msg){
         }
     }
 
+    // 如果整个订单没有动作（既没有 node action 也没有 edge action）
+    if (released_action_size == 0) {
+        ActionStates one_action_state;
+        one_action_state.action_id = msg.order_id;
+        one_action_state.action_type = "order";
+        one_action_state.action_description = "navigate";
+        one_action_state.blocking_type = "HARD";
+        one_action_state.action_status = "INITIALIZING";
+        msg_state.action_states.push_back(one_action_state);
+        released_action_size = 1;
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "订单无动作，添加默认导航动作，状态为 INITIALIZING");
+    }
+
     // 获取released为true的边总数量
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"更新之后released为true的动作数量：%d",released_action_size);
 /*-------------------------------------------------------------------------------------------------------------------------------*/
@@ -396,6 +471,12 @@ void OrderListener::OrderListener::order_callback(const AGVOrder &msg){
 
     RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_update_id: %d msg.order_update_id: %d",msg_state.order_update_id,msg.order_update_id);
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"接收到任务，任务id: %s",msg.order_id.c_str());
+    }
+
+    // 收到新任务后，立即上报 INITIALIZING 状态 (锁已释放，安全调用)
+    if (data_publish_) {
+        data_publish_->state_timer_callback();
+    }
 
 }
 

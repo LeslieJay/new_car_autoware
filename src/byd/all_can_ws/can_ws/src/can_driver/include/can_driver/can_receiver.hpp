@@ -169,8 +169,7 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Subscription<autoware_system_msgs::msg::AutowareState>::SharedPtr agv_state_subscript_;
         rclcpp::Subscription<autoware_control_msgs::msg::Control>::SharedPtr control_subscript_;
         rclcpp::Subscription<autoware_vehicle_msgs::msg::GearCommand>::SharedPtr gear_subscript_;
-        rclcpp::Subscription<autoware_perception_msgs::msg::PredictedObjects>::SharedPtr person_instance_subscript_;
-        rclcpp::Subscription<autoware_perception_msgs::msg::PredictedObjects>::SharedPtr car_instance_subscript_;
+        rclcpp::Subscription<autoware_perception_msgs::msg::PredictedObjects>::SharedPtr predicted_objects_subscript_;
         // engage 客户端
         rclcpp::Client<tier4_external_api_msgs::srv::Engage>::SharedPtr engage_client_;
         void agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg);
@@ -178,9 +177,10 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         void gear_cmd_callback(const autoware_vehicle_msgs::msg::GearCommand::ConstSharedPtr msg);
         void publishGearStatus(uint8_t report);
         // can_receiver.hpp
-        void person_instance_callback(const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg);
-        void car_instance_callback(const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg);
+        void predicted_objects_callback(const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg);
         void sendSafetyFrameCallback();
+        uint8_t getCurrentDesiredVoiceId() const;
+        bool hasOtherVoiceToBroadcast() const;
         void CreateSafetyFrame();
         void controlWatchdogCallback();
         rcl_interfaces::msg::SetParametersResult onCalibrationParameters(
@@ -217,6 +217,13 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         int voice_frame_period_ms_{3000};  // 默认由 200 改为 3000
         uint8_t last_voice_id_{0};         // 记录上一次下发的语音编号
         std::mutex voice_mutex_;           // 保证多线程回调下时间戳线程安全
+        std::atomic<bool> is_voice_playing_{false};          // 0x381 BYTE2 bit0: 1为语音播报中
+        std::atomic<uint8_t> pending_obstacle_voice_{0};     // 障碍物语音编号 (9: 行人, 10: 车辆)
+        std::atomic<int64_t> last_obstacle_time_ns_{0};       // 障碍物语音时间戳
+        std::atomic<uint8_t> pending_control_voice_{0};      // 控制语音编号 (2: 左转, 3: 右转, 4: 倒车)
+        std::atomic<int64_t> last_control_voice_time_ns_{0};  // 控制语音时间戳
+        std::atomic<bool> is_arrived_destination_{false};     // 到达目标点 (5)
+        std::atomic<bool> is_low_battery_{false};             // 低电量报警 (17)
         int engage_frame_period_ms_{500};
         int control_frame_period_ms_{20};
         int control_command_warn_timeout_ms_{60};

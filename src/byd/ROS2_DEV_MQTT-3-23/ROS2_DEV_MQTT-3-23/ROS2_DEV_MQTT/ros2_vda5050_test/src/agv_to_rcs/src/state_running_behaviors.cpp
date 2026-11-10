@@ -112,6 +112,7 @@ LaserRunningStateBehaviors::LaserRunningStateBehaviors(const std::string& name, 
 
     math_tool = Math_Tool();
 
+    node_ = agv_bone.agv_all_nodes;
     current_autoware_state_ = 0;
     autoware_state_sub_ = agv_bone.agv_all_nodes->create_subscription<autoware_system_msgs::msg::AutowareState>(
     "/byd/autoware/state", 10,
@@ -119,18 +120,95 @@ LaserRunningStateBehaviors::LaserRunningStateBehaviors(const std::string& name, 
 }
 void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_msgs::msg::AutowareState::SharedPtr msg)
 {
-    if (msg->state == 6) {
-        double dist = 999.0;
-        if (point_index < order_messages_.goal_x.size() && point_index < order_messages_.goal_y.size()) {
-            double dx = order_messages_.goal_x[point_index] - current_pose_.current_x;
-            double dy = order_messages_.goal_y[point_index] - current_pose_.current_y;
-            dist = std::hypot(dx, dy);
+    if(msg->state == 6){
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "收到 /byd/autoware/state: state=%d", msg->state);
+    }
+
+    // 1. 收到 autoware state 数据时，将处于 INITIALIZING 的动作转换为 RUNNING
+    bool status_changed = false;
+    if (order_listener) {
+        status_changed = order_listener->update_action_status("INITIALIZING", "RUNNING") || status_changed;
+    }
+    {
+        std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+        for (auto & act : order_messages_.msg_state.action_states) {
+            if (act.action_status == "INITIALIZING") {
+                act.action_status = "RUNNING";
+                status_changed = true;
+            }
         }
-        if (dist <= 1.0) {
-            current_autoware_state_ = 6;
-        } else {
-            // 距离大于 1.0m 时，收到的 state 6 视为历史残留，直接清零，绝不保持！
+    }
+    if (status_changed && agv_data_publish_) {
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【状态跳转】/byd/autoware/state 发布数据，action_status 切换为 RUNNING");
+        agv_data_publish_->state_timer_callback();
+    }
+
+    // 2. 状态记录与到达判定
+    if (msg->state == 6) {
+        // 校验物理距离，防止上一任务残留的 state 6 误触到达逻辑
+        CurrentPose cur = current_pose_listener ? current_pose_listener->get_current_pose() : current_pose_;
+        double dist = 999.0;
+        {
+            std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+            if (!order_messages_.goal_x.empty()) {
+                size_t g_idx = (point_index < order_messages_.goal_x.size()) ? point_index : (order_messages_.goal_x.size() - 1);
+                dist = std::hypot(order_messages_.goal_x[g_idx] - cur.current_x, order_messages_.goal_y[g_idx] - cur.current_y);
+            }
+        }
+        // 如果距离目标点大于 1.5m，说明小车根本还没到达新目标点，此 state=6 是上一任务残留，直接忽略并置为 0
+        if (dist > 1.5) {
+            if (node_) {
+                RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                    "收到 /byd/autoware/state: 6，但物理距离目标点 %.2fm (> 1.5m)，判定为上一任务残留状态，忽略！", dist);
+            } else {
+                RCLCPP_WARN(rclcpp::get_logger("rclcpp"),
+                    "收到 /byd/autoware/state: 6，但物理距离目标点 %.2fm (> 1.5m)，判定为上一任务残留状态，忽略！", dist);
+            }
             current_autoware_state_ = 0;
+            return;
+        }
+
+        current_autoware_state_ = msg->state;
+
+        // 判断当前是否有后续需要执行的设备动作（LOAD / UNLOAD / pick / drop / CHARGE / WAIT 等）
+        bool has_device_action = false;
+        if (order_listener) {
+            has_device_action = order_listener->has_device_action();
+        }
+        {
+            std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+            if (!has_device_action) {
+                for (const auto & act : order_messages_.msg_state.action_states) {
+                    if (act.action_type != "order" && act.action_type != "connect_success_auto") {
+                        has_device_action = true;
+                        break;
+                    }
+                }
+            }
+
+            // 仅当该任务没有后续设备动作（如 connect_success_auto 或 无 action 的普通纯导航 order），到达终点后直接将 action_status 变更为 FINISHED，并更新 last_node_id 为终点
+            if (!has_device_action) {
+                bool finish_changed = false;
+                if (order_listener) {
+                    finish_changed = order_listener->update_action_status("", "FINISHED") || finish_changed;
+                    order_listener->update_last_node_to_final();
+                }
+                if (!order_messages_.msg_state.node_states.empty()) {
+                    order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
+                    order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
+                }
+                for (auto & act : order_messages_.msg_state.action_states) {
+                    if (act.action_status != "FINISHED") {
+                        act.action_status = "FINISHED";
+                        finish_changed = true;
+                    }
+                }
+                if (finish_changed && agv_data_publish_) {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【状态跳转】/byd/autoware/state 为 6 且任务无后续设备动作，action_status 切换为 FINISHED，last_node_id 更新为终点: %s",
+                        order_messages_.msg_state.last_node_id.c_str());
+                    agv_data_publish_->state_timer_callback();
+                }
+            }
         }
     } else {
         current_autoware_state_ = msg->state;
@@ -145,7 +223,10 @@ NodeStatus LaserRunningStateBehaviors::tick()
     // 更新instantAction消息的数据
     instant_action_messages_ = instant_action_listener->get_instant_action_messages();
     // 更新order消息
-    order_messages_ = order_listener->get_order_messages();
+    {
+        std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+        order_messages_ = order_listener->get_order_messages();
+    }
     // 更新当前位姿数据
     current_pose_ = current_pose_listener->get_current_pose();
 
@@ -210,14 +291,28 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         // 处理完当前消息，action_type置为没收到消息
         instant_action_listener->action_type = "no_message_received";
         // 判断是否完成本次导航，初始值为false
-        while (!agv_driver_control->get_flag_finish() && !agv_driver_control->get_flag_aborted())
+        while (!agv_driver_control->get_flag_finish() && !agv_driver_control->get_flag_aborted() && current_autoware_state_ != 6)
         {
+            if (order_listener && order_listener->is_action_finished()) {
+                break;
+            }
             // 休眠100ms
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        // 完成instantAction的任务，将任务标识置false
-        // 导航是否完成，这个标志位初始化成false，防止初始化成true，每次tick的时候重新初始一遍出问题，有点混乱，他的功能可以完全被flag_driving取代
+        // 完成instantAction的任务，确保 action_status 为 FINISHED 并上报
+        if (order_listener) {
+            for (auto & act : order_listener->msg_state.action_states) {
+                act.action_status = "FINISHED";
+            }
+        }
+        for (auto & act : order_messages_.msg_state.action_states) {
+            act.action_status = "FINISHED";
+        }
+        if (agv_data_publish_) {
+            agv_data_publish_->state_timer_callback();
+        }
         agv_driver_control->set_flag_finish(false);
+        current_autoware_state_ = 0;
     }
 
     // 2、order发布的任务，需要完成的是一系列任务
@@ -229,13 +324,26 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             drive_state = false;
             break;
         }
+
+        // 基础数据合法性防护
+        if(order_messages_.node_size <= 0 || order_messages_.goal_x.empty() || order_messages_.msg_state.node_states.empty())
+        {
+            RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "订单中无有效节点数据，结束订单！");
+            order_listener->OrderFinished();
+            break;
+        }
+
+        if(point_index >= order_messages_.goal_x.size())
+        {
+            point_index = order_messages_.goal_x.size() - 1;
+        }
         
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "目标坐标(%.2f,%.2f,%.2f),当前坐标(%.2f,%.2f,%.2f),",order_messages_.goal_x[point_index],order_messages_.goal_y[point_index],order_messages_.goal_theta[point_index],current_pose_.current_x,current_pose_.current_y,current_pose_.current_theta);
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "允许偏差(%.2f,%.2f,%.2f)",order_messages_.goal_allowed_deviation_xy[point_index],order_messages_.goal_allowed_deviation_xy[point_index],order_messages_.goal_allowed_deviation_theta[point_index]);
         // 完成分段式导航任务
 
         // 可能要更改避障通道
-        if(point_index > 0 && current_obstacle_avoidance_channels_ != order_messages_.edge_obstacle_avoidance_channels[point_index-1])
+        if(point_index > 0 && point_index - 1 < order_messages_.edge_obstacle_avoidance_channels.size() && current_obstacle_avoidance_channels_ != order_messages_.edge_obstacle_avoidance_channels[point_index-1])
         {
             // 此处需要向底层发送激光区域通道选择。
             current_obstacle_avoidance_channels_ = order_messages_.edge_obstacle_avoidance_channels[point_index-1];
@@ -305,113 +413,75 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 //         break;
                 //     }
                 // }
-                // // 在生成当前边(point_index-1 -> point_index)之前，先把上一条边(point_index-2 -> point_index-1)的轨迹加进来，多段轨迹一次性下发，从而连续行驶，防止小车一走一停
-                if (point_index >= 2 && order_messages_.point_types[point_index-1] == PointType::ORDINARY) {
-                    Point prev_start = {order_messages_.goal_x[point_index-2], order_messages_.goal_y[point_index-2], order_messages_.goal_theta[point_index-2]};
-                    Point prev_end   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
-                    std::vector<Point> prev_edge_points = math_tool.generateTrajectory(
-                        prev_start,
-                        prev_end,
-                        order_messages_.goal_trajectory[point_index-2],
-                        order_messages_.goal_edge_orientation[point_index-2]
-                    );
-                    goal_points_to_driver.insert(goal_points_to_driver.end(), prev_edge_points.begin(), prev_edge_points.end());
-                }
-
-                // 将当前路径加入轨迹
-                Point start_point   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
-                Point end_point     = {order_messages_.goal_x[point_index]  , order_messages_.goal_y[point_index]  , order_messages_.goal_theta[point_index]};
-                
-                // std::cout << "=== DEBUG: 准备生成轨迹 ===" << std::endl;
-                // std::cout << "Point index: " << point_index << std::endl;
-                // std::cout << "Start point (from index " << (point_index-1) << "): (" 
-                //           << start_point.x << ", " << start_point.y << ", " << start_point.theta << ")" << std::endl;
-                // std::cout << "End point (to index " << point_index << "): (" 
-                //           << end_point.x << ", " << end_point.y << ", " << end_point.theta << ")" << std::endl;
-                // std::cout << "Trajectory index: " << (point_index-1) << std::endl;
-                // std::cout << "Trajectory control points size: " << order_messages_.goal_trajectory[point_index-1].control_points.size() << std::endl;
-                // std::cout << "Trajectory degree: " << order_messages_.goal_trajectory[point_index-1].degree << std::endl;
-                // std::cout << "Edge orientation: " << order_messages_.goal_edge_orientation[point_index-1] << std::endl;
-                
-                // 比如说，我现在的目标点是第5个点，那么我会关注第4个点到第5个点之间的轨迹。而这条曲线是第4条边。
-                std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[point_index-1], order_messages_.goal_edge_orientation[point_index-1]);
-
-                // std::cout << "Generated " << goal_points.size() << " goal points for trajectory" << std::endl;
-                // std::cout << "Current goal_points_to_driver size before insert: " << goal_points_to_driver.size() << std::endl;
-
-                goal_points_to_driver.insert(goal_points_to_driver.end(), goal_points.begin(), goal_points.end()); // 将goal_points加入到goal_points_to_driver的末尾
-
-                // std::cout << "Updated goal_points_to_driver size after insert: " << goal_points_to_driver.size() << std::endl;
-                // std::cout << "=== END DEBUG: 轨迹生成完成 ===" << std::endl;
-
-                // point_index后面的点，如果也是普通点，把他们也加入轨迹，直到遇到第一个为非特殊点或终点结束
-                // end_point的下标是idx+1，所以这段路的终点是第一个特殊点或者全路径终点
-                size_t idx = point_index; // 不管怎么样，先单独行走一个任务的第一段路线
-                while( idx > 1 && (idx < order_messages_.goal_x.size()-1) && (order_messages_.point_types[idx] == PointType::ORDINARY) )
+                // 在生成当前边(point_index-1 -> point_index)之前，先把上一条边(point_index-2 -> point_index-1)的轨迹加进来，多段轨迹一次性下发，从而连续行驶，防止小车一走一停
+                if (point_index >= 1 &&
+                    point_index < order_messages_.goal_x.size() &&
+                    point_index - 1 < order_messages_.goal_trajectory.size() &&
+                    point_index - 1 < order_messages_.goal_edge_orientation.size())
                 {
-                    Point start_point   = {order_messages_.goal_x[idx],   order_messages_.goal_y[idx],   order_messages_.goal_theta[idx]  };
-                    Point end_point     = {order_messages_.goal_x[idx+1], order_messages_.goal_y[idx+1], order_messages_.goal_theta[idx+1]};
-                    // 比如说，我现在的目标点是第5个点，那么我会关注第4个点到第5个点之间的轨迹。而这条曲线是第4条边。
-                    std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[idx], order_messages_.goal_edge_orientation[idx]);
+                    if (point_index >= 2 && 
+                        point_index - 1 < order_messages_.point_types.size() && 
+                        order_messages_.point_types[point_index-1] == PointType::ORDINARY &&
+                        point_index - 2 < order_messages_.goal_trajectory.size() &&
+                        point_index - 2 < order_messages_.goal_edge_orientation.size()) 
+                    {
+                        Point prev_start = {order_messages_.goal_x[point_index-2], order_messages_.goal_y[point_index-2], order_messages_.goal_theta[point_index-2]};
+                        Point prev_end   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
+                        std::vector<Point> prev_edge_points = math_tool.generateTrajectory(
+                            prev_start,
+                            prev_end,
+                            order_messages_.goal_trajectory[point_index-2],
+                            order_messages_.goal_edge_orientation[point_index-2]
+                        );
+                        goal_points_to_driver.insert(goal_points_to_driver.end(), prev_edge_points.begin(), prev_edge_points.end());
+                    }
 
-                    goal_points_to_driver.insert(goal_points_to_driver.end(), goal_points.begin(), goal_points.end()); // 将goal_points加入到goal_points_to_driver的末尾
-                    idx++ ;
+                    // 将当前路径加入轨迹
+                    Point start_point   = {order_messages_.goal_x[point_index-1], order_messages_.goal_y[point_index-1], order_messages_.goal_theta[point_index-1]};
+                    Point end_point     = {order_messages_.goal_x[point_index]  , order_messages_.goal_y[point_index]  , order_messages_.goal_theta[point_index]};
+                    
+                    std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[point_index-1], order_messages_.goal_edge_orientation[point_index-1]);
+                    goal_points_to_driver.insert(goal_points_to_driver.end(), goal_points.begin(), goal_points.end());
+
+                    size_t idx = point_index;
+                    while( idx > 1 && 
+                           (idx < order_messages_.goal_x.size()-1) && 
+                           (idx < order_messages_.point_types.size()) &&
+                           (order_messages_.point_types[idx] == PointType::ORDINARY) &&
+                           (idx < order_messages_.goal_trajectory.size()) &&
+                           (idx < order_messages_.goal_edge_orientation.size()) )
+                    {
+                        Point start_point   = {order_messages_.goal_x[idx],   order_messages_.goal_y[idx],   order_messages_.goal_theta[idx]  };
+                        Point end_point     = {order_messages_.goal_x[idx+1], order_messages_.goal_y[idx+1], order_messages_.goal_theta[idx+1]};
+                        std::vector<Point> goal_points = math_tool.generateTrajectory(start_point, end_point, order_messages_.goal_trajectory[idx], order_messages_.goal_edge_orientation[idx]);
+
+                        goal_points_to_driver.insert(goal_points_to_driver.end(), goal_points.begin(), goal_points.end());
+                        idx++ ;
+                    }
+                    far_point_index = idx;
                 }
 
-                far_point_index = idx; // 当发送完一次任务后，far_point_index一般指向首个特殊点 或者 任务的终点
-
-                // std::cout << "=== DEBUG: 发送轨迹到驱动器 ===" << std::endl;
-                // std::cout << "Far point index: " << far_point_index << std::endl;
-                // std::cout << "Total goal_points_to_driver size: " << goal_points_to_driver.size() << std::endl;
-                
-                // // 打印前几个和后几个轨迹点
-                // int print_count = std::min(5, (int)goal_points_to_driver.size());
-                // std::cout << "First " << print_count << " trajectory points:" << std::endl;
-                // for(int i = 0; i < print_count; i++) {
-                //     std::cout << "  Point[" << i << "]: (" 
-                //               << goal_points_to_driver[i].x << ", " 
-                //               << goal_points_to_driver[i].y << ", " 
-                //               << goal_points_to_driver[i].theta << ")" << std::endl;
-                // }
-                
-                // if(goal_points_to_driver.size() > print_count) {
-                //     std::cout << "Last " << print_count << " trajectory points:" << std::endl;
-                //     int start_idx = goal_points_to_driver.size() - print_count;
-                //     for(int i = start_idx; i < (int)goal_points_to_driver.size(); i++) {
-                //         std::cout << "  Point[" << i << "]: (" 
-                //                   << goal_points_to_driver[i].x << ", " 
-                //                   << goal_points_to_driver[i].y << ", " 
-                //                   << goal_points_to_driver[i].theta << ")" << std::endl;
-                //     }
-                // }
-                // 先将目标点赋值给类变量，然后在通过control()发送目标点到多点导航的服务端
-
-                // 临时方案
+                // 临时方案：直接下发目标点至 Autoware
                 goal_points_to_driver = {};
-                // forward = true;
-                // for (const auto& value : order_messages_.goal_edge_orientation) {
-                //     std::cout << value << " ";
-                // }
-                // std::cout << std::endl;
-
-                if (order_messages_.goal_edge_orientation[0] == 0) {
-                    // 如果是切向行驶，直接使用目标点
+                size_t edge_idx = (point_index > 0 && point_index - 1 < order_messages_.goal_edge_orientation.size()) ? (point_index - 1) : 0;
+                if (!order_messages_.goal_edge_orientation.empty() && order_messages_.goal_edge_orientation[edge_idx] == 0) {
                     forward = true;
-                } else{
+                } else {
                     forward = false;
                 }
-                std::cout << "AAAAAAAAAAAAAAASSSSSSSSSSSSSSSSSSSSSSSASAAAAAAAA车辆前进模式: " << order_messages_.goal_edge_orientation[0] << std::endl;
+                std::cout << "AAAAAAAAAAAAAAASSSSSSSSSSSSSSSSSSSSSSSASAAAAAAAA车辆前进模式: " 
+                          << (!order_messages_.goal_edge_orientation.empty() ? order_messages_.goal_edge_orientation[edge_idx] : 0.0) << std::endl;
 
-                // instant_action瞬时任务，只有一个目标点
+                if (point_index >= order_messages_.goal_x.size()) {
+                    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "point_index %zu 越界，goal_x 大小为 %zu", point_index, order_messages_.goal_x.size());
+                    break;
+                }
                 Point one_point = {order_messages_.goal_x[point_index], order_messages_.goal_y[point_index], order_messages_.goal_theta[point_index]};
                 goal_points_to_driver.push_back(one_point);
                 agv_driver_control->setPostion(goal_points_to_driver);
                 agv_driver_control->setForward(forward);
                 current_autoware_state_ = 0; // 下发新目标点前，清空旧的 state=6
                 drive_state = agv_driver_control->control();
-                
-                // std::cout << "Drive state result: " << drive_state << std::endl;
-                // std::cout << "=== END DEBUG: 驱动器轨迹发送完成 ===" << std::endl;
 
                 if_order_updated = false;
 
@@ -423,7 +493,6 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             // 其实小车在运行过程中，此循环占据了主进程的大部分
             // 主线程阻塞直到 AGV 到达当前目标点（point_index），或者发生异常/超时
             int times = 0;
-            auto last_residual_warn_time = std::chrono::steady_clock::now();
             // 主循环：等待到达目标点，或检测超时/抢占/暂停/取消
             while(true)
             {
@@ -479,36 +548,17 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                     dist = std::hypot(dx, dy);
                 }
 
-                // 4. 到达判定与残留状态过滤：
-                // 规则：当距离 > 1.0m 时，收到的任何 state=6 或 flag_finish 都是旧任务残留，直接清空，绝不能保持！
-                // 只有当距离 <= 1.0m 并且收到新的到达信号时，才判定为到达！
-                if (dist > 1.0)
-                {
-                    if (current_autoware_state_ == 6 || agv_driver_control->get_flag_finish())
-                    {
-                        current_autoware_state_ = 0;
-                        agv_driver_control->set_flag_finish(false);
-
-                        auto now_time = std::chrono::steady_clock::now();
-                        if(std::chrono::duration_cast<std::chrono::seconds>(now_time - last_residual_warn_time).count() >= 1)
-                        {
-                            RCLCPP_WARN(rclcpp::get_logger("rclcpp"),
-                                "【状态过滤】收到 /byd/autoware/state 状态 6，但距离终点 (%.2f, %.2f) 为 %.3fm (> 1.0m)，清除残留状态并继续导航...",
-                                order_messages_.goal_x[point_index], order_messages_.goal_y[point_index], dist);
-                            last_residual_warn_time = now_time;
-                        }
-                    }
+                // 4. 到达判定：必须同时满足底层到达信号且当前实际距离在允许容差范围内，防止上一任务残留的 state 6 误判到达
+                double allowed_dev = 1.5;
+                if (point_index < order_messages_.goal_allowed_deviation_xy.size() && order_messages_.goal_allowed_deviation_xy[point_index] > 0.0) {
+                    allowed_dev = std::max(order_messages_.goal_allowed_deviation_xy[point_index] + 0.5, 1.5);
                 }
-                else
+                if ((current_autoware_state_ == 6 && dist <= allowed_dev) || agv_driver_control->get_flag_finish())
                 {
-                    // dist <= 1.0m: 只有在 1m 以内接收到到达信号，才确认为到达
-                    if (current_autoware_state_ == 6 || agv_driver_control->get_flag_finish())
-                    {
-                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
-                            "【到达判定】成功到达目标点！收到最新到达信号 state=%d, dist=%.3fm <= 1.0m",
-                            current_autoware_state_.load(), dist);
-                        break;
-                    }
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
+                        "【到达判定】成功到达目标点！收到到达信号 state=%d, flag_finish=%d, dist=%.3fm (容差: %.2fm)",
+                        current_autoware_state_.load(), agv_driver_control->get_flag_finish() ? 1 : 0, dist, allowed_dev);
+                    break;
                 }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(60));
@@ -517,6 +567,11 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             if(!order_listener->get_order)
             {
                 break; // 订单已取消，跳出外层 order 循环
+            }
+            if (if_order_updated) {
+                // 中途被新任务抢占，并未真正到达旧目标点，保持 if_reach_point = false，直接进入下一轮循环下发新任务
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【任务抢占】保持 if_reach_point = false，立即进入新路径规划");
+                continue;
             }
             if_reach_point = true;
             if(order_messages_.point_types[point_index] == PointType::SHARP)
@@ -565,6 +620,9 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
         else if(if_reach_point)
         {
             if_reach_point = false;
+            if (point_index >= order_messages_.msg_state.node_states.size()) {
+                point_index = order_messages_.msg_state.node_states.size() - 1;
+            }
             // std::cout << "111111111111111111111111111111111111111111111111111111111" << std::endl;
             std::cout<<"point_index:"<<point_index<<"  "<<order_messages_.msg_state.node_states.size()<<std::endl;
             // 到达目标点附近，更新last_node_id 、last_node_sequence_id，用于上报给rcs，sequence_id标识当前执行到第几个点了，通常和point_index相同，暂时没有想到区别
@@ -628,8 +686,9 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 // ****************************************完整的执行运动流程**************************************                
                 int actionID = execute_action_->have_action(order_messages_,point_index); // 获取将要执行的动作的序号
 
-                while(execute_action_->get_flag_have_fork_action() && !execute_action_->agv_fork_control->get_flag_finish()
+                while((execute_action_->get_flag_have_fork_action() && !execute_action_->agv_fork_control->get_flag_finish()
                 || execute_action_->get_flag_have_battery_action() && !execute_action_->agv_battery_control->get_flag_finish())
+                && !(execute_action_->agv_fork_control && execute_action_->agv_fork_control->get_flag_aborted()))
                 
                 {
                     // 休眠时间100ms
@@ -655,59 +714,97 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 if(actionID > -1) // 表示有要做的动作
                 {
                     order_messages_.msg_state.action_states[actionID].action_status = "FINISHED";
-                    agv_data_publish_->state_timer_callback();
+                    // 挂钩动作到位完成时，更新 last_node_id 为命令中的最后一个点
+                    if (!order_messages_.msg_state.node_states.empty()) {
+                        order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
+                        order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
+                    }
+                    if (order_listener) {
+                        order_listener->set_msg_state(order_messages_.msg_state);
+                    }
+                    if (agv_data_publish_) {
+                        agv_data_publish_->state_timer_callback();
+                    }
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【动作完成】挂钩动作已到位，action_status 变更为 FINISHED，last_node_id 更新为终点: %s 并上报",
+                        order_messages_.msg_state.last_node_id.c_str());
+
+                    // 重置动作触发标志
+                    execute_action_->init_flag();
                 }
                 // ****************************************完整的执行运动流程**************************************
 
-            }
-
-
-            // 以下逻辑是对小车的货叉进行控制
-            if (point_index > 0 && // 小车至少要到第二个点
-                order_messages_.point_types[point_index] != PointType::HARDACTION && 
-                order_messages_.point_types[point_index] != PointType::SOFTACTION && 
-                execute_action_->agv_fork_control->get_fork_height() != order_messages_.goal_heights[point_index] &&
-                order_messages_.goal_trajectory[point_index].degree != -1) // 如果轨迹为空，则不进行货叉控制
-            {
-                // 休眠时间1s
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                execute_action_->agv_fork_control->setForkParameters(1, order_messages_.goal_heights[point_index]);
-                bool fork_state = execute_action_->agv_fork_control->control();
-
-                if(!fork_state){
-                    std::cout << "AGV货叉启动失败！" << std::endl;
-                }
-
-                while(!execute_action_->agv_fork_control->get_flag_finish()){
-
-                    // 休眠时间100ms
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-                    if(handle_cancel_order())
-                    {
-                        break;
-                    }
-
-                    // 以下是暂停业务************************************************************************************************************
-                    handle_pause(false, true);
-                    if(!order_listener->get_order) {
-                        break;
-                    }
-                    // 以上是暂停业务************************************************************************************************************
-                    
-                }
-                if(!order_listener->get_order) {
+                // 挂钩动作到位完成并上报后，如果此前暂缓了 cancelOrder，立即响应并执行取消
+                if(handle_cancel_order())
+                {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【挂钩完成取消】挂钩动作已执行完毕，立即执行挂钩期间暂缓的 cancelOrder 指令！");
                     break;
                 }
 
-                    // current_fork_height 现在由 execute_action_->agv_fork_control 管理
             }
 
-            // 索引更新
-            if (point_index < static_cast<size_t>(order_messages_.node_size-1)) // 如果当前点不是最后一个点
-                point_index++;
+
+            // 货叉起升/下降已改为完全由 LOAD / UNLOAD 动作驱动，不再根据中间点的 goal_heights 控制货叉
+
+            // 刷新订单与位姿数据：检测是否在等待或动作期间收到了 RCS 增量下发的新任务（例如 order_update_id 递增）
+            data_updates();
+
+            // 索引更新：如果当前点不是最后一个点（或者刚收到了增量更新的点），跳过中间点直接定位到最新终点
+            if (point_index < static_cast<size_t>(order_messages_.node_size - 1))
+            {
+                // 跳过中间所有过渡点，直接定位到整个订单的最终目标点
+                point_index = order_messages_.node_size - 1;
+                if_order_updated = true; // 确保新目标点会下发给底层驱动进行全程规划
+                if_reach_point = false;  // 重置到达标志，使下一轮循环进入导航逻辑
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【订单更新/中间点跳过】直接将目标节点设为订单终点 [索引: %zu, 节点: %s]",
+                    point_index, order_messages_.msg_state.node_states[point_index].node_id.c_str());
+            }
             else
+            {
+                // 双重临界检查：在真正结算前，再次确认是否有新订单刚好到达或者被标记改变
+                bool pending_order = order_listener && (
+                    order_listener->messages_change || 
+                    order_listener->released_node_size > order_messages_.node_size ||
+                    order_listener->msg_state.order_update_id > order_messages_.msg_state.order_update_id ||
+                    (!order_listener->msg_state.order_id.empty() && order_listener->msg_state.order_id != order_messages_.msg_state.order_id));
+                if (pending_order) {
+                    data_updates();
+                    if (point_index < static_cast<size_t>(order_messages_.node_size - 1)) {
+                        point_index = order_messages_.node_size - 1;
+                        if_order_updated = true;
+                        if_reach_point = false;
+                        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【临界更新捕获】捕获到新下发的订单节点 [索引: %zu, 节点: %s]，继续执行导航！",
+                            point_index, order_messages_.msg_state.node_states[point_index].node_id.c_str());
+                        continue;
+                    }
+                }
+
+                // 确保 last_node_id 和 last_node_sequence_id 为命令中的最后一个点
+                if (!order_messages_.msg_state.node_states.empty()) {
+                    order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
+                    order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
+                }
+
+                // 已到达订单终点并执行完终点动作，一次性结算订单并退出循环
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "已到达订单终点 [Node ID: %s]，完成全路径导航，结算订单并返回空闲状态！",
+                    order_messages_.msg_state.last_node_id.c_str());
+
+                // 若是不带动作的订单，确保其合成动作的 action_status 为 FINISHED 并同步上报
+                if (!order_messages_.msg_state.action_states.empty() && 
+                    order_messages_.msg_state.action_states[0].action_type == "order") {
+                    order_messages_.msg_state.action_states[0].action_status = "FINISHED";
+                }
+                if (order_listener) {
+                    order_listener->set_msg_state(order_messages_.msg_state);
+                }
+                if (agv_data_publish_) {
+                    agv_data_publish_->state_timer_callback();
+                }
+
+                order_listener->OrderFinished();
                 if_reach_point = true;
+                current_autoware_state_ = 0;
+                break;
+            }
             RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "point_index : %zu ", point_index);
 
         }
@@ -728,42 +825,35 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             // 跳出循环，由于是RCS下发的任务结束，为正常的任务结束
             break;
         }
-        // // 如果小车断开连接，则进入空闲态
-        // if(instant_action_messages_.action_type == "no_message_received" || instant_action_messages_.action_type == "agv_offline"){
-        //     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "小车已离线！");
-        //     order_listener->OrderFinished();
-
-        //     // 先发布离线请求
-        //     agv_data_publish_->p` ublish_connection_request("OFFLINE");
-        //     std::this_thread::sleep_for(std::chrono::milliseconds(1000*5));
-        //     agv_data_publish_->cancel_connection_timer(); // 及时关闭下线定时器
-        //     instant_action_listener->action_type = "no_message_received"; // 设置action_type为no_message_received
-            
-        //     break;
-        // }
 
         // 休眠100ms 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     // 如果小车断开连接，则进入空闲态然后去上线
     if(instant_action_messages_.action_type == "no_message_received" || instant_action_messages_.action_type == "agv_offline"){
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "idle");
-        this->config().blackboard->set("AGV_Event", "init_success");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "idle");
+            this->config().blackboard->set("AGV_Event", "init_success");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "小车离线，重新进入空闲态然后去上线！");
     }
     else if(drive_state){
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "idle");
-        this->config().blackboard->set("AGV_Event", "task_completed");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "idle");
+            this->config().blackboard->set("AGV_Event", "task_completed");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "驱动启动成功！");
     }
     else{
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "进入锁死态之前，进行任务数据清零！");
         order_listener->OrderFinished();
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "lock");
-        this->config().blackboard->set("AGV_Event", "emergency");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "lock");
+            this->config().blackboard->set("AGV_Event", "emergency");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "驱动启动失败！");
     }
 
@@ -781,6 +871,8 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
 ******************************************************************************************/
 bool LaserRunningStateBehaviors::data_updates(){
 
+    std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+
     // 检查can数据是否异常
     if(can_data_listener_->io_data_is_error || can_data_listener_->err_data_is_error || can_data_listener_->hardware_data_is_error){
         std::cout << "can数据异常，跳转至lock状态！" << std::endl;
@@ -793,39 +885,41 @@ bool LaserRunningStateBehaviors::data_updates(){
     
     // 只有在order更新的时候才调用，防止多次读取旧order，覆盖现有数据，导致重复执行动作
     // msg_state只有在新旧订单order_id不同时才会调用OrderFinished();清空，所以要记录执行到哪了，但是
-    if(order_listener->messages_change){
+    bool has_new_order = order_listener && (
+        order_listener->messages_change ||
+        order_listener->released_node_size > order_messages_.node_size ||
+        order_listener->msg_state.order_update_id > order_messages_.msg_state.order_update_id ||
+        (!order_listener->msg_state.order_id.empty() && order_listener->msg_state.order_id != order_messages_.msg_state.order_id)
+    );
+    if(has_new_order){
 
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "是否更新数据 ： %d",order_listener->messages_change);
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【订单数据同步】检测到新订单/增量更新，messages_change: %d, released_nodes: %zu, current_nodes: %d, order_update_id: %d",
+            order_listener->messages_change, order_listener->released_node_size, order_messages_.node_size, order_listener->msg_state.order_update_id);
         
         std::cout << "DEBUG: 准备保存已完成动作状态" << std::endl;
         std::cout << "DEBUG: order_messages_.action_size = " << order_messages_.action_size << std::endl;
         std::cout << "DEBUG: order_messages_.msg_state.action_states.size() = " << order_messages_.msg_state.action_states.size() << std::endl;
         
-        // 🔧 修复：保存当前已完成的动作状态，防止被新任务数据覆盖
+        // 🔧 修复：仅在同一运行中订单进行子更新时才保留已完成的动作状态，全新订单不继承旧状态
         std::map<std::string, std::string> finished_action_states;
-        for(int i = 0; i < order_messages_.action_size; i++) {
-            std::cout << "DEBUG: 循环 i=" << i << " (保存阶段)" << std::endl;
+        std::string previous_order_id = order_messages_.msg_state.order_id;
+        for(size_t i = 0; i < order_messages_.msg_state.action_states.size(); i++) {
             if(order_messages_.msg_state.action_states[i].action_status == "FINISHED") {
                 finished_action_states[order_messages_.msg_state.action_states[i].action_id] = "FINISHED";
-                std::cout << "🔄 保存已完成动作状态: " << order_messages_.msg_state.action_states[i].action_id << std::endl;
+                std::cout << "🔄 记录当前订单已完成动作状态: " << order_messages_.msg_state.action_states[i].action_id << std::endl;
             }
         }
-        
-        std::cout << "DEBUG: 保存完成，准备更新order消息" << std::endl;
         
         // 更新order消息
         order_messages_ = order_listener->get_order_messages();
         
-        std::cout << "DEBUG: order消息已更新" << std::endl;
-        std::cout << "DEBUG: 更新后 order_messages_.action_size = " << order_messages_.action_size << std::endl;
-        std::cout << "DEBUG: 更新后 order_messages_.msg_state.action_states.size() = " << order_messages_.msg_state.action_states.size() << std::endl;
-        
-        // 🔧 修复：恢复已完成的动作状态
-        for(int i = 0; i < order_messages_.action_size; i++) {
-            std::cout << "DEBUG: 循环 i=" << i << " (恢复阶段)" << std::endl;
-            if(finished_action_states.find(order_messages_.msg_state.action_states[i].action_id) != finished_action_states.end()) {
-                order_messages_.msg_state.action_states[i].action_status = "FINISHED";
-                std::cout << "✅ 恢复已完成动作状态: " << order_messages_.msg_state.action_states[i].action_id << std::endl;
+        // 只有同一订单的增量更新（非首次接收全新订单）才恢复完成状态
+        if (!previous_order_id.empty() && previous_order_id == order_messages_.msg_state.order_id && !order_listener->first_order) {
+            for(size_t i = 0; i < order_messages_.msg_state.action_states.size(); i++) {
+                if(finished_action_states.find(order_messages_.msg_state.action_states[i].action_id) != finished_action_states.end()) {
+                    order_messages_.msg_state.action_states[i].action_status = "FINISHED";
+                    std::cout << "✅ 恢复同一订单中已完成动作状态: " << order_messages_.msg_state.action_states[i].action_id << std::endl;
+                }
             }
         }
         
@@ -853,9 +947,12 @@ bool LaserRunningStateBehaviors::data_updates(){
     current_pose_ = current_pose_listener->get_current_pose();
 
     // 更新当前目标位姿，全局变量更新，在多线程发布状态部分需要根据这个发布state消息
-    order_messages_.current_goal_x = order_messages_.goal_x[point_index];    
-    order_messages_.current_goal_y = order_messages_.goal_y[point_index];  
-    order_messages_.current_goal_theta = order_messages_.goal_theta[point_index];
+    if(point_index < order_messages_.goal_x.size() && point_index < order_messages_.goal_y.size() && point_index < order_messages_.goal_theta.size())
+    {
+        order_messages_.current_goal_x = order_messages_.goal_x[point_index];    
+        order_messages_.current_goal_y = order_messages_.goal_y[point_index];  
+        order_messages_.current_goal_theta = order_messages_.goal_theta[point_index];
+    }
 
     // 获取最新数据
     if (velocity_listener) {
@@ -966,6 +1063,7 @@ bool LaserRunningStateBehaviors::data_updates(){
 
 void LaserRunningStateBehaviors::update_points_type()
 {
+    std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
     // 标记点状态
     order_messages_.point_types.clear();
     order_messages_.goal_heights.clear();
@@ -1123,11 +1221,38 @@ void LaserRunningStateBehaviors::update_points_type()
 }
 
 
+bool LaserRunningStateBehaviors::is_hook_executing() const
+{
+    if(execute_action_ && execute_action_->get_flag_have_fork_action() && execute_action_->agv_fork_control)
+    {
+        // 如果货叉/挂钩动作已触发，且尚未完成(未finish)，且未发生异常终止(未aborted)
+        if(!execute_action_->agv_fork_control->get_flag_finish() && 
+           !execute_action_->agv_fork_control->get_flag_aborted())
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool LaserRunningStateBehaviors::handle_cancel_order()
 {
     interrupt_order_message_ = instant_action_listener->get_interrupt_order_message();
     if(interrupt_order_message_.action_type == "cancelOrder" && interrupt_order_message_.action_status == "WAITING")
     {
+        // 关键防护（方案A）：如果当前正在执行挂钩动作，暂缓执行 cancelOrder，直到挂钩动作完成到位
+        if(is_hook_executing())
+        {
+            static auto last_log_time = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if(std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count() > 1000)
+            {
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【取消暂缓】当前正在执行挂钩动作，暂缓执行 cancelOrder，等待挂钩动作完成后再取消！");
+                last_log_time = now;
+            }
+            return false;
+        }
+
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【取消订单】收到 cancelOrder 即时指令，立即停止底层 Autoware 导航及所有动作！");
 
         // 1. 立即停止 Autoware 导航（与 startPause 表现一致，调用底层 cancel 使车辆刹停）
@@ -1687,21 +1812,27 @@ void QRRunningStateBehaviors::OnReceiveOrder(){
 
     // 如果小车断开连接，则进入空闲态然后去上线
     if(instant_action_messages_.action_type == "no_message_received" || instant_action_messages_.action_type == "agv_offline"){
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "idle");
-        this->config().blackboard->set("AGV_Event", "init_success");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "idle");
+            this->config().blackboard->set("AGV_Event", "init_success");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "小车离线，重新进入空闲态然后去上线！");
     }
     else if(drive_state){
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "idle");
-        this->config().blackboard->set("AGV_Event", "task_completed");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "idle");
+            this->config().blackboard->set("AGV_Event", "task_completed");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "驱动启动成功！");
     }
     else{
-        this->config().blackboard->set("last_state", "running");
-        this->config().blackboard->set("current_state", "lock");
-        this->config().blackboard->set("AGV_Event", "emergency");
+        if (this->config().blackboard) {
+            this->config().blackboard->set("last_state", "running");
+            this->config().blackboard->set("current_state", "lock");
+            this->config().blackboard->set("AGV_Event", "emergency");
+        }
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "驱动启动失败！");
     }
 

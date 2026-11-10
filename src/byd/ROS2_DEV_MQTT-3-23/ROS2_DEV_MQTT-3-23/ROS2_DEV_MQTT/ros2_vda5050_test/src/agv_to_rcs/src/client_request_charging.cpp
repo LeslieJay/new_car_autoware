@@ -38,17 +38,25 @@ RequestChargingClient::RequestChargingClient(std::shared_ptr<rclcpp::Node> node)
 }
 
 // 连接服务端，如果连接成功返回true否则返回false
-bool RequestChargingClient::connect_server(){
-    // 等待5s
-    while (!client_->wait_for_service(5s)){
+bool RequestChargingClient::connect_server(int max_retries, std::chrono::seconds timeout){
+    int retries = 0;
+    while (!client_->wait_for_service(timeout)){
 
         // ctrl+c的特殊处理
         if (!rclcpp::ok()){
             RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"force client termination!");
             return false;
         }
-        RCLCPP_INFO(rclcpp::get_logger("rclcpp"),"connecting with server!");
+        retries++;
+        RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "等待充电服务连接 (尝试 %d/%d, 每次等待 %ld 秒)...", 
+                    retries, max_retries, timeout.count());
+        if (retries >= max_retries) {
+            RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "达到最大尝试次数 %d 次(共 %ld 秒)，仍未连接到充电服务，判定服务端不可用!", 
+                         max_retries, max_retries * timeout.count());
+            return false;
+        }
     }
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "成功连接到充电服务: %s", client_->get_service_name());
     return true;
 }
 

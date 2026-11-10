@@ -28,6 +28,9 @@
 # include <mutex>
 # include <condition_variable>
 
+class OrderListener;
+class AGVDataPublish;
+
 using vda5050_interfaces::msg::AGVInstantActions;
 
 /*****************************************************************************************
@@ -141,6 +144,18 @@ public:
     ******************************************************************************************/
     void update_from_mqtt(const AGVInstantActions& mqtt_instant_action_messages);
 
+    void set_order_listener(std::shared_ptr<OrderListener> order_listener);
+    void set_data_publish(std::shared_ptr<AGVDataPublish> data_publish);
+
+    /*****************************************************************************************
+    * @brief:      充电相关即时动作锁存查询与管理（支持单次发布防丢失）
+    ******************************************************************************************/
+    bool has_start_charge_latched() const;
+    void clear_start_charge_latched();
+    bool has_stop_charge_latched() const;
+    void clear_stop_charge_latched();
+    std::string get_latched_charge_action_id() const;
+
     InstantActionMessages instant_action_messages;
 
     // 接受到新数据
@@ -171,7 +186,7 @@ private:
     rclcpp::Subscription<AGVInstantActions>::SharedPtr subscription_;
     rclcpp::TimerBase::SharedPtr instant_action_timer_;
 
-    std::mutex data_mutex_;
+    std::recursive_mutex data_mutex_;
     // 用于保护 receive_new_actions_ 和 interrupt_order_message_ 的互斥锁
     mutable std::mutex state_mutex_;
 
@@ -187,8 +202,16 @@ private:
     
     std::string last_action_id;
 
+    // 锁存单次发布的充电即时动作，防止10s sleep等耗时操作期间丢失
+    std::atomic<bool> start_charge_latched_{false};
+    std::atomic<bool> stop_charge_latched_{false};
+    std::string latched_charge_action_id_;
+
     // 中断订单消息（内部管理，线程安全）
     InterruptOrderMessage interrupt_order_message_;
+
+    std::shared_ptr<OrderListener> order_listener_;
+    std::shared_ptr<AGVDataPublish> data_publish_;
     
 };
 # endif

@@ -65,13 +65,9 @@ namespace can_driver
             "/can_driver/debug/control_cmd_can", 10);
 
         gear_subscript_ = node_->create_subscription<autoware_vehicle_msgs::msg::GearCommand>("/control/command/gear_cmd", 1, std::bind(&CanReceiver::gear_cmd_callback, this, _1));
-        person_instance_subscript_ = node_->create_subscription<autoware_perception_msgs::msg::PredictedObjects>(
+        predicted_objects_subscript_ = node_->create_subscription<autoware_perception_msgs::msg::PredictedObjects>(
             "/perception/object_recognition/objects", 1,
-            std::bind(&CanReceiver::person_instance_callback, this, _1));
-
-        car_instance_subscript_ = node_->create_subscription<autoware_perception_msgs::msg::PredictedObjects>(
-            "/perception/object_recognition/objects", 1,
-            std::bind(&CanReceiver::car_instance_callback, this, _1)); 
+            std::bind(&CanReceiver::predicted_objects_callback, this, _1)); 
         // // 该话题用来汇报转向信息，但是在模拟时，左转时标志位不变，直接使用control_cmd播报转向信息
         // turn_cmd_subscript_ = node_->create_subscription<autoware_vehicle_msgs::msg::TurnIndicatorsCommand>(
         //     "/control/command/turn_indicators_cmd", 1, std::bind(&CanReceiver::turn_cmd_callback, this, _1));
@@ -88,7 +84,7 @@ namespace can_driver
         //     "cmd_vel", 1, std::bind(&CanReceiver::keyboard_cmd_callback, this, _1));
 
 
-        node_->declare_parameter("speed_upper_bound", rclcpp::ParameterValue(4200));
+        node_->declare_parameter("speed_upper_bound", rclcpp::ParameterValue(2000));
         node_->get_parameter("speed_upper_bound", speed_upper_bound_);
 
         node_->declare_parameter("wheel_distance", 0.5);
@@ -316,22 +312,28 @@ namespace can_driver
     }
     void CanReceiver::agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg){
         if (msg->state == 6){
-            const auto now = node_->get_clock()->now();
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            const bool interval_elapsed =
-              (now - last_voice_frame_time_).nanoseconds() >=
-              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-            if (interval_elapsed || last_voice_id_ != 5) {
-                std::vector<struct can_frame> send_frames;
-                struct can_frame v_frame = make_frame(0x401);
-                v_frame.data[0] |= (1 << 4); // 打开语音播报
-                v_frame.data[2] = 5;         // 语音到达目标点
-                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                send_frames.push_back(v_frame);
-                send_queue_->push(send_frames);
-                last_voice_frame_time_ = now;
-                last_voice_id_ = 5;
+            is_arrived_destination_.store(true, std::memory_order_relaxed);
+            // 如果当前正在语音播报中，就不下发新的语音帧
+            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
+                const auto now = node_->get_clock()->now();
+                std::lock_guard<std::mutex> lock(voice_mutex_);
+                const bool interval_elapsed =
+                  (now - last_voice_frame_time_).nanoseconds() >=
+                  static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+                if (interval_elapsed || last_voice_id_ != 5) {
+                    std::vector<struct can_frame> send_frames;
+                    struct can_frame v_frame = make_frame(0x401);
+                    v_frame.data[0] |= (1 << 4); // 打开语音播报
+                    v_frame.data[2] = 5;         // 语音到达目标点
+                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+                    send_frames.push_back(v_frame);
+                    send_queue_->push(send_frames);
+                    last_voice_frame_time_ = now;
+                    last_voice_id_ = 5;
+                }
             }
+        } else {
+            is_arrived_destination_.store(false, std::memory_order_relaxed);
         }
     }
     
@@ -391,90 +393,66 @@ namespace can_driver
         return true;
     }
 
-    void CanReceiver::person_instance_callback(
+    void CanReceiver::predicted_objects_callback(
         const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg)
     {
-        std::vector<struct can_frame> send_frames;
-        const auto now = node_->get_clock()->now();
-
         bool person_close = false;
-
-        for (const auto & obj : msg->objects) {
-            for (const auto & cls : obj.classification) {
-                // 同时满足：类别是行人，且概率 > 0.5
-                if (cls.label == 7) {
-                    person_close = true;
-                    break;
-                }
-            }
-            if (person_close) {
-                break;
-            }
-        }
-
-        // 语音部分：行人靠近急停语音（3秒下发一次）
-        if (person_close) {
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            const bool interval_elapsed =
-            (now - last_voice_frame_time_).nanoseconds() >=
-            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-            if (interval_elapsed || last_voice_id_ != 9) {
-                struct can_frame v_frame = make_frame(0x401);
-                v_frame.data[0] |= (1 << 4); // 打开语音播报
-                v_frame.data[2] = 9;         // 行人靠近语音编号
-                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                send_frames.push_back(v_frame);
-                last_voice_frame_time_ = now;
-                last_voice_id_ = 9;
-            }
-        }
-
-        send_queue_->push(send_frames);
-    }
-
-    void CanReceiver::car_instance_callback(
-        const autoware_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg)
-    {
-        RCLCPP_INFO(node_->get_logger(), "接到车辆话题... objects count = %zu", msg->objects.size());
-
         bool car_close = false;
 
         for (const auto & obj : msg->objects) {
             for (const auto & cls : obj.classification) {
-                // 车辆类：CAR / TRUCK / BUS / TRAILER / MOTORCYCLE 视需求取舍
-                const bool is_vehicle =
-                    (cls.label == 6 ||
-                    cls.label == 2 ||
-                    cls.label == 3 ||
-                    cls.label == 4 ||
-                    cls.label == 5);
-                // if (is_vehicle && cls.probability > 0.5f) {
-                if (is_vehicle) {
-                    car_close = true;
+                // 行人：PEDESTRIAN (7)
+                if (cls.label == 7) {
+                    person_close = true;
                     break;
                 }
+                // 车辆类：CAR (1), TRUCK (2), BUS (3), TRAILER (4), MOTORCYCLE (5), BICYCLE (6)
+                const bool is_vehicle =
+                    (cls.label == 1 ||
+                     cls.label == 2 ||
+                     cls.label == 3 ||
+                     cls.label == 4 ||
+                     cls.label == 5 ||
+                     cls.label == 6);
+                if (is_vehicle) {
+                    car_close = true;
+                }
             }
-            if (car_close) {
+            if (person_close) {
+                // 行人急停语音优先级最高，识别到即可提前结束
                 break;
             }
         }
 
-        if (car_close) {
-            const auto now = node_->get_clock()->now();
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            const bool interval_elapsed =
-            (now - last_voice_frame_time_).nanoseconds() >=
-            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-            if (interval_elapsed || last_voice_id_ != 10) {
-                std::vector<struct can_frame> send_frames;
-                struct can_frame v_frame = make_frame(0x401);
-                v_frame.data[0] |= (1 << 4); // 打开语音播报
-                v_frame.data[2] = 10;        // 车辆靠近报警
-                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                send_frames.push_back(v_frame);
-                send_queue_->push(send_frames);
-                last_voice_frame_time_ = now;
-                last_voice_id_ = 10;
+        uint8_t voice_id = 0;
+        if (person_close) {
+            voice_id = 9;  // 行人靠近语音编号（急停语音，优先级高）
+        } else if (car_close) {
+            voice_id = 10; // 车辆靠近报警
+        }
+
+        const auto now = node_->get_clock()->now();
+        pending_obstacle_voice_.store(voice_id, std::memory_order_relaxed);
+        last_obstacle_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
+
+        if (voice_id != 0) {
+            // 如果当前正在语音播报中，就不下发新的语音帧
+            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
+                std::lock_guard<std::mutex> lock(voice_mutex_);
+                const bool interval_elapsed =
+                    (now - last_voice_frame_time_).nanoseconds() >=
+                    static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+                if (interval_elapsed || last_voice_id_ != voice_id) {
+                    std::vector<struct can_frame> send_frames;
+                    struct can_frame v_frame = make_frame(0x401);
+                    v_frame.data[0] |= (1 << 4); // 打开语音播报
+                    v_frame.data[2] = voice_id;  // 语音编号
+                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+                    send_frames.push_back(v_frame);
+                    send_queue_->push(send_frames);
+                    last_voice_frame_time_ = now;
+                    last_voice_id_ = voice_id;
+                }
             }
         }
     }
@@ -619,6 +597,11 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 double voltage_V = 56;
                 total_current = power / 56;
             }
+            // 0x381 状态反馈：BYTE2 的 bit0 为 1 表示语音播报中，0 表示空闲
+            if ((frame.can_id & CAN_SFF_MASK) == 0x381 || frame.can_id == 0x381) {
+                const bool is_playing = (frame.data[2] & 0x01) != 0;
+                is_voice_playing_.store(is_playing, std::memory_order_relaxed);
+            }
             std::vector<struct can_frame> send_frames;
             // // 电池帧，用来汇报电池电量，充电放电等。
             if (frame.can_id == 0x2A1){
@@ -640,11 +623,25 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                     battery_publisher_->publish(message);
                 }
                 // 低电量报警
+                is_low_battery_.store(battery < 30, std::memory_order_relaxed);
                 if (battery < 30){
-                    struct can_frame v_frame = make_frame(0x401);
-                    v_frame.data[2] = 17;
-                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                    send_frames.push_back(v_frame);                            
+                    if (!is_voice_playing_.load(std::memory_order_relaxed)) {
+                        const auto now = node_->get_clock()->now();
+                        std::lock_guard<std::mutex> lock(voice_mutex_);
+                        const bool interval_elapsed =
+                            (now - last_voice_frame_time_).nanoseconds() >=
+                            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+                        if (interval_elapsed || last_voice_id_ != 17) {
+                            struct can_frame v_frame = make_frame(0x401);
+                            v_frame.data[0] |= (1 << 4); // 打开语音播报
+                            v_frame.data[2] = 17;
+                            v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+                            send_frames.push_back(v_frame);
+                            send_queue_->push(send_frames);
+                            last_voice_frame_time_ = now;
+                            last_voice_id_ = 17;
+                        }
+                    }
                 }
             }
             // 0x181 检测上报小车实际速度和转向
@@ -849,20 +846,30 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
             v_frame.data[3] |= (1 << 1); // 倒车灯/状态
         }
 
+        pending_control_voice_.store(voice_id, std::memory_order_relaxed);
+        last_control_voice_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
+
         // --- 语音内容：3秒下发一次 ---
-        if (voice_id != 0) {
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            const bool interval_elapsed =
-              (now - last_voice_frame_time_).nanoseconds() >=
-              static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-            // 达到3秒间隔，或语音编号切换（例如从直行切换为转向立即响应）
-            if (interval_elapsed || voice_id != last_voice_id_) {
-                v_frame.data[0] |= (1 << 4); // 打开语音播报
-                v_frame.data[2] = voice_id;  // 写入语音编号
-                last_voice_frame_time_ = now;
-                last_voice_id_ = voice_id;
+        // 检查是否有更高优先级的其他语音（例如行人靠近 9、车辆靠近 10）
+        const uint8_t desired_voice = getCurrentDesiredVoiceId();
+        const bool can_send_control_voice = (voice_id != 0 && (desired_voice == 0 || desired_voice == voice_id));
+
+        if (can_send_control_voice) {
+            // 如果当前正在语音播报中，就不下发新的语音帧
+            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
+                std::lock_guard<std::mutex> lock(voice_mutex_);
+                const bool interval_elapsed =
+                  (now - last_voice_frame_time_).nanoseconds() >=
+                  static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+                // 达到3秒间隔，或语音编号切换（例如从直行切换为转向立即响应）
+                if (interval_elapsed || voice_id != last_voice_id_) {
+                    v_frame.data[0] |= (1 << 4); // 打开语音播报
+                    v_frame.data[2] = voice_id;  // 写入语音编号
+                    last_voice_frame_time_ = now;
+                    last_voice_id_ = voice_id;
+                }
             }
-        } else {
+        } else if (voice_id == 0) {
             // 直行无转向/倒车时，重置当前控制语音记录
             std::lock_guard<std::mutex> lock(voice_mutex_);
             if (last_voice_id_ == 2 || last_voice_id_ == 3 || last_voice_id_ == 4) {
@@ -1190,14 +1197,6 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
           steady_now_ns() - last_control_steady_ns_.load(std::memory_order_relaxed);
         const int64_t age_ms = age_ns / 1000000LL;
 
-        if (age_ms >= control_command_warn_timeout_ms_) {
-            RCLCPP_WARN_THROTTLE(
-              node_->get_logger(), *node_->get_clock(), 1000,
-              "Control command is stale: %ld ms (warning=%d ms, stop=%d ms)",
-              static_cast<long>(age_ms), control_command_warn_timeout_ms_,
-              control_command_stop_timeout_ms_);
-        }
-
         if (age_ms >= control_command_stop_timeout_ms_ &&
             !control_timeout_active_.exchange(true, std::memory_order_relaxed)) {
             can_frame safety_frame{};
@@ -1206,33 +1205,89 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 safety_frame = safe_frame;
             }
             send_queue_->setLatestControlFrame(safety_frame);
-            RCLCPP_ERROR(
-              node_->get_logger(),
-              "Control command timeout after %ld ms; switching periodic 0x201 to the safety frame",
-              static_cast<long>(age_ms));
         }
     }
 
+    uint8_t CanReceiver::getCurrentDesiredVoiceId() const {
+        const int64_t now_ns = node_->get_clock()->now().nanoseconds();
+
+        // 1. 障碍物（最高优先级：9行人靠近急停，10车辆靠近报警）
+        // 1秒超时保护，防止感知话题中断导致状态滞留
+        const uint8_t obs_voice = pending_obstacle_voice_.load(std::memory_order_relaxed);
+        if (obs_voice != 0 && (now_ns - last_obstacle_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL) {
+            return obs_voice;
+        }
+
+        // 2. 到达目标点（语音 5）
+        if (is_arrived_destination_.load(std::memory_order_relaxed)) {
+            return 5;
+        }
+
+        // 3. 转向与倒车（语音 2: 左转, 3: 右转, 4: 倒车）
+        // 1秒超时保护
+        const uint8_t ctrl_voice = pending_control_voice_.load(std::memory_order_relaxed);
+        if (ctrl_voice != 0 && (now_ns - last_control_voice_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL) {
+            return ctrl_voice;
+        }
+
+        // 4. 低电量报警（语音 17）
+        if (is_low_battery_.load(std::memory_order_relaxed)) {
+            return 17;
+        }
+
+        return 0; // 无其他语音
+    }
+
+    bool CanReceiver::hasOtherVoiceToBroadcast() const {
+        return getCurrentDesiredVoiceId() != 0;
+    }
+
     void CanReceiver::sendSafetyFrameCallback() {
-        std::vector<struct can_frame> send_frames;
-        struct can_frame voice_frame;
-        voice_frame.can_id = 0x401;
-        // 标识数据帧的长度为8个字节
-        voice_frame.can_dlc = 8;
-        voice_frame.data[0] = 0x00;
-        // 打开语音播报
-        voice_frame.data[0] |= (1 << 4);
-        voice_frame.data[1] = 0x00;
-        voice_frame.data[2] = 1;
-        voice_frame.data[3] = 0x00;
-        voice_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-        voice_frame.data[5] = 0x00;
-        voice_frame.data[6] = 0x00;
-        voice_frame.data[7] = 0x00;
-        // 添加到队列的功能放在所有帧处理的最后
-        send_frames.push_back(voice_frame);
-        send_queue_->push(send_frames);
-        // RCLCPP_INFO_STREAM(node_->get_logger(),"无人驾驶.");
+        // 1. 如果当前正在语音播报中，就不下发新的语音帧
+        if (is_voice_playing_.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        // 2. 如果有任何其他语音要播报，就不播报无人驾驶中，优先其他的播报
+        const uint8_t other_voice = getCurrentDesiredVoiceId();
+        if (other_voice != 0) {
+            // 优先播报其他语音
+            const auto now = node_->get_clock()->now();
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool interval_elapsed =
+                (now - last_voice_frame_time_).nanoseconds() >=
+                static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+            if (interval_elapsed || last_voice_id_ != other_voice) {
+                std::vector<struct can_frame> send_frames;
+                struct can_frame v_frame = make_frame(0x401);
+                v_frame.data[0] |= (1 << 4);   // 打开语音播报
+                v_frame.data[2] = other_voice; // 语音编号
+                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+                send_frames.push_back(v_frame);
+                send_queue_->push(send_frames);
+                last_voice_frame_time_ = now;
+                last_voice_id_ = other_voice;
+            }
+            return;
+        }
+
+        // 3. 没有任何其他语音，且不在语音播报中时，才下发“无人驾驶中，请注意避让”（语音编号：1）
+        const auto now = node_->get_clock()->now();
+        std::lock_guard<std::mutex> lock(voice_mutex_);
+        const bool interval_elapsed =
+            (now - last_voice_frame_time_).nanoseconds() >=
+            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
+        if (interval_elapsed || last_voice_id_ != 1) {
+            std::vector<struct can_frame> send_frames;
+            struct can_frame voice_frame = make_frame(0x401);
+            voice_frame.data[0] |= (1 << 4); // 打开语音播报
+            voice_frame.data[2] = 1;         // 无人驾驶中，请注意避让
+            voice_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+            send_frames.push_back(voice_frame);
+            send_queue_->push(send_frames);
+            last_voice_frame_time_ = now;
+            last_voice_id_ = 1;
+        }
     }
 
 

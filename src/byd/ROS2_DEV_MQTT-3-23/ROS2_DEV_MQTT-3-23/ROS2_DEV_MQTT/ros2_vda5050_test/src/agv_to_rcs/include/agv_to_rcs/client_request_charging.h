@@ -25,8 +25,8 @@ public:
     // 构造函数，创建客户端
     RequestChargingClient(std::shared_ptr<rclcpp::Node> node);
 
-    // 连接服务端，如果连接成功返回true否则返回false
-    bool connect_server();
+    // 连接服务端，如果连接成功返回true否则返回false (支持指定最大重试次数与单次超时时间)
+    bool connect_server(int max_retries = 10, std::chrono::seconds timeout = 2s);
 
     // 发送数据
     rclcpp::Client<BatteryControl>::FutureAndRequestId send_request(int charging);
