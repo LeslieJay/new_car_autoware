@@ -351,6 +351,7 @@ void OppositeLaneBorrowing::updateObjectHistory()
 
 void OppositeLaneBorrowing::applyCandidateVelocity(ShiftedPath & path) const
 {
+  if (path.path.points.empty()) return;
   const auto & p = parameters_->opposite_lane;
   const auto arc = arcLengths(path.path);
   const auto ego = data_->findEgoIndex(path.path.points);
@@ -367,6 +368,53 @@ void OppositeLaneBorrowing::applyCandidateVelocity(ShiftedPath & path) const
     }
     path.path.points[i].point.longitudinal_velocity_mps = std::min<double>(
       path.path.points[i].point.longitudinal_velocity_mps, std::min(p.max_speed, limit));
+  }
+  const auto & vehicle = data_->parameters.vehicle_info;
+  if (vehicle.wheel_base_m <= 0.0 || vehicle.max_steer_angle_rad <= 0.0) return;
+  const auto & trajectory = lc_parameters_->trajectory;
+  const double lateral_acceleration = trajectory.lat_acc_map.base_vel.empty()
+    ? 0.2 : trajectory.lat_acc_map.find(candidate_speed_).second;
+  const double acceleration_limit =
+    lateral_acceleration * p.kinematic_curvature_tolerance_ratio;
+  const double jerk_limit = trajectory.lateral_jerk * p.kinematic_jerk_tolerance_ratio;
+  std::optional<double> previous_curvature;
+  for (size_t i = std::max<size_t>(1, ego); i + 1 < path.path.points.size(); ++i) {
+    const auto & a = path.path.points[i - 1].point.pose.position;
+    const auto & b = path.path.points[i].point.pose.position;
+    const auto & c = path.path.points[i + 1].point.pose.position;
+    const double ab = std::hypot(b.x - a.x, b.y - a.y);
+    const double bc = std::hypot(c.x - b.x, c.y - b.y);
+    const double ac = std::hypot(c.x - a.x, c.y - a.y);
+    if (ab * bc * ac < 1e-8) continue;  // validate() reports degenerate geometry.
+    const double curvature = 2.0 * ((b.x - a.x) * (c.y - a.y) -
+      (b.y - a.y) * (c.x - a.x)) / (ab * bc * ac);
+    if (!std::isfinite(curvature)) continue;  // validate() reports nonfinite geometry.
+    auto & point = path.path.points[i].point;
+    if (std::abs(curvature) > 1e-8) {
+      point.longitudinal_velocity_mps = std::min<double>(
+        point.longitudinal_velocity_mps,
+        0.999 * std::sqrt(acceleration_limit / std::abs(curvature)));
+    }
+    if (previous_curvature && std::abs(curvature - *previous_curvature) > 1e-8) {
+      const double velocity_limit = 0.999 * std::cbrt(
+        jerk_limit * ab / std::abs(curvature - *previous_curvature));
+      point.longitudinal_velocity_mps = std::min<double>(
+        point.longitudinal_velocity_mps, velocity_limit);
+      auto & previous = path.path.points[i - 1].point;
+      previous.longitudinal_velocity_mps = std::min<double>(
+        previous.longitudinal_velocity_mps, velocity_limit);
+    }
+    previous_curvature = curvature;
+  }
+  const double deceleration = -trajectory.min_longitudinal_acc;
+  if (deceleration > 0.0) {
+    for (size_t i = path.path.points.size() - 1; i > ego; --i) {
+      const double distance = arc[i] - arc[i - 1];
+      const double next_speed = path.path.points[i].point.longitudinal_velocity_mps;
+      auto & previous_speed = path.path.points[i - 1].point.longitudinal_velocity_mps;
+      previous_speed = std::min<double>(
+        previous_speed, std::sqrt(next_speed * next_speed + 2.0 * deceleration * distance));
+    }
   }
 }
 
@@ -847,14 +895,15 @@ bool OppositeLaneBorrowing::updateActualHistory()
   last_actual_stamp_s_ = stamp;
   if (!actual_history_.empty()) {
     const double distance = calc_distance2d(actual_history_.back(), pose);
-    double reachable = 2.0;
+    double reachable = parameters_->opposite_lane.history_position_jump_tolerance_m;
     if (parameters_->opposite_lane.campus_agv && active_configuration_.geometries.empty() &&
         previous_stamp) {
       const double elapsed = stamp - *previous_stamp;
       if (elapsed < 0.0) return false;
       // An unhitched body has no articulation state to integrate between samples.
       // Bound progress by observation time and configured speed instead of cycle spacing.
-      reachable = 0.5 + parameters_->opposite_lane.max_speed * elapsed;
+      reachable = parameters_->opposite_lane.history_time_distance_margin_m +
+        parameters_->opposite_lane.max_speed * elapsed;
     }
     if (distance > reachable) return false;
     if (distance < 0.05) return true;
@@ -881,13 +930,13 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
   }
   const size_t start = data_->findEgoIndex(path.path.points);
   const auto & ego = data_->self_odometry->pose.pose;
-  if (calc_distance2d(path.path.points[start].point.pose, ego) > 0.5 ||
+  const auto & p = parameters_->opposite_lane;
+  if (calc_distance2d(path.path.points[start].point.pose, ego) > p.execution_position_tolerance_m ||
       std::abs(autoware_utils::normalize_radian(tf2::getYaw(ego.orientation) -
-        tf2::getYaw(path.path.points[start].point.pose.orientation))) > 0.2) {
+        tf2::getYaw(path.path.points[start].point.pose.orientation))) > p.execution_yaw_tolerance_rad) {
     reason_ = "execution_discontinuity";
     return false;
   }
-  const auto & p = parameters_->opposite_lane;
   const auto arcs = arcLengths(path.path);
   std::vector<double> distances;
   std::vector<double> limits;
@@ -905,9 +954,8 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
   if (vehicle.wheel_base_m > 0.0 && vehicle.max_steer_angle_rad > 0.0) {
     const double lateral_acceleration = trajectory.lat_acc_map.base_vel.empty()
       ? 0.2 : trajectory.lat_acc_map.find(candidate_speed_).second;
-    const double curvature_limit = std::min(
-      std::tan(vehicle.max_steer_angle_rad) / vehicle.wheel_base_m,
-      lateral_acceleration / (candidate_speed_ * candidate_speed_));
+    const double steering_curvature_limit =
+      std::tan(vehicle.max_steer_angle_rad) / vehicle.wheel_base_m;
     std::optional<double> previous_curvature;
     for (size_t i = std::max<size_t>(1, start); i + 1 < path.path.points.size(); ++i) {
       const auto & a = path.path.points[i - 1].point.pose.position;
@@ -922,9 +970,18 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
       }
       const double curvature = 2.0 * ((b.x - a.x) * (c.y - a.y) -
         (b.y - a.y) * (c.x - a.x)) / (ab * bc * ac);
-      if (!std::isfinite(curvature) || std::abs(curvature) > curvature_limit * 1.05 ||
+      const double local_speed = std::abs(path.path.points[i].point.longitudinal_velocity_mps);
+      const double segment_speed = previous_curvature
+        ? std::max<double>(local_speed, std::abs(path.path.points[i - 1].point.longitudinal_velocity_mps))
+        : local_speed;
+      if (!std::isfinite(curvature) ||
+          std::abs(curvature) >
+            steering_curvature_limit * p.kinematic_curvature_tolerance_ratio ||
+          std::abs(curvature) * local_speed * local_speed >
+            lateral_acceleration * p.kinematic_curvature_tolerance_ratio ||
           (previous_curvature && std::abs(curvature - *previous_curvature) / ab *
-            std::pow(candidate_speed_, 3) > trajectory.lateral_jerk * 1.05)) {
+            std::pow(segment_speed, 3) >
+              trajectory.lateral_jerk * p.kinematic_jerk_tolerance_ratio)) {
         reason_ = "kinematic_limit";
         return false;
       }
@@ -1131,6 +1188,8 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
       const auto finish = std::lower_bound(arc.begin(), arc.end(), end_s + postReturnDistance(trainLength(), p, *lc_parameters_));
       if (finish == arc.end()) continue;
       const double hold_end = std::max(ego_s + p.min_shift_distance, clear_s);
+      // A direct return crosses the conflicting object while it is still ahead.
+      if (!mode && clear_s > ego_s) continue;
       if (mode && hold_end + p.min_shift_distance >= end_s) continue;
       const double hold_offset = mode == 2 ? lines_.front().end_shift_length : offset;
       const borrowing::LateralSegment first(offset, slope, second,

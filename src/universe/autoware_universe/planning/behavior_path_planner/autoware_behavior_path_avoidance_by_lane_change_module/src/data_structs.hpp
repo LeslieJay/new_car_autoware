@@ -49,6 +49,12 @@ struct OppositeLaneParameters
   double max_return_extension_distance{20.0};
   double return_extension_step{1.0};
   double road_boundary_margin{0.1};
+  double execution_position_tolerance_m{0.5};
+  double execution_yaw_tolerance_rad{0.2};
+  double history_position_jump_tolerance_m{2.0};
+  double history_time_distance_margin_m{0.5};
+  double kinematic_curvature_tolerance_ratio{1.05};
+  double kinematic_jerk_tolerance_ratio{1.05};
   double tractor_rear_axle_to_hitch{0.6};
   std::string trailer_configuration_topic{"/vehicle/status/trailer_configuration"};
   int64_t trailer_count{0};

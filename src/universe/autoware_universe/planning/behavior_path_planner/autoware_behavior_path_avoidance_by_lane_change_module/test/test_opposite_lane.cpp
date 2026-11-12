@@ -381,6 +381,48 @@ TEST_F(OppositeLaneTest, RejectsTractorCurvatureAndLateralJerkViolation)
   OppositeLaneBorrowingTestPeer::shift(*planner, 3.0, true);
   EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
   EXPECT_EQ(planner->reason(), "kinematic_limit");
+  parameters->opposite_lane.kinematic_curvature_tolerance_ratio = 1000.0;
+  parameters->opposite_lane.kinematic_jerk_tolerance_ratio = 1000.0;
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
+}
+
+TEST_F(OppositeLaneTest, SlowsForLocalCurvatureJerkBeforeValidation)
+{
+  data->parameters.vehicle_info.wheel_base_m = 1.0;
+  data->parameters.vehicle_info.max_steer_angle_rad = 1.0;
+  lc->trajectory.lat_acc_map.add(0.0, 0.2, 0.4);
+  lc->trajectory.lat_acc_map.add(2.0, 0.2, 0.4);
+  auto & path = OppositeLaneBorrowingTestPeer::path(*planner);
+  constexpr size_t kink = 80;
+  path.path.points[kink].point.pose.position.y = 0.005;
+  OppositeLaneBorrowingTestPeer::candidateVelocity(*planner, 2.0);
+  EXPECT_LT(path.path.points[kink].point.longitudinal_velocity_mps, 2.0);
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
+}
+
+TEST_F(OppositeLaneTest, ExecutionContinuityThresholdsAreConfigurable)
+{
+  odometry->pose.pose.position.y = 0.6;
+  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
+  EXPECT_EQ(planner->reason(), "execution_discontinuity");
+  parameters->opposite_lane.execution_position_tolerance_m = 0.75;
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
+
+  odometry->pose.pose.position.y = 0.0;
+  odometry->pose.pose.orientation.z = std::sin(0.125);
+  odometry->pose.pose.orientation.w = std::cos(0.125);
+  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::validate(*planner));
+  EXPECT_EQ(planner->reason(), "execution_discontinuity");
+  parameters->opposite_lane.execution_yaw_tolerance_rad = 0.3;
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::validate(*planner)) << planner->reason();
+}
+
+TEST_F(OppositeLaneTest, HistoryPositionJumpThresholdIsConfigurable)
+{
+  odometry->pose.pose.position.x = 2.25;
+  EXPECT_FALSE(OppositeLaneBorrowingTestPeer::updateHistory(*planner));
+  parameters->opposite_lane.history_position_jump_tolerance_m = 2.5;
+  EXPECT_TRUE(OppositeLaneBorrowingTestPeer::updateHistory(*planner));
 }
 
 TEST_F(OppositeLaneTest, DoesNotCheckObjectCollisionsDuringPathValidation)
@@ -701,6 +743,11 @@ TEST_F(OppositeLaneTest, CampusReturningCandidateStartsAtMeasuredPoseAndHeading)
   EXPECT_NEAR(path.points[index].point.pose.position.x, 13.0, 1e-6);
   EXPECT_NEAR(path.points[index].point.pose.position.y, 2.5, 1e-6);
   EXPECT_NEAR(path.points[index].point.pose.orientation.z, -std::sin(0.05), 1e-6);
+  const auto obstacle_point = std::find_if(path.points.begin(), path.points.end(), [](const auto & point) {
+    return point.point.pose.position.x >= 20.0;
+  });
+  ASSERT_NE(obstacle_point, path.points.end());
+  EXPECT_GT(obstacle_point->point.pose.position.y, 2.0);
   EXPECT_LE(OppositeLaneBorrowingTestPeer::extendedReturnEnd(*planner),
     OppositeLaneBorrowingTestPeer::originalReturnEnd(*planner) + 20.0 + 1e-6);
 }

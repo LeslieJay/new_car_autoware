@@ -235,6 +235,12 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
       throw std::invalid_argument("return extension step must not exceed a maximum extension of 100m");
     }
     o.road_boundary_margin = number("opposite_lane.road_boundary_margin", 0.1);
+    o.execution_position_tolerance_m = number("opposite_lane.execution_position_tolerance_m", 0.5);
+    o.execution_yaw_tolerance_rad = number("opposite_lane.execution_yaw_tolerance_rad", 0.2);
+    o.history_position_jump_tolerance_m = number("opposite_lane.history_position_jump_tolerance_m", 2.0);
+    o.history_time_distance_margin_m = number("opposite_lane.history_time_distance_margin_m", 0.5);
+    o.kinematic_curvature_tolerance_ratio = number("opposite_lane.kinematic_curvature_tolerance_ratio", 1.05);
+    o.kinematic_jerk_tolerance_ratio = number("opposite_lane.kinematic_jerk_tolerance_ratio", 1.05);
     o.tractor_rear_axle_to_hitch = number("trailer.tractor_rear_axle_to_hitch", 0.6, true);
     o.trailer_configuration_topic = parameter_with_default(
       ns + "trailer.configuration_topic", std::string{"/vehicle/status/trailer_configuration"});

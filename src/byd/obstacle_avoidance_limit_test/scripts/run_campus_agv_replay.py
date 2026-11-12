@@ -17,7 +17,10 @@ def main():
     parser.add_argument('--bag', type=Path, default=ROOT/'log/20261105/161119_bag')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--domain', type=int, default=176)
+    parser.add_argument('--rate', type=float, default=0.5)
     args = parser.parse_args()
+    if args.rate <= 0:
+        parser.error('--rate must be positive')
     args.output_dir.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, ROS_DOMAIN_ID=str(args.domain), ROS_LOCALHOST_ONLY='1',
                RMW_IMPLEMENTATION='rmw_fastrtps_cpp', ROS_LOG_DIR=str(args.output_dir/'roslog'))
@@ -31,8 +34,9 @@ def main():
               '/perception/obstacle_segmentation/pointcloud','/planning/mission_planning/route',
               '/vehicle/status/steering_status','/vehicle/status/gear_status','/vehicle/status/control_mode',
               '/vehicle/status/velocity_status','/system/operation_mode/state','/tf','/tf_static']
-    play_command = ['ros2','bag','play',str(args.bag),'--clock','--rate','0.5','--topics',*inputs]
+    play_command = ['ros2','bag','play',str(args.bag),'--clock','--rate',str(args.rate),'--topics',*inputs]
     outputs = ['/planning/path_candidate/avoidance_by_lane_change',
+               '/planning/path_reference/avoidance_by_lane_change',
                '/planning/scenario_planning/lane_driving/behavior_planning/path_with_lane_id',
                '/planning/trajectory','/planning/planning_factors/avoidance_by_lane_change',
                '/planning/planning_factors/obstacle_stop','/planning/planning_validator/validation_status',
@@ -44,6 +48,8 @@ def main():
     (args.output_dir/'commands.json').write_text(json.dumps({'launch':launch_command,'play':play_command,'record':record_command,'empty_trailer_configuration':configuration_command},indent=2))
     profile = ROOT/'src/launcher/autoware_launch/autoware_launch/config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/avoidance_by_lane_change/campus_agv.param.yaml'
     (args.output_dir/'effective_parameters.yaml').write_text(profile.read_text())
+    common = profile.parents[1]/'behavior_path_planner.param.yaml'
+    (args.output_dir/'effective_behavior_path_parameters.yaml').write_text(common.read_text())
     expansion = profile.parents[1]/'campus_agv_drivable_area_expansion.param.yaml'
     (args.output_dir/'effective_expansion_parameters.yaml').write_text(expansion.read_text())
     children = {}
