@@ -40,7 +40,10 @@
 #include <lanelet2_core/geometry/BoundingBox.h>
 #include <lanelet2_core/geometry/Lanelet.h>
 
+#include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <vector>
 
 namespace autoware::mission_planner::lanelet2
@@ -378,6 +381,33 @@ PlannerPlugin::LaneletRoute DefaultPlanner::plan(const RoutePoints & points)
   route_msg.goal_pose = refined_goal;
   route_msg.segments = route_sections;
   return route_msg;
+}
+
+void DefaultPlanner::validateRouteGoal(const LaneletRoute & route) const
+{
+  if (route.segments.empty()) {
+    return;
+  }
+  const auto & goal = route.goal_pose;
+  const auto goal_lanelet =
+    route_handler_.getLaneletsFromId(route.segments.back().preferred_primitive.id);
+  std::ostringstream error;
+  error << std::fixed << std::setprecision(3) << "Goal (" << goal.position.x << ", "
+        << goal.position.y << ") rejected: ";
+  if (!lanelet::utils::isInLanelet(goal, goal_lanelet)) {
+    throw GoalValidationError(error.str() + "outside the final route lane.");
+  }
+  const auto goal_point =
+    autoware::experimental::lanelet2_utils::from_ros(goal.position).basicPoint();
+  const double lane_yaw =
+    autoware::experimental::lanelet2_utils::get_lanelet_angle(goal_lanelet, goal_point);
+  const double yaw_error = std::abs(autoware_utils_math::normalize_radian(
+    tf2::getYaw(goal.orientation) - lane_yaw));
+  if (yaw_error > autoware_utils_math::deg2rad(param_.goal_angle_threshold_deg)) {
+    error << "heading differs from the final lane by " << yaw_error * 180.0 / M_PI
+          << " deg (limit " << param_.goal_angle_threshold_deg << " deg).";
+    throw GoalValidationError(error.str());
+  }
 }
 
 geometry_msgs::msg::Pose DefaultPlanner::refine_goal_height(

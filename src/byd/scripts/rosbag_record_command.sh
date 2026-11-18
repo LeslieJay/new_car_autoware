@@ -2,7 +2,14 @@
 
 set -eo pipefail
 
-OUTPUT_DIR="${1:-${HOME}/autoware/log/$(date +%Y%m%d)}"
+DISK_ROOT="/mnt/driving_recorder"
+OUTPUT_DIR="${1:-${DISK_ROOT}/$(date +%Y%m%d)}"
+if [[ "${OUTPUT_DIR}" == "${DISK_ROOT}" || "${OUTPUT_DIR}" == "${DISK_ROOT}/"* ]] &&
+  ! mountpoint -q "${DISK_ROOT}"; then
+  echo "错误：硬盘未挂载到 ${DISK_ROOT}，停止录制以免写入本机磁盘。" >&2
+  exit 1
+fi
+
 mkdir -p "${OUTPUT_DIR}"
 
 INCLUDE_REGEX="^/planning($|/)|^/control($|/)|^/vehicle($|/)|^/simulation($|/)|^/localization($|/)|^/system($|/)|^/diagnostics($|/)|^/perception/object_recognition/objects$|^/perception/object_recognition/tracking/objects$|^/perception/object_recognition/detection/lidar_rule/objects$|^/perception/object_recognition/detection/lidar_dnn/objects$|^/perception/object_recognition/detection/merged/objects$|^/perception/object_recognition/detection/objects$|^/perception/occupancy_grid_map/map$|^/perception/obstacle_segmentation/pointcloud$|^/tf$|^/tf_static$|^/clock$|^/sensing/lidar/concatenated/pointcloud$|^/sensing/imu/imu_data$"
@@ -11,7 +18,7 @@ ros2 bag record \
 --regex "${INCLUDE_REGEX}" \
 --output "${OUTPUT_DIR}/$(date +%H%M%S)_bag"
 
-ros2 bag record -o lateral_gap_$(date +%Y%m%d_%H%M%S) \
+ros2 bag record -o "${OUTPUT_DIR}/lateral_gap_$(date +%Y%m%d_%H%M%S)" \
   /planning/trajectory \
   /control/trajectory_follower/control_cmd \
   /control/command/control_cmd \
@@ -27,6 +34,3 @@ ros2 bag record -o lateral_gap_$(date +%Y%m%d_%H%M%S) \
   /control/current_gate_mode \
   /vehicle/status/gear_status \
   /rtk_imu/data_raw
-
-
-  

@@ -22,10 +22,18 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace autoware::mission_planner
 {
+
+class GoalValidationError : public std::runtime_error
+{
+public:
+  explicit GoalValidationError(const std::string & message) : std::runtime_error(message) {}
+};
 
 class PlannerPlugin
 {
@@ -40,6 +48,7 @@ public:
   virtual void initialize(rclcpp::Node * node, const LaneletMapBin::ConstSharedPtr msg) = 0;
   virtual bool ready() const = 0;
   virtual LaneletRoute plan(const RoutePoints & points) = 0;
+  virtual void validateRouteGoal(const LaneletRoute & route) const { (void)route; }
   virtual MarkerArray visualize(const LaneletRoute & route) const = 0;
   virtual void updateRoute(const LaneletRoute & route) = 0;
   virtual void clearRoute() = 0;

@@ -228,7 +228,15 @@ void MissionPlanner::on_set_lanelet_route(
   }
 
   change_state(is_reroute ? RouteState::REROUTING : RouteState::ROUTING);
-  const auto route = create_route(*req);
+  LaneletRoute route;
+  try {
+    route = create_route(*req);
+    planner_->validateRouteGoal(route);
+  } catch (const GoalValidationError & error) {
+    cancel_route();
+    change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
+    throw service_utils::ServiceException(ResponseCode::ERROR_PLANNER_FAILED, error.what());
+  }
 
   if (route.segments.empty()) {
     cancel_route();
@@ -277,7 +285,15 @@ void MissionPlanner::on_set_waypoint_route(
                           : false;
 
   change_state(is_reroute ? RouteState::REROUTING : RouteState::ROUTING);
-  const auto route = create_route(*req);
+  LaneletRoute route;
+  try {
+    route = create_route(*req);
+    planner_->validateRouteGoal(route);
+  } catch (const GoalValidationError & error) {
+    cancel_route();
+    change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
+    throw service_utils::ServiceException(ResponseCode::ERROR_PLANNER_FAILED, error.what());
+  }
 
   if (route.segments.empty()) {
     cancel_route();
@@ -332,6 +348,8 @@ void MissionPlanner::cancel_route()
   // Restore planner state that changes with create_route function.
   if (current_route_) {
     planner_->updateRoute(*current_route_);
+  } else {
+    planner_->clearRoute();
   }
 }
 

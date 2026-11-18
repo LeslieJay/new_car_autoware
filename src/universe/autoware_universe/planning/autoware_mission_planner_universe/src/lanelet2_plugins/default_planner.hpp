@@ -50,6 +50,7 @@ public:
   void initialize(rclcpp::Node * node, const LaneletMapBin::ConstSharedPtr msg) override;
   [[nodiscard]] bool ready() const override;
   LaneletRoute plan(const RoutePoints & points) override;
+  void validateRouteGoal(const LaneletRoute & route) const override;
   void updateRoute(const PlannerPlugin::LaneletRoute & route) override;
   void clearRoute() override;
   [[nodiscard]] MarkerArray visualize(

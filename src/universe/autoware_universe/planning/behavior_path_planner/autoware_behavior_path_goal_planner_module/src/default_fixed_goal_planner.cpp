@@ -19,7 +19,10 @@
 
 #include <autoware_lanelet2_extension/utility/query.hpp>
 #include <autoware_lanelet2_extension/utility/utilities.hpp>
+#include <autoware_utils/math/normalization.hpp>
+#include <tf2/utils.h>
 
+#include <cmath>
 #include <memory>
 
 namespace autoware::behavior_path_planner
@@ -40,18 +43,19 @@ BehaviorModuleOutput DefaultFixedGoalPlanner::plan(
     getPreviousModuleOutput();
   const PathWithLaneId smoothed_path = modifyPathForSmoothGoalConnection(output.path, planner_data);
 
-  Pose refined_goal{};
-  {
-    lanelet::ConstLanelet goal_lanelet;
-    if (planner_data->route_handler->getGoalLanelet(&goal_lanelet)) {
-      refined_goal = utils::refineGoal(planner_data->route_handler->getGoalPose(), goal_lanelet);
-    } else {
-      refined_goal = planner_data->route_handler->getGoalPose();
+  const Pose goal = planner_data->route_handler->getGoalPose();
+  if (!isPathValid(smoothed_path, goal, planner_data)) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("default_fixed_goal_planner"),
+      "Cannot connect a valid path to the requested goal without moving it.");
+    if (!output.path.points.empty()) {
+      output.path.points.back().point.longitudinal_velocity_mps = 0.0;
     }
+    return output;
   }
 
   output.path = goal_planner_utils::applyPreciseFixedGoalStop(
-    smoothed_path, refined_goal, parameters_.fixed_goal);
+    smoothed_path, goal, parameters_.fixed_goal);
   output.reference_path = getPreviousModuleOutput().reference_path;
   return output;
 }
@@ -83,9 +87,22 @@ lanelet::ConstLanelets DefaultFixedGoalPlanner::extractLaneletsFromPath(
 }
 
 bool DefaultFixedGoalPlanner::isPathValid(
-  const PathWithLaneId & refined_path,
+  const PathWithLaneId & refined_path, const Pose & goal,
   const std::shared_ptr<const PlannerData> & planner_data) const
 {
+  if (refined_path.points.size() < 2) {
+    return false;
+  }
+  const auto & end = refined_path.points.back().point.pose;
+  constexpr double position_tolerance = 1e-3;
+  constexpr double heading_tolerance = 1e-3;
+  if (
+    std::hypot(end.position.x - goal.position.x, end.position.y - goal.position.y) >
+      position_tolerance ||
+    std::abs(autoware_utils::normalize_radian(
+      tf2::getYaw(end.orientation) - tf2::getYaw(goal.orientation))) > heading_tolerance) {
+    return false;
+  }
   const auto lanelets = extractLaneletsFromPath(refined_path, planner_data);
   // std::any_of detects whether any point lies outside lanelets
   bool has_points_outside_lanelet = std::any_of(
@@ -102,15 +119,6 @@ PathWithLaneId DefaultFixedGoalPlanner::modifyPathForSmoothGoalConnection(
   const auto goal = planner_data->route_handler->getGoalPose();
   const auto goal_lane_id = planner_data->route_handler->getGoalLaneId();
 
-  Pose refined_goal{};
-  {
-    lanelet::ConstLanelet goal_lanelet;
-    if (planner_data->route_handler->getGoalLanelet(&goal_lanelet)) {
-      refined_goal = utils::refineGoal(goal, goal_lanelet);
-    } else {
-      refined_goal = goal;
-    }
-  }
   double goal_search_radius{planner_data->parameters.refine_goal_search_radius_range};
   const double output_path_interval{planner_data->parameters.output_path_interval};
   // TODO(shen): define in the parameter
@@ -120,11 +128,11 @@ PathWithLaneId DefaultFixedGoalPlanner::modifyPathForSmoothGoalConnection(
   autoware_internal_planning_msgs::msg::PathWithLaneId refined_path;
   while (goal_search_radius >= 0 && !is_valid_path) {
     refined_path = utils::refinePathForGoal(
-      goal_search_radius, M_PI * 0.5, output_path_interval, path, refined_goal, goal_lane_id,
+      goal_search_radius, M_PI * 0.5, output_path_interval, path, goal, goal_lane_id,
       [&](int64_t lane_id) -> lanelet::ConstLanelet {
         return planner_data->route_handler->getLaneletMapPtr()->laneletLayer.get(lane_id);
       });
-    if (isPathValid(refined_path, planner_data)) {
+    if (isPathValid(refined_path, goal, planner_data)) {
       is_valid_path = true;
     }
     goal_search_radius -= range_reduce_by;

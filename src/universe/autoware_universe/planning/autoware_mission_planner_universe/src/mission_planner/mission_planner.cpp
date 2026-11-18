@@ -217,42 +217,9 @@ void MissionPlanner::change_state(RouteState::_state_type state)
   pub_state_->publish(state_);
 }
 
-void MissionPlanner::on_modified_goal(const PoseWithUuidStamped::ConstSharedPtr msg)
+void MissionPlanner::on_modified_goal(const PoseWithUuidStamped::ConstSharedPtr)
 {
-  RCLCPP_INFO(get_logger(), "Received modified goal.");
-
-  if (state_.state != RouteState::SET) {
-    RCLCPP_ERROR(get_logger(), "The route hasn't set yet. Cannot reroute.");
-    return;
-  }
-  if (!is_mission_planner_ready_) {
-    RCLCPP_ERROR(get_logger(), "The mission planner is not ready.");
-    return;
-  }
-  if (!current_route_) {
-    RCLCPP_ERROR(get_logger(), "The route has not set yet.");
-    return;
-  }
-  if (current_route_->uuid != msg->uuid) {
-    RCLCPP_ERROR(get_logger(), "Goal uuid is incorrect.");
-    return;
-  }
-
-  change_state(RouteState::REROUTING);
-  const auto route = create_route(*msg);
-
-  if (route.segments.empty()) {
-    cancel_route();
-    change_state(RouteState::SET);
-    RCLCPP_ERROR(get_logger(), "The planned route is empty.");
-    return;
-  }
-
-  original_route_ = std::nullopt;
-
-  change_route(route);
-  change_state(RouteState::SET);
-  RCLCPP_INFO(get_logger(), "Changed the route with the modified goal");
+  RCLCPP_WARN(get_logger(), "Rejected modified goal: route goals are immutable.");
 }
 
 void MissionPlanner::on_clear_route(
@@ -276,6 +243,11 @@ void MissionPlanner::on_set_lanelet_route(
 {
   using ResponseCode = autoware_adapi_v1_msgs::srv::SetRoute::Response;
   const auto is_reroute = state_.state == RouteState::SET;
+
+  if (req->allow_modification) {
+    throw service_utils::ServiceException(
+      ResponseCode::ERROR_PLANNER_FAILED, "Goal modification is disabled; resend with allow_modification=false.");
+  }
 
   if (state_.state != RouteState::UNSET && state_.state != RouteState::SET) {
     throw service_utils::ServiceException(
@@ -313,7 +285,15 @@ void MissionPlanner::on_set_lanelet_route(
   }
 
   change_state(is_reroute ? RouteState::REROUTING : RouteState::ROUTING);
-  const auto route = create_route(*req);
+  LaneletRoute route;
+  try {
+    route = create_route(*req);
+    planner_->validateRouteGoal(route);
+  } catch (const GoalValidationError & error) {
+    cancel_route();
+    change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
+    throw service_utils::ServiceException(ResponseCode::ERROR_PLANNER_FAILED, error.what());
+  }
 
   if (route.segments.empty()) {
     cancel_route();
@@ -435,6 +415,11 @@ void MissionPlanner::on_set_waypoint_route(
   using ResponseCode = autoware_adapi_v1_msgs::srv::SetRoutePoints::Response;
   const auto is_reroute = state_.state == RouteState::SET;
 
+  if (req->allow_modification) {
+    throw service_utils::ServiceException(
+      ResponseCode::ERROR_PLANNER_FAILED, "Goal modification is disabled; resend with allow_modification=false.");
+  }
+
   if (state_.state != RouteState::UNSET && state_.state != RouteState::SET) {
     throw service_utils::ServiceException(
       ResponseCode::ERROR_INVALID_STATE,
@@ -466,7 +451,15 @@ void MissionPlanner::on_set_waypoint_route(
   }
 
   change_state(is_reroute ? RouteState::REROUTING : RouteState::ROUTING);
-  const auto route = create_route(*req);
+  LaneletRoute route;
+  try {
+    route = create_route(*req);
+    planner_->validateRouteGoal(route);
+  } catch (const GoalValidationError & error) {
+    cancel_route();
+    change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
+    throw service_utils::ServiceException(ResponseCode::ERROR_PLANNER_FAILED, error.what());
+  }
 
   if (route.segments.empty()) {
     cancel_route();
@@ -522,6 +515,8 @@ void MissionPlanner::cancel_route()
   // Restore planner state that changes with create_route function.
   if (current_route_) {
     planner_->updateRoute(*current_route_);
+  } else {
+    planner_->clearRoute();
   }
 }
 

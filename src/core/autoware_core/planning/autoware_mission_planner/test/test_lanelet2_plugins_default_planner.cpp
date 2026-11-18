@@ -52,7 +52,6 @@ struct DefaultPlanner : public autoware::mission_planner::lanelet2::DefaultPlann
     return check_goal_footprint_inside_lanes(lanelets_near_goal, goal_footprint);
   }
   bool is_goal_valid_wrapper(const geometry_msgs::msg::Pose & goal) { return is_goal_valid(goal); }
-
   lanelet::ConstLanelets get_lanelets_from_ids(const std::vector<lanelet::Id> & ids)
   {
     const auto lanelet_map_ptr = route_handler_.getLaneletMapPtr();
@@ -362,6 +361,28 @@ TEST_F(DefaultPlannerTest, plan)
                   return primitive.id == path_lanelet_to_road_shoulder_ids[i];
                 }) != primitives.end());
   }
+}
+
+TEST_F(DefaultPlannerTest, ValidatesGoalOnCompletedRoute)
+{
+  planner_.set_default_test_map();
+  Pose start;
+  start.position.x = 3717.239501953125;
+  start.position.y = 73720.84375;
+  start.orientation.w = 1.0;
+  Pose goal;
+  goal.position.x = 3810.24951171875;
+  goal.position.y = 73769.2578125;
+  goal.orientation.z = 0.23908402523702438;
+  goal.orientation.w = 0.9709988820160721;
+
+  auto route = planner_.plan({start, goal});
+  ASSERT_FALSE(route.segments.empty());
+  EXPECT_NO_THROW(planner_.validateRouteGoal(route));
+
+  // This route shape is also used by the direct lanelet-route API.
+  route.goal_pose.position.y += 10.0;
+  EXPECT_THROW(planner_.validateRouteGoal(route), autoware::mission_planner::GoalValidationError);
 }
 
 //  `visualize` function is used for user too, so it is more important than debug functions

@@ -82,6 +82,7 @@ protected:
       {"--ros-args", "--params-file",
        autoware_test_utils_dir + "/config/test_vehicle_info.param.yaml", "--params-file",
        mission_planner_dir + "/config/mission_planner.param.yaml"});
+    options.append_parameter_override("goal_angle_threshold_deg", 5.0);
     // NOTE: vehicle width and length set by test_vehicle_info.param.yaml are as follows
     // vehicle_width: 1.83, vehicle_length: 4.77
 
@@ -319,6 +320,20 @@ TEST_F(DefaultPlannerTest, plan)
   EXPECT_EQ(route.start_pose.position.y, start_pose.position.y);
   EXPECT_EQ(route.goal_pose.position.x, goal_pose.position.x);
   EXPECT_EQ(route.goal_pose.position.y, goal_pose.position.y);
+  EXPECT_NO_THROW(planner_.validateRouteGoal(route));
+
+  auto shifted_route = route;
+  shifted_route.goal_pose.position.y += 10.0;
+  EXPECT_THROW(
+    planner_.validateRouteGoal(shifted_route),
+    autoware::mission_planner_universe::GoalValidationError);
+
+  auto misaligned_route = route;
+  const auto yaw = tf2::getYaw(route.goal_pose.orientation) + 20.0 * M_PI / 180.0;
+  misaligned_route.goal_pose.orientation = create_quaternion_from_rpy(0.0, 0.0, yaw);
+  EXPECT_THROW(
+    planner_.validateRouteGoal(misaligned_route),
+    autoware::mission_planner_universe::GoalValidationError);
   std::vector<lanelet::Id> path_lanelet_ids = {9102, 9540, 9546, 9178, 52, 124};
   EXPECT_EQ(route.segments.size(), path_lanelet_ids.size());
   for (size_t i = 0; i < route.segments.size(); i++) {

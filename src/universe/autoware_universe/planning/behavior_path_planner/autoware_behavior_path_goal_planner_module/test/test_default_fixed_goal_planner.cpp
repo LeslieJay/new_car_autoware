@@ -30,6 +30,7 @@ public:
   TestableDefaultFixedGoalPlanner() : DefaultFixedGoalPlanner{GoalPlannerParameters{}} {}
 
   using DefaultFixedGoalPlanner::extractLaneletsFromPath;
+  using DefaultFixedGoalPlanner::isPathValid;
 };
 }  // namespace
 
@@ -45,6 +46,23 @@ TEST(DefaultFixedGoalPlanner, EmptyLaneIdsAreRejectedWithoutThrowing)
   lanelet::ConstLanelets lanelets;
   ASSERT_NO_THROW(lanelets = planner.extractLaneletsFromPath(safe_stop_path, planner_data));
   EXPECT_TRUE(lanelets.empty());
+}
+
+TEST(DefaultFixedGoalPlanner, PathEndingBeforeRequestedGoalIsRejected)
+{
+  TestableDefaultFixedGoalPlanner planner;
+  auto planner_data = std::make_shared<PlannerData>();
+  planner_data->route_handler = std::make_shared<route_handler::RouteHandler>();
+
+  PathWithLaneId path;
+  path.points.resize(2);
+  path.points.back().point.pose.position.x = 0.8;
+  path.points.back().point.pose.orientation.w = 1.0;
+  geometry_msgs::msg::Pose goal;
+  goal.position.x = 1.0;
+  goal.orientation.w = 1.0;
+
+  EXPECT_FALSE(planner.isPathValid(path, goal, planner_data));
 }
 
 }  // namespace autoware::behavior_path_planner

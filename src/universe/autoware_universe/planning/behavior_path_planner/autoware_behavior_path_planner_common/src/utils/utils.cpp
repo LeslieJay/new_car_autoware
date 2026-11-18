@@ -22,6 +22,7 @@
 #include <autoware/motion_utils/distance/distance.hpp>
 #include <autoware/motion_utils/resample/resample.hpp>
 #include <autoware/motion_utils/trajectory/trajectory.hpp>
+#include <autoware/route_handler/goal_pose_refinement.hpp>
 #include <autoware_lanelet2_extension/utility/message_conversion.hpp>
 #include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <autoware_utils/geometry/boost_geometry.hpp>
@@ -400,41 +401,7 @@ bool set_goal(
 
 const Pose refineGoal(const Pose & goal, const lanelet::ConstLanelet & goal_lanelet)
 {
-  // return goal;
-  const auto lanelet_point = lanelet::utils::conversion::toLaneletPoint(goal.position);
-  const double distance = boost::geometry::distance(
-    goal_lanelet.polygon2d().basicPolygon(), lanelet::utils::to2D(lanelet_point).basicPoint());
-  if (distance < std::numeric_limits<double>::epsilon()) {
-    return goal;
-  }
-
-  const auto segment = autoware::experimental::lanelet2_utils::get_closest_segment(
-    goal_lanelet.centerline(), lanelet_point.basicPoint());
-  if (segment.empty()) {
-    return goal;
-  }
-
-  Pose refined_goal;
-  {
-    // find position
-    const auto p1 = segment.front().basicPoint();
-    const auto p2 = segment.back().basicPoint();
-    const auto direction_vector = (p2 - p1).normalized();
-    const auto p1_to_goal = lanelet_point.basicPoint() - p1;
-    const double s = direction_vector.dot(p1_to_goal);
-    const auto refined_point = p1 + direction_vector * s;
-
-    refined_goal.position.x = refined_point.x();
-    refined_goal.position.y = refined_point.y();
-    refined_goal.position.z = refined_point.z();
-
-    // find orientation
-    const double yaw = std::atan2(direction_vector.y(), direction_vector.x());
-    tf2::Quaternion tf_quat;
-    tf_quat.setRPY(0, 0, yaw);
-    refined_goal.orientation = tf2::toMsg(tf_quat);
-  }
-  return refined_goal;
+  return route_handler::refineGoalPose(goal, goal_lanelet);
 }
 
 PathWithLaneId refinePathForGoal(

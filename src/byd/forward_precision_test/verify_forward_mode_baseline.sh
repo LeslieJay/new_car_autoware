@@ -27,6 +27,10 @@ in_trans=$(read_topic_once /control/vehicle_cmd_gate/operation_mode is_in_transi
 is_paused=$(read_topic_once /control/vehicle_cmd_gate/is_paused data)
 is_start=$(read_topic_once /control/vehicle_cmd_gate/is_start_requested data)
 engage=$(read_topic_once /api/autoware/get/engage engage)
+drive_state_stop_dist=$(
+  timeout 5 ros2 param get /control/trajectory_follower/controller_node_exe \
+    drive_state_stop_dist 2>/dev/null | awk '{print $NF}' || true
+)
 
 echo "  gate_mode (0=AUTO, 1=EXTERNAL):     ${gate_mode:-unknown}"
 echo "  operation_mode (2=AUTONOMOUS, 3=LOCAL): ${op_mode:-unknown}"
@@ -35,12 +39,18 @@ echo "  is_in_transition:                   ${in_trans:-unknown}"
 echo "  is_paused:                          ${is_paused:-unknown}"
 echo "  is_start_requested:                 ${is_start:-unknown}"
 echo "  engage:                             ${engage:-unknown}"
+echo "  drive_state_stop_dist (m):          ${drive_state_stop_dist:-unknown}"
 
 fail=0
 warn=0
 
 if [ "${gate_mode}" != "0" ]; then
   echo "FAIL: gate_mode 应为 AUTO(0)，当前=${gate_mode:-missing}" >&2
+  fail=1
+fi
+
+if ! awk -v value="${drive_state_stop_dist:-invalid}" 'BEGIN { exit !(value == 0.5) }'; then
+  echo "FAIL: drive_state_stop_dist 应为 0.5 m，当前=${drive_state_stop_dist:-missing}" >&2
   fail=1
 fi
 
