@@ -15,28 +15,32 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "opposite_lane.hpp"
 
-#include "borrowing_math.hpp"
-#include "autoware/behavior_path_planner_common/utils/path_utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/drivable_area_expansion/static_drivable_area.hpp"
+#include "autoware/behavior_path_planner_common/utils/path_utils.hpp"
 #include "autoware/behavior_path_planner_common/utils/utils.hpp"
+#include "borrowing_math.hpp"
 
-#include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <autoware/motion_utils/trajectory/trajectory.hpp>
+#include <autoware/motion_velocity_planner_common/polygon_utils.hpp>
+#include <autoware/motion_velocity_planner_common/utils.hpp>
+#include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <autoware_utils/geometry/geometry.hpp>
 #include <autoware_utils/math/normalization.hpp>
 #include <autoware_utils/ros/uuid_helper.hpp>
 #include <tf2/utils.hpp>
-#include <lanelet2_core/geometry/Lanelet.h>
+
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/multi_polygon.hpp>
 
+#include <lanelet2_core/geometry/Lanelet.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <limits>
 #include <functional>
+#include <limits>
 #include <sstream>
 #include <unordered_set>
 #include <utility>
@@ -170,6 +174,22 @@ Polygon objectEnvelope(const PredictedObject & object, const Pose & pose, double
   return rectangle(pose, front + lon, rear + lon, width + lat);
 }
 
+std::pair<double, double> outlineArcRange(const PathWithLaneId & reference, const Polygon & polygon)
+{
+  double near = std::numeric_limits<double>::infinity();
+  double far = -std::numeric_limits<double>::infinity();
+  for (const auto & vertex : polygon.outer()) {
+    geometry_msgs::msg::Point point;
+    point.x = vertex.x();
+    point.y = vertex.y();
+    const double s = autoware::motion_utils::calcSignedArcLength(
+      reference.points, reference.points.front().point.pose.position, point);
+    near = std::min(near, s);
+    far = std::max(far, s);
+  }
+  return {near, far};
+}
+
 double postReturnDistance(
   const double train_length, const OppositeLaneParameters & parameters,
   const LaneChangeParameters & lane_change)
@@ -247,6 +267,7 @@ void OppositeLaneBorrowing::configure(const byd_vehicle_msgs::msg::TrailerConfig
 void OppositeLaneBorrowing::reset()
 {
   requested_ = safe_ = committed_ = recovery_ = context_changed_ = false;
+  return_constraint_.reset();
   path_ = {};
   reference_ = PathWithLaneId{};
   reference_velocity_limits_.clear();
@@ -512,11 +533,8 @@ void OppositeLaneBorrowing::update(
       }
       applyCandidateVelocity(path_);
       safe_ = validate(path_, recovery_);
-      if (safe_) {
-        if (const auto obstacle = returnObstacle()) {
-          conflict_object_ = *obstacle;
-          safe_ = extendReturn();
-        }
+      if (!safe_ && return_constraint_ && return_constraint_->extendible) {
+        safe_ = extendReturn();
       }
       if (!safe_ && !p.campus_agv && tryReturn()) safe_ = true;
       if (context_changed_ && !recovery_) {
@@ -601,12 +619,18 @@ void OppositeLaneBorrowing::update(
         }
         candidate_speed_ = std::min(speed_cap, p.candidate_speeds[next_speed_index_]);
         safe_ = buildPath() && validate(path_);
+        if (!safe_ && return_constraint_ && return_constraint_->extendible) {
+          safe_ = extendReturn();
+        }
         if (safe_) { next_speed_index_ = 0; break; }
         next_speed_index_ = (next_speed_index_ + 1) % count;
       }
     } else {
       candidate_speed_ = p.max_speed;
       safe_ = buildCorridor() && buildPath() && validate(path_);
+      if (!safe_ && return_constraint_ && return_constraint_->extendible) {
+        safe_ = extendReturn();
+      }
     }
     reference_velocity_limits_.clear();
     for (const auto & point : reference_.points) {
@@ -660,20 +684,22 @@ void OppositeLaneBorrowing::logDiagnostics(std::chrono::steady_clock::time_point
   message << "[OPPOSITE_BORROWING] phase=" << phaseName(phase_) << " safe=" << safe_
           << " reason=" << (reason_.empty() ? "none" : reason_)
           << " conflict=" << (conflict_object_.empty() ? "none" : conflict_object_)
-          << " return_extension_conflict=" <<
-            (return_extension_conflict_.empty() ? "none" : return_extension_conflict_)
+          << " return_extension_conflict="
+          << (return_extension_conflict_.empty() ? "none" : return_extension_conflict_)
           << " profile=" << (parameters_->opposite_lane.campus_agv ? "campus_agv" : "default")
-          << " candidate_speed=" << candidate_speed_ << " required_arrival_time=" << required_arrival_time_
+          << " candidate_speed=" << candidate_speed_
+          << " required_arrival_time=" << required_arrival_time_
           << " horizon=" << parameters_->opposite_lane.max_prediction_horizon
           << " original_return_s=" << original_return_end_arc_
           << " planned_return_s=" << extended_return_end_arc_
+          << " required_return_end_clearance_m=" << parameters_->opposite_lane.return_end_clearance
+          << " stop_margin_m=" << parameters_->opposite_lane.stop_margin
           << " source=" << (source_.empty() ? 0 : source_.front().id())
           << " opposite=" << (opposite_.empty() ? 0 : opposite_.front().id())
           << " return_x=" << (lines_.empty() ? 0.0 : lines_.back().end.position.x)
           << " return_y=" << (lines_.empty() ? 0.0 : lines_.back().end.position.y)
-          << " actual_min_clearance_m=" << clearance
-          << " actual_outside_corridor=" << outside << " actual_returned=" << returned
-          << " planning_ms=" << elapsed;
+          << " actual_min_clearance_m=" << clearance << " actual_outside_corridor=" << outside
+          << " actual_returned=" << returned << " planning_ms=" << elapsed;
   if (reason_ == "stale_perception_or_odometry") {
     const auto now = clock_->now();
     if (data_ && data_->dynamic_object) {
@@ -741,6 +767,7 @@ bool OppositeLaneBorrowing::buildCorridor()
 
 bool OppositeLaneBorrowing::buildPath()
 {
+  return_constraint_.reset();
   const auto & p = parameters_->opposite_lane;
   const auto & ego = data_->self_odometry->pose.pose;
   const auto & vehicle = data_->parameters.vehicle_info;
@@ -775,11 +802,13 @@ bool OppositeLaneBorrowing::buildPath()
     std::cbrt(32.0 * std::abs(shift) / jerk),
     std::sqrt(8.0 * std::abs(shift) / acceleration));
   const double shift_distance = std::max(p.min_shift_distance, candidate_speed_ * duration);
-  const double obstacle_arc = autoware::motion_utils::calcSignedArcLength(
-    reference_.points, reference_.points.front().point.pose.position,
-    target_->object.kinematics.initial_pose_with_covariance.pose.position);
-  const double object_front = obstacle_arc - target_->length * 0.5;
-  const double object_rear = obstacle_arc + target_->length * 0.5;
+  const auto target_polygon = autoware_utils::to_polygon2d(
+    target_->object.kinematics.initial_pose_with_covariance.pose, target_->object.shape);
+  if (!boost::geometry::is_valid(target_polygon)) {
+    reason_ = "invalid_obstacle_outline";
+    return false;
+  }
+  const auto [object_front, object_rear] = outlineArcRange(reference_, target_polygon);
   const double current_speed = std::abs(data_->self_odometry->twist.twist.linear.x);
   const double braking_distance = p.campus_agv ? std::max(0.0,
     (current_speed * current_speed - candidate_speed_ * candidate_speed_) /
@@ -787,7 +816,9 @@ bool OppositeLaneBorrowing::buildPath()
   const double borrow_start = arc[ego_index] + p.prepare_distance + braking_distance;
   const double borrow_end = borrow_start + shift_distance;
   const double return_start = object_rear + trainLength() + p.return_distance_after_object;
-  const double return_end = return_start + shift_distance;
+  const double return_end = std::max(
+    return_start + shift_distance,
+    object_rear + p.return_end_clearance + p.return_clearance_buffer);
   // Allow a straight settling section for the last trailer before declaring completion.
   const double finish = return_end + postReturnDistance(trainLength(), p, *lc_parameters_);
   if (borrow_end + data_->parameters.vehicle_info.max_longitudinal_offset_m +
@@ -912,10 +943,12 @@ bool OppositeLaneBorrowing::updateActualHistory()
   return true;
 }
 
-bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
+bool OppositeLaneBorrowing::validate(
+  const ShiftedPath & path, bool recovery, const Pose * return_end)
 {
   reason_.clear();
   conflict_object_.clear();
+  return_constraint_.reset();
   if (path.path.points.size() < 2 || path.shift_length.size() != path.path.points.size()) {
     reason_ = "invalid_path";
     return false;
@@ -1072,6 +1105,14 @@ bool OppositeLaneBorrowing::validate(const ShiftedPath & path, bool recovery)
     return false;
   }
   static_cast<void>(recovery);
+  if (return_end || lines_.size() >= 2) {
+    return_constraint_ = returnConstraint(path, return_end ? *return_end : lines_.back().end);
+    if (return_constraint_) {
+      reason_ = return_constraint_->reason;
+      conflict_object_ = return_constraint_->object_id;
+      return false;
+    }
+  }
   return true;
 }
 
@@ -1131,7 +1172,7 @@ bool OppositeLaneBorrowing::tryReturn()
         std::abs(autoware_utils::normalize_radian(
           tf2::getYaw(candidate.path.points[idx].point.pose.orientation) -
           tf2::getYaw(ego.orientation))) > lc_parameters_->th_finish_judge_yaw_diff) continue;
-    if (!validate(candidate, true)) continue;
+    if (!validate(candidate, true, &line.end)) continue;
     path_ = std::move(candidate);
     lines_ = shifter.getShiftLines();
     recovery_ = true;
@@ -1142,7 +1183,8 @@ bool OppositeLaneBorrowing::tryReturn()
   return false;
 }
 
-bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::string & conflict)
+bool OppositeLaneBorrowing::extendContinuousReturn(
+  double clear_s, double min_end_s, const std::string & conflict)
 {
   const auto & p = parameters_->opposite_lane;
   const auto arc = arcLengths(reference_);
@@ -1164,7 +1206,8 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
       tf2::getYaw(b.orientation) - tf2::getYaw(a.orientation)) / distance;
   }
   const double second = curvature * std::pow(1.0 + slope * slope, 1.5);
-  const double lower = std::max(extended_return_end_arc_, ego_s + p.min_shift_distance);
+  const double lower =
+    std::max({extended_return_end_arc_, min_end_s, ego_s + p.min_shift_distance});
   const double upper = original_return_end_arc_ + p.max_return_extension_distance;
   const std::string saved = reason_;
   std::string failure = "extension_distance_insufficient";
@@ -1178,8 +1221,12 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
   const size_t candidates = 3 * steps;
   for (size_t attempt = 0; attempt < candidates; ++attempt) {
       const size_t cursor = continuous_search_index_ % candidates;
-      const double end_s = lower + (cursor / 3 + 1) * p.return_extension_step;
+      const double end_s = std::max(min_end_s, lower + (cursor / 3 + 1) * p.return_extension_step);
       const int mode = cursor % 3;
+      if (end_s > upper + 1e-6) {
+        failure = "extension_limit";
+        break;
+      }
       if (deadline_ && std::chrono::steady_clock::now() >= *deadline_) {
         reason_ = saved + ":no_safe_delayed_return:planning_budget_exceeded";
         return false;
@@ -1228,7 +1275,18 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
       }
       candidate.path.points[ego_index].point.pose = ego;
       applyCandidateVelocity(candidate);
-      if (!validate(candidate)) { failure = reason_; continue; }
+      const Pose candidate_end =
+        reference_
+          .points[std::distance(arc.begin(), std::lower_bound(arc.begin(), arc.end(), end_s))]
+          .point.pose;
+      if (!validate(candidate, false, &candidate_end)) {
+        failure = reason_;
+        if (return_constraint_ && return_constraint_->extendible) {
+          clear_s = std::max(clear_s, return_constraint_->clear_s);
+          min_end_s = std::max(min_end_s, return_constraint_->min_end_s);
+        }
+        continue;
+      }
       auto returning = lines_.back();
       returning.start_idx = ego_index;
       returning.start = ego;
@@ -1249,37 +1307,167 @@ bool OppositeLaneBorrowing::extendContinuousReturn(double clear_s, const std::st
   return false;
 }
 
-std::optional<std::string> OppositeLaneBorrowing::returnObstacle() const
+std::optional<OppositeLaneBorrowing::ReturnConstraint> OppositeLaneBorrowing::returnConstraint(
+  const ShiftedPath & path, const Pose & return_end) const
 {
-  if (lines_.size() < 2 || reference_.points.size() < 2 || !data_->dynamic_object) {
+  if (!data_->dynamic_object || reference_.points.size() < 2 || path.path.points.size() < 2) {
     return std::nullopt;
   }
   const auto & p = parameters_->opposite_lane;
   const auto & origin = reference_.points.front().point.pose.position;
-  const double return_start = autoware::motion_utils::calcSignedArcLength(
-    reference_.points, origin, lines_.back().start.position);
-  const double return_end = extended_return_end_arc_;
-  double nearest = std::numeric_limits<double>::infinity();
-  std::optional<std::string> conflict;
+  const auto & ego = data_->self_odometry->pose.pose;
+  const double ego_s =
+    autoware::motion_utils::calcSignedArcLength(reference_.points, origin, ego.position);
+  const double end_s =
+    autoware::motion_utils::calcSignedArcLength(reference_.points, origin, return_end.position);
+  const auto source_area = laneArea(source_);
+  std::optional<ReturnConstraint> result;
+  const auto record =
+    [&](const PredictedObject & object, double far, bool in_source, const std::string & reason) {
+      const auto motion = objectMotionBound(object, !p.campus_agv);
+      const bool extendible =
+        in_source && motion && *motion <= (p.campus_agv ? p.static_speed_threshold : 0.1);
+      const ReturnConstraint constraint{
+        autoware_utils_uuid::to_hex_string(object.object_id), reason,
+        far + trainLength() + p.longitudinal_margin,
+        far + p.return_end_clearance + p.return_clearance_buffer, extendible};
+      // All blockers are considered. A non-extendible conflict must never be hidden by a static
+      // one.
+      if (
+        !result || (!extendible && result->extendible) ||
+        (extendible == result->extendible && constraint.clear_s > result->clear_s))
+        result = constraint;
+    };
+  struct Outline
+  {
+    const PredictedObject * object;
+    Polygon polygon;
+    double far;
+    bool in_source;
+  };
+  std::vector<Outline> outlines;
   for (const auto & object : data_->dynamic_object->objects) {
-    if (target_ && object.object_id == target_->object.object_id) continue;
-    const auto id = autoware_utils_uuid::to_hex_string(object.object_id);
-    if (id == return_extension_conflict_) continue;
-    const auto speed = objectMotionBound(object, !p.campus_agv);
-    if (!speed || *speed > (p.campus_agv ? p.static_speed_threshold : 0.1)) continue;
-    const auto & position = object.kinematics.initial_pose_with_covariance.pose.position;
-    if (std::none_of(source_.begin(), source_.end(), [&](const auto & lane) {
-          return lanelet::geometry::inside(lane, lanelet::BasicPoint2d{position.x, position.y});
-        })) continue;
-    const double object_s = autoware::motion_utils::calcSignedArcLength(
-      reference_.points, origin, position);
-    const double clear_s = object_s + object.shape.dimensions.x * 0.5 +
-      trainLength() + p.longitudinal_margin;
-    if (object_s > return_end || clear_s <= return_start || object_s >= nearest) continue;
-    nearest = object_s;
-    conflict = id;
+    if (deadline_ && std::chrono::steady_clock::now() >= *deadline_) {
+      return ReturnConstraint{"", "planning_budget_exceeded", 0.0, 0.0, false};
+    }
+    const auto & pose = object.kinematics.initial_pose_with_covariance.pose;
+    if (!objectMotionBound(object, false)) {
+      return ReturnConstraint{
+        autoware_utils_uuid::to_hex_string(object.object_id), "invalid_obstacle_outline", 0.0, 0.0,
+        false};
+    }
+    auto polygon = autoware_utils::to_polygon2d(pose, object.shape);
+    if (!boost::geometry::is_valid(polygon)) {
+      return ReturnConstraint{
+        autoware_utils_uuid::to_hex_string(object.object_id), "invalid_obstacle_outline", 0.0, 0.0,
+        false};
+    }
+    const auto [near, far] = outlineArcRange(reference_, polygon);
+    const bool in_source = !boost::geometry::disjoint(polygon, source_area);
+    const double distance = boost::geometry::distance(
+      autoware_utils::Point2d{return_end.position.x, return_end.position.y}, polygon);
+    // On a curved road, an object far behind in arc distance can still be near the endpoint.
+    if (far < ego_s - trainLength() - p.return_end_clearance && distance > p.return_end_clearance) {
+      continue;
+    }
+    // A point >10m BEFORE an object is allowed only if its stop envelope does not block completion.
+    if (in_source && distance <= p.return_end_clearance) {
+      record(object, far, in_source, "return_end_clearance_insufficient");
+    }
+    // Objects farther away cannot affect the requested completion section or terminal clearance.
+    const double lookahead = std::max(
+      p.return_end_clearance, p.stop_margin +
+                                data_->parameters.vehicle_info.max_longitudinal_offset_m +
+                                p.return_completion_buffer);
+    if (near <= end_s + lookahead)
+      outlines.push_back({&object, std::move(polygon), far, in_source});
   }
-  return conflict;
+  if (result || outlines.empty()) return result;
+
+  using autoware_planning_msgs::msg::TrajectoryPoint;
+  using namespace autoware::motion_velocity_planner::polygon_utils;
+  const size_t start = data_->findEgoIndex(path.path.points);
+  std::vector<TrajectoryPoint> trajectory;
+  for (size_t i = start; i < path.path.points.size(); ++i) {
+    TrajectoryPoint point;
+    point.pose = path.path.points[i].point.pose;
+    point.longitudinal_velocity_mps = path.path.points[i].point.longitudinal_velocity_mps;
+    trajectory.push_back(point);
+  }
+  // Probe beyond the output path end: an obstacle just beyond it can still stop the ego before
+  // return.
+  const double probe_end = end_s + p.return_completion_buffer + p.stop_margin +
+                           data_->parameters.vehicle_info.max_longitudinal_offset_m +
+                           p.stop_polygon_step;
+  const auto reference_arc = arcLengths(reference_);
+  const double tail_s = autoware::motion_utils::calcSignedArcLength(
+    reference_.points, origin, trajectory.back().pose.position);
+  for (size_t i = 0; i < reference_.points.size(); ++i) {
+    if (reference_arc[i] <= tail_s + 1e-3) continue;
+    TrajectoryPoint point;
+    point.pose = reference_.points[i].point.pose;
+    point.longitudinal_velocity_mps = candidate_speed_;
+    trajectory.push_back(point);
+    if (reference_arc[i] >= probe_end) break;
+  }
+  // Use the downstream extrapolator if the map reference ends inside the stop lookahead.
+  const double query_tail_s = autoware::motion_utils::calcSignedArcLength(
+    reference_.points, origin, trajectory.back().pose.position);
+  trajectory = autoware::motion_velocity_planner::utils::get_extended_trajectory_points(
+    trajectory, std::max(0.0, probe_end - query_tail_s), p.stop_polygon_step);
+  const double completion_s = autoware::motion_utils::calcSignedArcLength(
+                                trajectory, trajectory.front().pose.position, return_end.position) +
+                              p.return_completion_buffer;
+  const auto polygons = create_one_step_polygons(
+    trajectory, data_->parameters.vehicle_info, ego,
+    std::max(p.stop_lateral_margin, p.lateral_margin), p.stop_consider_current_pose,
+    p.stop_time_to_convergence, p.stop_polygon_step, p.stop_off_track_scale);
+  for (const auto & outline : outlines) {
+    if (deadline_ && std::chrono::steady_clock::now() >= *deadline_) {
+      return ReturnConstraint{"", "planning_budget_exceeded", 0.0, 0.0, false};
+    }
+    const auto collision = get_collision_point(
+      trajectory, polygons, outline.object->kinematics.initial_pose_with_covariance.pose.position,
+      clock_->now(), outline.polygon, data_->parameters.vehicle_info.max_longitudinal_offset_m);
+    if (collision && collision->second - p.stop_margin <= completion_s) {
+      record(*outline.object, outline.far, outline.in_source, "stop_before_return_complete");
+    }
+  }
+  if (!active_configuration_.geometries.empty()) {
+    const auto train = articulated(path.path, start);
+    std::vector<Polygon> previous;
+    double travelled = 0.0;
+    for (size_t i = 0; i < train.poses.size(); ++i) {
+      if (i) travelled += calc_distance2d(train.poses[i - 1].tractor, train.poses[i].tractor);
+      if (travelled > completion_s) break;
+      const auto current = footprints(train.poses[i]);
+      for (size_t body = 1; body < current.size(); ++body) {
+        Polygon swept = current[body];
+        if (!previous.empty()) {
+          boost::geometry::model::multi_point<autoware_utils::Point2d> corners;
+          for (const auto & point : previous[body].outer()) corners.push_back(point);
+          for (const auto & point : current[body].outer()) corners.push_back(point);
+          boost::geometry::convex_hull(corners, swept);
+        }
+        for (const auto & outline : outlines) {
+          if (boost::geometry::distance(swept, outline.polygon) <= p.lateral_margin) {
+            record(
+              *outline.object, outline.far, outline.in_source,
+              "trailer_collision_before_return_complete");
+          }
+        }
+      }
+      previous = current;
+    }
+  }
+  return result;
+}
+
+std::optional<std::string> OppositeLaneBorrowing::returnObstacle() const
+{
+  if (lines_.size() < 2) return std::nullopt;
+  const auto constraint = returnConstraint(path_, lines_.back().end);
+  return constraint ? std::optional<std::string>{constraint->object_id} : std::nullopt;
 }
 
 bool OppositeLaneBorrowing::extendReturn()
@@ -1314,11 +1502,12 @@ bool OppositeLaneBorrowing::extendReturn()
     reason_ = saved_reason + ":secondary_object_not_static";
     return false;
   }
-  const double obstacle_s = autoware::motion_utils::calcSignedArcLength(
-    reference_.points, reference_.points.front().point.pose.position,
-    obstacle->kinematics.initial_pose_with_covariance.pose.position);
-  const double clear_s = obstacle_s + obstacle->shape.dimensions.x * 0.5 +
-    trainLength() + p.longitudinal_margin;
+  const auto outline = autoware_utils::to_polygon2d(
+    obstacle->kinematics.initial_pose_with_covariance.pose, obstacle->shape);
+  const double far = outlineArcRange(reference_, outline).second;
+  double clear_s = far + trainLength() + p.longitudinal_margin;
+  double min_end_s =
+    std::max(extended_return_end_arc_, far + p.return_end_clearance + p.return_clearance_buffer);
   const double initial_return_start_s = autoware::motion_utils::calcSignedArcLength(
     reference_.points, reference_.points.front().point.pose.position,
     lines_.back().start.position);
@@ -1332,7 +1521,7 @@ bool OppositeLaneBorrowing::extendReturn()
          extra += p.return_extension_step) {
       if (deadline_ && std::chrono::steady_clock::now() > *deadline_) break;
       const double start_s = std::max(initial_return_start_s + extra, clear_s);
-      const double end_s = start_s + return_length;
+      const double end_s = std::max(start_s + return_length, min_end_s);
       if (end_s > original_return_end_arc_ + p.max_return_extension_distance + 1e-6) break;
       const auto start_it = std::lower_bound(arc.begin(), arc.end(), start_s);
       const auto end_it = std::lower_bound(arc.begin(), arc.end(), end_s);
@@ -1356,8 +1545,12 @@ bool OppositeLaneBorrowing::extendReturn()
       ShiftedPath candidate;
       if (!shifter.generate(&candidate)) continue;
       applyCandidateVelocity(candidate);
-      if (!validate(candidate)) {
+      if (!validate(candidate, false, &returning.end)) {
         candidate_failure_reason = reason_;
+        if (return_constraint_ && return_constraint_->extendible) {
+          clear_s = std::max(clear_s, return_constraint_->clear_s);
+          min_end_s = std::max(min_end_s, return_constraint_->min_end_s);
+        }
         continue;
       }
       path_ = std::move(candidate);
@@ -1370,7 +1563,7 @@ bool OppositeLaneBorrowing::extendReturn()
     }
   }
   if (p.campus_agv) {
-    accepted = extendContinuousReturn(clear_s, conflict);
+    accepted = extendContinuousReturn(clear_s, min_end_s, conflict);
     return accepted;
   }
   const double offset = autoware_utils::calc_lateral_deviation(
@@ -1383,7 +1576,7 @@ bool OppositeLaneBorrowing::extendReturn()
     std::cbrt(32.0 * std::abs(offset) / trajectory.lateral_jerk),
     std::sqrt(8.0 * std::abs(offset) / acceleration));
   const double min_distance = std::max(p.min_shift_distance, candidate_speed_ * duration);
-  const auto end_base = std::max(extended_return_end_arc_, arc[ego_index] + min_distance);
+  double end_base = std::max({min_end_s, extended_return_end_arc_, arc[ego_index] + min_distance});
   for (double extra = p.return_extension_step;
        extra <= p.max_return_extension_distance + 1e-6;
        extra += p.return_extension_step) {
@@ -1438,8 +1631,12 @@ bool OppositeLaneBorrowing::extendReturn()
     }
     reason_ = saved_reason;
     conflict_object_ = conflict;
-    if (!validate(candidate)) {
+    const Pose candidate_end = reference.points[end_index].point.pose;
+    if (!validate(candidate, false, &candidate_end)) {
       candidate_failure_reason = reason_;
+      if (return_constraint_ && return_constraint_->extendible) {
+        end_base = std::max(end_base, return_constraint_->min_end_s);
+      }
       continue;
     }
     path_ = std::move(candidate);

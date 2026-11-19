@@ -224,6 +224,58 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
     o.lateral_margin = number("opposite_lane.lateral_margin", 0.5);
     o.clearance_hold_time = number("opposite_lane.clearance_hold_time", 1.0, true);
     o.return_distance_after_object = number("opposite_lane.return_distance_after_object", 5.0);
+    o.return_end_clearance = number("opposite_lane.return_end_clearance", 10.0);
+    if (o.return_end_clearance < 10.0) {
+      throw std::invalid_argument("return_end_clearance must be at least 10 metres");
+    }
+    o.return_clearance_buffer = number("opposite_lane.return_clearance_buffer", 0.2);
+    o.return_completion_buffer = number("opposite_lane.return_completion_buffer", 1.0);
+    const auto shared_number = [&](const std::string & name, double fallback) {
+      const double value = parameter_with_default(name, fallback);
+      if (!std::isfinite(value) || value < 0.0) {
+        throw std::invalid_argument(name + " must be finite and nonnegative");
+      }
+      return value;
+    };
+    o.stop_margin = std::max(
+      {shared_number("obstacle_stop.stop_planning.stop_margin", 5.0),
+       shared_number("obstacle_stop.stop_planning.min_behavior_stop_margin", 5.0),
+       shared_number("obstacle_stop.stop_planning.terminal_stop_margin", 0.6)});
+    // Use the largest configured class margin: conservative for every static object class.
+    const auto & overrides = node->get_node_parameters_interface()->get_parameter_overrides();
+    double nominal = 0.0, additional = 0.0, off_track = 0.0;
+    bool has_nominal = false;
+    for (const auto & [name, value] : overrides) {
+      const std::string prefix = "obstacle_stop.obstacle_filtering.lateral_margin.";
+      if (name.compare(0, prefix.size(), prefix) != 0) continue;
+      const double margin = value.get<double>();
+      if (!std::isfinite(margin) || margin < 0.0) {
+        throw std::invalid_argument(name + " must be finite and nonnegative");
+      }
+      const auto suffix = name.substr(prefix.size());
+      if (suffix.rfind("nominal", 0) == 0) {
+        nominal = std::max(nominal, margin);
+        has_nominal = true;
+      } else if (suffix.rfind("additional.wheel_off_track_scale", 0) == 0) {
+        off_track = std::max(off_track, margin);
+      } else if (
+        suffix.rfind("additional.is_stop_obstacle", 0) == 0 ||
+        suffix.rfind("additional.is_moving_obstacle", 0) == 0) {
+        additional = std::max(additional, margin);
+      }
+    }
+    o.stop_lateral_margin = has_nominal ? nominal + additional : 0.2;
+    o.stop_off_track_scale = off_track;
+    o.stop_consider_current_pose = parameter_with_default(
+      "trajectory_polygon_collision_check.consider_current_pose.enable_to_consider_current_pose",
+      true);
+    o.stop_time_to_convergence = shared_number(
+      "trajectory_polygon_collision_check.consider_current_pose.time_to_convergence", 1.5);
+    o.stop_polygon_step =
+      shared_number("trajectory_polygon_collision_check.decimate_trajectory_step_length", 2.0);
+    if (o.stop_time_to_convergence <= 0.0 || o.stop_polygon_step <= 0.0) {
+      throw std::invalid_argument("stop polygon convergence time and step must be positive");
+    }
     o.data_timeout = number("opposite_lane.data_timeout", 0.5);
     o.max_planning_time_ms = number("opposite_lane.max_planning_time_ms", 50.0);
     o.prepare_distance = number("opposite_lane.prepare_distance", 3.0);

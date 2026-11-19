@@ -42,6 +42,16 @@ struct OppositeLaneParameters
   double lateral_margin{0.5};
   double clearance_hold_time{1.0};
   double return_distance_after_object{5.0};
+  double return_end_clearance{10.0};
+  double return_clearance_buffer{0.2};
+  double return_completion_buffer{1.0};
+  // Loaded from the same obstacle_stop parameter file as the downstream planner.
+  double stop_margin{5.0};
+  double stop_lateral_margin{0.2};
+  double stop_off_track_scale{0.0};
+  bool stop_consider_current_pose{true};
+  double stop_time_to_convergence{1.5};
+  double stop_polygon_step{2.0};
   double data_timeout{0.5};
   double max_planning_time_ms{50.0};
   double prepare_distance{3.0};

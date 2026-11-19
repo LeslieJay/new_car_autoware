@@ -382,12 +382,13 @@ bool set_goal(
     const auto lanelets = getUniqueLaneletsFromPath(
       input.points.begin() + min_dist_out_of_circle_index + 1, input.points.end(),
       get_lanelet_by_id);
-    fillLaneIdsFromMap(
-      output_ptr->points.begin() + min_dist_out_of_circle_index + 1, output_ptr->points.end(),
-      lanelets);
-    fillLongitudinalVelocityFromInputPath(
-      output_ptr->points.begin() + min_dist_out_of_circle_index + 1, output_ptr->points.end(),
-      input);
+    // The retained join pose is preserved by resampling, but its vector index changes.
+    // Reusing an index into input here can overwrite lane IDs and speed limits far upstream.
+    const auto join_index = autoware::motion_utils::findNearestIndex(
+      output_ptr->points, input.points.at(min_dist_out_of_circle_index).point.pose.position);
+    const auto refinement_begin = output_ptr->points.begin() + join_index + 1;
+    fillLaneIdsFromMap(refinement_begin, output_ptr->points.end(), lanelets);
+    fillLongitudinalVelocityFromInputPath(refinement_begin, output_ptr->points.end(), input);
 
     output_ptr->points.back().point.longitudinal_velocity_mps = 0.0;
     return true;

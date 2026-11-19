@@ -22,6 +22,7 @@
 #include <autoware_utils/math/normalization.hpp>
 #include <tf2/utils.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -44,7 +45,10 @@ BehaviorModuleOutput DefaultFixedGoalPlanner::plan(
   const PathWithLaneId smoothed_path = modifyPathForSmoothGoalConnection(output.path, planner_data);
 
   const Pose goal = planner_data->route_handler->getGoalPose();
-  if (!isPathValid(smoothed_path, goal, planner_data)) {
+  const auto precise_path =
+    goal_planner_utils::applyPreciseFixedGoalStop(smoothed_path, goal, parameters_.fixed_goal);
+  // Validate the final transformed geometry, rather than a path that is subsequently changed.
+  if (!isPathValid(precise_path, goal, planner_data)) {
     RCLCPP_ERROR(
       rclcpp::get_logger("default_fixed_goal_planner"),
       "Cannot connect a valid path to the requested goal without moving it.");
@@ -54,8 +58,7 @@ BehaviorModuleOutput DefaultFixedGoalPlanner::plan(
     return output;
   }
 
-  output.path = goal_planner_utils::applyPreciseFixedGoalStop(
-    smoothed_path, goal, parameters_.fixed_goal);
+  output.path = precise_path;
   output.reference_path = getPreviousModuleOutput().reference_path;
   return output;
 }
@@ -119,7 +122,11 @@ PathWithLaneId DefaultFixedGoalPlanner::modifyPathForSmoothGoalConnection(
   const auto goal = planner_data->route_handler->getGoalPose();
   const auto goal_lane_id = planner_data->route_handler->getGoalLaneId();
 
-  double goal_search_radius{planner_data->parameters.refine_goal_search_radius_range};
+  // A short fixed-goal request must not reconnect geometry farther back than the hand-off.
+  // Keep the first half of the requested approach available for continuous tracking.
+  double goal_search_radius = std::min(
+    planner_data->parameters.refine_goal_search_radius_range,
+    0.5 * parameters_.fixed_goal.request_length);
   const double output_path_interval{planner_data->parameters.output_path_interval};
   // TODO(shen): define in the parameter
   constexpr double range_reduce_by{1.0};  // set a reasonable value, 10% - 20% of the

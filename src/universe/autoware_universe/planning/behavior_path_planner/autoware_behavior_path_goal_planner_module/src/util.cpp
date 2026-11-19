@@ -42,6 +42,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <memory>
@@ -1297,7 +1298,9 @@ PathWithLaneId applyPreciseFixedGoalStop(
     return path;
   }
 
-  if (fixed_goal_params.goal_resample_interval <= 0.0) {
+  if (
+    !std::isfinite(fixed_goal_params.goal_resample_interval) ||
+    fixed_goal_params.goal_resample_interval <= 0.0) {
     return path;
   }
 
@@ -1314,8 +1317,31 @@ PathWithLaneId applyPreciseFixedGoalStop(
     std::max(default_resample_range, fixed_goal_params.stop_margin + 2.0);
   const double start_s = std::max(0.0, total_s - resample_range);
 
-  auto output = utils::resamplePathWithSpline(
-    path, fixed_goal_params.goal_resample_interval, false, {start_s, total_s});
+  // Local densification must retain the geometry and stop points of the entire approach.
+  // The generic helper with keep_input_points=false retains lane transitions only; outside
+  // target_section it can erase a whole turn. Its 0.2 m merging tolerance also defeats a
+  // configured 0.05 m terminal interval, so build the sampling positions explicitly here.
+  std::vector<double> samples = s_vec;
+  for (double s = start_s; s < total_s; s += fixed_goal_params.goal_resample_interval) {
+    samples.push_back(s);
+  }
+  std::sort(samples.begin(), samples.end());
+  constexpr double overlap_tolerance = 1e-6;
+  samples.erase(
+    std::unique(
+      samples.begin(), samples.end(),
+      [](double a, double b) { return std::abs(a - b) < overlap_tolerance; }),
+    samples.end());
+  auto output = autoware::motion_utils::resamplePath(path, samples);
+
+  // Resampling recomputes orientations; a terminal-only operation must leave upstream
+  // poses, lane associations and velocity limits unchanged.
+  for (size_t i = 0; i < path.points.size() && s_vec[i] < start_s; ++i) {
+    const auto sample = std::lower_bound(samples.begin(), samples.end(), s_vec[i]);
+    if (sample != samples.end() && std::abs(*sample - s_vec[i]) < overlap_tolerance) {
+      output.points.at(std::distance(samples.begin(), sample)) = path.points[i];
+    }
+  }
 
   if (output.points.empty()) {
     return path;

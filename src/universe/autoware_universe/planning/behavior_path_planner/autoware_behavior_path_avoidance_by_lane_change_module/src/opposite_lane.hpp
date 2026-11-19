@@ -66,9 +66,20 @@ private:
   bool buildPath();
   bool tryReturn();
   bool extendReturn();
-  bool extendContinuousReturn(double clear_s, const std::string & conflict);
+  bool extendContinuousReturn(double clear_s, double min_end_s, const std::string & conflict);
   std::optional<std::string> returnObstacle() const;
-  bool validate(const ShiftedPath & path, bool recovery = false);
+  struct ReturnConstraint
+  {
+    std::string object_id;
+    std::string reason;
+    double clear_s{0.0};
+    double min_end_s{0.0};
+    bool extendible{false};
+  };
+  std::optional<ReturnConstraint> returnConstraint(
+    const ShiftedPath & path, const Pose & return_end) const;
+  bool validate(const ShiftedPath & path, bool recovery = false, const Pose * return_end = nullptr);
+  std::optional<ReturnConstraint> return_constraint_;
   bool contained(const autoware_utils::Polygon2d & footprint, bool source_only = false) const;
   std::vector<autoware_utils::Polygon2d> footprints(const ArticulatedPose & pose) const;
   ArticulatedPath articulated(const PathWithLaneId & path, size_t start) const;

@@ -41,3 +41,7 @@ python3 src/byd/forward_precision_test/analyze_forward_endpoint_accuracy.py \
 
 - **禁止**在正向前进精度测试中使用 `toggle_control_mode`（该服务切换 AUTO/EXTERNAL 控制来源，不是倒车模式）。
 - 倒车流程请使用 `setup_external_control_mode.sh` + `reverse_parking_planner`，与正向 Autoware 控制链路分开。
+
+## 固定终点规划的仿真与回放验收
+
+2026-11-18 的固定终点接管、局部精停重采样问题使用独立验收流程；它检查路径连续性、控制输出与终点停车，不等同于上文的 ±2 cm 实车精度标定。运行方式和验收阈值见 [GOAL_PLANNER_ACCEPTANCE.md](GOAL_PLANNER_ACCEPTANCE.md)。

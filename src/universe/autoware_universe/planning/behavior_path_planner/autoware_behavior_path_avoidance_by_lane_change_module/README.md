@@ -67,10 +67,9 @@ oncoming-object filtering or routing behavior.
   return is accepted only if it joins the measured offset and heading and
   passes the path geometry and motion checks.
   Otherwise, braking preserves the committed geometry.
-- Object collision and prediction-horizon checks are disabled for opposite-lane
-  borrowing. A stationary object in the source lane and current return interval
-  still triggers a bounded return-point extension. Stops and slow motion are
-  not replaced with an artificial minimum speed.
+- Return candidates check measured object outlines, strict endpoint clearance and
+  downstream stop feasibility; see the return-clearance section below. Prediction-horizon
+  checks remain disabled. Stops and slow motion are not replaced with an artificial minimum speed.
 - New upstream speed limits are respected while retaining committed geometry.
   Stale perception/odometry, invalid configuration, geometry failure or exhausted
   planning budget blocks departure or triggers braking while committed.
@@ -158,7 +157,7 @@ colcon test-result --verbose
 
 Build the other two packages with `BUILD_TESTING=ON` first if they are not already
 built. ROS tests cover both borrowing sides, corridor gaps, prohibited crossing,
-disabled object collision checks, return-point extension, trailer envelopes/articulation,
+return-clearance and obstacle-stop feasibility checks, return-point extension, trailer envelopes/articulation,
 same-direction priority, opt-in behavior and geometry-preserving braking.
 
 Host-only checks (no ROS required):
@@ -201,7 +200,8 @@ margin, 1.0 s temporal gap and 0.3 s clearance hold. Lane marking, intersection 
 semantics do not prohibit borrowing in this profile. Physical separators, connected road
 geometry, full body sweep, steering and lateral jerk limits remain checked.
 
-Delayed returns remain bounded by 20 m from the first accepted endpoint. Returning-stage
+Delayed returns remain bounded by `max_return_extension_distance` from the first accepted endpoint
+(20 m by default, 100 m in the current campus launch profile). Returning-stage
 candidates use measured position/heading and committed local curvature, and search a longer
 return, a lateral hold, or restoration toward the borrowed lane. Candidate commits are atomic;
 failures retain the committed path with braking. The continuous-return search cursor survives
@@ -235,9 +235,73 @@ can block the planning chain. The default profile keeps its original expansion s
 
 Campus candidate outputs include the existing lane-change finish buffer after the return
 endpoint. This prevents downstream path-end stopping from stopping the vehicle just before
-the completion gate. The accepted return point, 20 m extension limit and real upstream stop
-constraints are unchanged.
+the completion gate. Real upstream stop constraints remain active; endpoint clearance and the
+configured extension limit are checked as described below.
 
 Unhitched campus history sampling uses odometry timestamps and the configured speed cap
 to distinguish reachable progress from a pose jump. Current-pose/path continuity and freshness
 checks remain active. Trailer sampling retains its dense-history requirement.
+
+## Opposite-lane borrowing: return clearance
+
+The borrowing planner checks a candidate before committing it and on every execution update.
+It projects the complete perceived obstacle polygon onto the reference path; world x is only
+used in diagnostics. Bounding boxes, cylinders and arbitrary footprint polygons use the same
+shape conversion as `obstacle_stop`.
+
+A return candidate must satisfy both conditions:
+
+- The return endpoint is strictly more than `return_end_clearance` (at least 10 m) from each
+  relevant obstacle outline. When an obstacle requires extending the maneuver, the new endpoint
+  must be beyond its far contour in the direction of travel.
+- No measured obstacle causes a predicted stop before the return endpoint plus
+  `return_completion_buffer`. The query includes the portion after the output path endpoint
+  needed to detect an early stop, using the downstream trajectory extrapolation utility.
+
+The check reuses `autoware_motion_velocity_planner_common` trajectory polygons and collision
+points, including the vehicle's bumper offset and off-tracking. It conservatively uses the
+largest configured static stop and class lateral margins. The standard behavior-planning launch
+loads the **same** `obstacle_stop` and motion-velocity configuration files into the behavior path
+planner. These settings are loaded at initialization; restart planning after changing them.
+This is a conservative candidate feasibility check, not a replacement for downstream filtering,
+stop-point hysteresis, moving-object prediction or velocity smoothing.
+
+For an extension, the return start moves beyond the far outline with room for the vehicle/train
+tail and longitudinal margin. The end moves beyond the contour clearance and feasible return
+length. A candidate encountering another blocking object advances both requirements before
+searching again. UUIDs are diagnostic identifiers, not a reason to skip an already handled object.
+Already committed geometry is replaced only after all candidate checks succeed. If no candidate
+fits the corridor, kinematics, planning budget or extension limit, braking retains the committed
+path and reports the rejection reason.
+
+Parameters under `avoidance_by_lane_change.opposite_lane`:
+
+| Parameter | Default | Meaning |
+|---|---:|---|
+| `return_end_clearance` | 10.0 m | Strict point-to-outline clearance; values below 10 are rejected |
+| `return_clearance_buffer` | 0.2 m | Extra clearance when seeding a new endpoint |
+| `return_completion_buffer` | 1.0 m | Travel allowance for settling and completion confirmation |
+
+`max_return_extension_distance` remains measured from the original endpoint, including repeated
+extensions. Unrelated roadside objects outside the relevant lane/trajectory do not trigger an
+extension. Trailer footprints are additionally checked for collisions before completion.
+
+### Validation
+
+Run the package build and the three functional tests:
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+colcon build --packages-select autoware_behavior_path_avoidance_by_lane_change_module \
+  --symlink-install --cmake-args -DBUILD_TESTING=ON
+ctest --test-dir build/autoware_behavior_path_avoidance_by_lane_change_module \
+  -R '^(test_opposite_lane|test_borrowing_math|test_autoware_behavior_path_avoidance_by_lane_change_module)$' \
+  --output-on-failure
+```
+
+The regression suite includes the November 18 recorded long-obstacle shape and orientation on a
+negative-x road fixture, a centre beyond the original return endpoint, exact 10 m clearance,
+larger downstream stop margins, updated outlines with the same UUID, consecutive obstacles,
+rotated roads/footprints, trailer collisions and rejection without modifying committed geometry.
+A fixture based on a recorded shape is not a full rosbag replay or on-vehicle acceptance test.

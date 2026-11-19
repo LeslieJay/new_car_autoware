@@ -32,11 +32,20 @@ class OppositeLaneBorrowingTestPeer
 public:
   static double returnEndX(const OppositeLaneBorrowing & planner) { return planner.lines_.back().end.position.x; }
   static double selectedSpeed(const OppositeLaneBorrowing & planner) { return planner.candidate_speed_; }
-  static void routeFixture(OppositeLaneBorrowing & planner, std::shared_ptr<PlannerData> data)
+  static void routeFixture(
+    OppositeLaneBorrowing & planner, std::shared_ptr<PlannerData> data, double yaw = 0.0,
+    double origin_x = 0.0, double origin_y = 0.0)
   {
     lanelet::LineString3d shared(1001, {lanelet::Point3d(1101,-15,2,0), lanelet::Point3d(1102,120,2,0)});
     lanelet::LineString3d right(1002, {lanelet::Point3d(1103,-15,-2,0), lanelet::Point3d(1104,120,-2,0)});
     lanelet::LineString3d far(1003, {lanelet::Point3d(1105,-15,6,0), lanelet::Point3d(1106,120,6,0)});
+    for (auto line : {shared, right, far}) {
+      for (auto point : line) {
+        const double x = point.x(), y = point.y();
+        point.x() = origin_x + x * std::cos(yaw) - y * std::sin(yaw);
+        point.y() = origin_y + x * std::sin(yaw) + y * std::cos(yaw);
+      }
+    }
     shared.attributes()["type"] = "line_thin";
     shared.attributes()["subtype"] = "solid";
     lanelet::Lanelet source(1301, shared, right);
@@ -56,7 +65,10 @@ public:
     autoware_planning_msgs::msg::LaneletRoute route;
     route.header.frame_id = "map";
     route.uuid.uuid[0] = 1;
-    route.goal_pose.position.x = 100.0;
+    route.goal_pose.position.x = origin_x + 100.0 * std::cos(yaw);
+    route.goal_pose.position.y = origin_y + 100.0 * std::sin(yaw);
+    route.goal_pose.orientation.z = std::sin(yaw * 0.5);
+    route.goal_pose.orientation.w = std::cos(yaw * 0.5);
     route.goal_pose.orientation.w = 1.0;
     autoware_planning_msgs::msg::LaneletSegment segment;
     segment.preferred_primitive.id = source.id();
@@ -68,8 +80,10 @@ public:
     planner.upstream_.path.points.clear();
     for (int i=-40; i<=440; ++i) {
       PathPointWithLaneId point;
-      point.point.pose.position.x = i*0.25;
-      point.point.pose.orientation.w = 1.0;
+      point.point.pose.position.x = origin_x + i * 0.25 * std::cos(yaw);
+      point.point.pose.position.y = origin_y + i * 0.25 * std::sin(yaw);
+      point.point.pose.orientation.z = std::sin(yaw * 0.5);
+      point.point.pose.orientation.w = std::cos(yaw * 0.5);
       point.point.longitudinal_velocity_mps = 2.0;
       point.lane_ids = {source.id()};
       planner.upstream_.path.points.push_back(point);
@@ -319,6 +333,37 @@ protected:
     data->parameters.ego_nearest_yaw_threshold = 1.57;
     planner = std::make_unique<OppositeLaneBorrowing>(*node, parameters, lc);
     OppositeLaneBorrowingTestPeer::initialize(*planner, data);
+  }
+  bool commitCampusRoute(double yaw = 0.0, double origin_x = 0.0, double origin_y = 0.0)
+  {
+    parameters->opposite_lane.enabled = true;
+    parameters->opposite_lane.campus_agv = true;
+    parameters->opposite_lane.max_return_extension_distance = 100.0;
+    parameters->opposite_lane.max_planning_time_ms = 5000.0;
+    data->parameters.vehicle_info.wheel_base_m = 1.0;
+    data->parameters.vehicle_info.max_steer_angle_rad = 1.0;
+    lc->trajectory.lateral_jerk = 0.5;
+    odometry->pose.pose.position.x = origin_x;
+    odometry->pose.pose.position.y = origin_y;
+    odometry->pose.pose.orientation.z = std::sin(yaw * 0.5);
+    odometry->pose.pose.orientation.w = std::cos(yaw * 0.5);
+    auto target = obstacle(origin_x + 20.0 * std::cos(yaw), origin_y + 20.0 * std::sin(yaw));
+    target.kinematics.initial_pose_with_covariance.pose.orientation =
+      odometry->pose.pose.orientation;
+    objects->objects = {target};
+    OppositeLaneBorrowingTestPeer::routeFixture(*planner, data, yaw, origin_x, origin_y);
+    refreshRoute();
+    if (!planner->ready()) return false;
+    planner->output(false);
+    return planner->committed();
+  }
+  void refreshRoute()
+  {
+    objects->header.stamp = node->now();
+    odometry->header.stamp = node->now();
+    ObjectData target(objects->objects.front(), 0.0, 20.0, 1.0);
+    target.direction = Direction::RIGHT;
+    planner->update(data, OppositeLaneBorrowingTestPeer::upstream(*planner), target, false);
   }
   PredictedObject obstacle(double x, double y)
   {
@@ -727,6 +772,225 @@ TEST_F(OppositeLaneTest, CampusUpdateSearchesLowerSpeedAndCommitsCompletePath)
   EXPECT_GT(output.path.points.back().point.pose.position.x, 30.0);
   EXPECT_GE(output.path.points.back().point.pose.position.x -
     OppositeLaneBorrowingTestPeer::returnEndX(*planner), 3.0);
+}
+
+TEST_F(OppositeLaneTest, ExtendsCommittedReturnPastLongObstacleBeyondReturnEnd)
+{
+  parameters->opposite_lane.enabled = true;
+  parameters->opposite_lane.campus_agv = true;
+  parameters->opposite_lane.max_return_extension_distance = 100.0;
+  parameters->opposite_lane.max_planning_time_ms = 5000.0;
+  data->parameters.vehicle_info.wheel_base_m = 1.0;
+  data->parameters.vehicle_info.max_steer_angle_rad = 1.0;
+  lc->trajectory.lateral_jerk = 0.5;
+  odometry->header.stamp = node->now();
+  objects->header.stamp = node->now();
+  objects->objects = {obstacle(20.0, 0.0)};
+  OppositeLaneBorrowingTestPeer::routeFixture(*planner, data);
+  const auto upstream = OppositeLaneBorrowingTestPeer::upstream(*planner);
+  ObjectData target(objects->objects.front(), 0.0, 20.0, 1.0);
+  target.direction = Direction::RIGHT;
+  planner->update(data, upstream, target, false);
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  planner->output(false);
+  ASSERT_TRUE(planner->committed());
+  const double original_end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto secondary = obstacle(original_end + 6.6, 0.0);
+  secondary.object_id.uuid[0] = 2;
+  secondary.shape.dimensions.x = 10.0;
+  objects->objects.push_back(secondary);
+  objects->header.stamp = node->now();
+  odometry->header.stamp = node->now();
+  planner->update(data, upstream, target, false);
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  // The return must finish beyond the far face, with strictly more than ten metres free.
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), original_end + 21.6);
+  EXPECT_TRUE(planner->committed());
+}
+
+TEST_F(OppositeLaneTest, ExactlyTenMetresFromOutlineStillRequiresExtension)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end + 10.5, 0.0);
+  object.object_id.uuid[0] = 2;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 21.0);
+}
+
+TEST_F(OppositeLaneTest, StopMarginCanRequireExtensionEvenWithTenMetresClearance)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  parameters->opposite_lane.stop_margin = 15.0;
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end + 12.5, 0.0);  // Near face is 12m away, but stop is before completion.
+  object.object_id.uuid[0] = 2;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 23.0);
+}
+
+TEST_F(OppositeLaneTest, SameObjectGrowingAfterExtensionIsCheckedAgain)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end + 6.6, 0.0);
+  object.object_id.uuid[0] = 2;
+  object.shape.dimensions.x = 10.0;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  const double first_end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  // Same UUID, updated outline now reaches ten metres farther forward.
+  objects->objects.back().shape.dimensions.x = 30.0;
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), first_end);
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 31.6);
+}
+
+TEST_F(OppositeLaneTest, ContinuousObstaclesMustAllBeCleared)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto first = obstacle(end + 6.6, 0.0);
+  first.object_id.uuid[0] = 2;
+  first.shape.dimensions.x = 10.0;
+  auto second = obstacle(end + 25.0, 0.0);
+  second.object_id.uuid[0] = 3;
+  second.shape.dimensions.x = 6.0;
+  objects->objects.push_back(first);
+  objects->objects.push_back(second);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 38.0);
+}
+
+TEST_F(OppositeLaneTest, ObjectCentreOutsideSourceLaneStillUsesIntersectingOutline)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end + 6.6, -2.2);
+  object.object_id.uuid[0] = 2;
+  object.shape.dimensions.x = 10.0;
+  object.shape.dimensions.y = 4.0;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 21.0);
+}
+
+TEST_F(OppositeLaneTest, RotatedFootprintControlsReturnInsteadOfLengthOnly)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end + 6.6, 0.0);
+  object.object_id.uuid[0] = 2;
+  object.shape.type = autoware_perception_msgs::msg::Shape::POLYGON;
+  object.shape.dimensions.x = object.shape.dimensions.y = 0.1;
+  for (const auto & xy :
+       std::vector<std::pair<float, float>>{{-.5f, -5.f}, {.5f, -5.f}, {.5f, 5.f}, {-.5f, 5.f}}) {
+    geometry_msgs::msg::Point32 point;
+    point.x = xy.first;
+    point.y = xy.second;
+    object.shape.footprint.points.push_back(point);
+  }
+  object.kinematics.initial_pose_with_covariance.pose.orientation.z = std::sin(M_PI / 4.0);
+  object.kinematics.initial_pose_with_covariance.pose.orientation.w = std::cos(M_PI / 4.0);
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end + 21.6);
+}
+
+TEST_F(OppositeLaneTest, UnrelatedRoadsideObjectDoesNotExtendReturn)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end, 9.0);
+  object.object_id.uuid[0] = 2;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_DOUBLE_EQ(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end);
+}
+
+TEST_F(OppositeLaneTest, ExtensionLimitBrakesAndRetainsCommittedPath)
+{
+  ASSERT_TRUE(commitCampusRoute()) << planner->reason();
+  const auto before = planner->candidate().path_candidate;
+  const double end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  parameters->opposite_lane.max_return_extension_distance = 1.0;
+  auto object = obstacle(end + 6.6, 0.0);
+  object.object_id.uuid[0] = 2;
+  object.shape.dimensions.x = 10.0;
+  objects->objects.push_back(object);
+  refreshRoute();
+  EXPECT_FALSE(planner->ready());
+  EXPECT_TRUE(planner->committed());
+  EXPECT_FALSE(planner->complete());
+  const auto after = planner->candidate().path_candidate;
+  ASSERT_EQ(after.points.size(), before.points.size());
+  for (size_t i = 0; i < after.points.size(); ++i) {
+    EXPECT_EQ(after.points[i].point.pose, before.points[i].point.pose);
+  }
+  EXPECT_DOUBLE_EQ(planner->output(false).path.points.back().point.longitudinal_velocity_mps, 0.0);
+}
+
+TEST_F(OppositeLaneTest, RecordedNegativeXLongObstacleRequiresPassingFarOutline)
+{
+  ASSERT_TRUE(commitCampusRoute(M_PI, -275.711, 3.95)) << planner->reason();
+  auto object = obstacle(-321.0713904683117, 3.829521457672034);
+  object.object_id.uuid[0] = 2;
+  object.shape.dimensions.x = 9.971581794382907;
+  object.shape.dimensions.y = 2.913956431411698;
+  object.kinematics.initial_pose_with_covariance.pose.orientation.z =
+    std::sin(3.1174870650099002 / 2.0);
+  object.kinematics.initial_pose_with_covariance.pose.orientation.w =
+    std::cos(3.1174870650099002 / 2.0);
+  objects->objects.push_back(object);
+  // The map fixture places the initial end near x=-314.46; the object is the recorded bag shape.
+  const double original_end = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_LT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), original_end - 21.6);
+  EXPECT_LT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), -336.09);
+}
+
+TEST_F(OppositeLaneTest, RotatedRoadUsesArcDirectionForReturnExtension)
+{
+  ASSERT_TRUE(commitCampusRoute(M_PI / 4.0)) << planner->reason();
+  const double end_x = OppositeLaneBorrowingTestPeer::returnEndX(*planner);
+  auto object = obstacle(end_x + 6.6 / std::sqrt(2.0), end_x + 6.6 / std::sqrt(2.0));
+  object.object_id.uuid[0] = 2;
+  object.shape.dimensions.x = 10.0;
+  object.kinematics.initial_pose_with_covariance.pose.orientation = odometry->pose.pose.orientation;
+  objects->objects.push_back(object);
+  refreshRoute();
+  ASSERT_TRUE(planner->ready()) << planner->reason();
+  EXPECT_GT(OppositeLaneBorrowingTestPeer::returnEndX(*planner), end_x + 21.6 / std::sqrt(2.0));
+}
+
+TEST_F(OppositeLaneTest, TrailerCollisionIsDetectedWhenTractorClearsObject)
+{
+  OppositeLaneBorrowingTestPeer::setBorrowedReturnScenario(*planner);
+  TrailerGeometry geometry;
+  geometry.width = 1.0;
+  geometry.axle_to_body_front = 1.0;
+  geometry.axle_to_body_rear = 0.7;
+  geometry.front_hitch_to_axle = 0.9;
+  geometry.axle_to_rear_hitch = 0.6;
+  geometry.max_articulation_angle_rad = 0.8;
+  OppositeLaneBorrowingTestPeer::trailers(*planner, geometry);
+  auto mutable_objects =
+    std::const_pointer_cast<autoware_perception_msgs::msg::PredictedObjects>(data->dynamic_object);
+  mutable_objects->objects = {obstacle(8.5, 3.0)};
+  EXPECT_EQ(
+    OppositeLaneBorrowingTestPeer::returnObstacle(*planner),
+    OppositeLaneBorrowingTestPeer::secondaryObjectId(*planner));
 }
 
 TEST_F(OppositeLaneTest, CampusReturningCandidateStartsAtMeasuredPoseAndHeading)
