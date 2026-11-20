@@ -56,5 +56,5 @@
         lat_shift_th: 0.5
         forward_shift_th: 1.0
         backward_shift_th: 0.1
-        handling_type: 2  # retain valid geometry and decelerate on a path discontinuity
+        handling_type: 0  # always publish the current trajectory, even when invalid
         override_error_diag: false

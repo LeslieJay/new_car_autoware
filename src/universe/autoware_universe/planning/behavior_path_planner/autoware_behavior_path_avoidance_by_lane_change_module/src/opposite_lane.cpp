@@ -543,7 +543,7 @@ void OppositeLaneBorrowing::update(
       }
     }
   } else {
-    requested_ = true;  // Unsafe or unavailable candidates still request a stop before the target.
+    requested_ = true;  // Wait on temporary safety failures; unavailable topology releases below.
     if (!target_ || target_->object.object_id != target->object.object_id) {
       RCLCPP_INFO(logger_,
         "[OPPOSITE_BORROWING] active target locked uuid=%s lon=%.2fm lat=%.2fm",
@@ -743,6 +743,7 @@ bool OppositeLaneBorrowing::buildCorridor()
         const auto aligned = lane.invert();
         if (!opposite_.empty() && !connects(opposite_.back().invert(), aligned)) continue;
         if (selected && selected->id() != lane.id()) {
+          requested_ = false;
           reason_ = "ambiguous_opposite_topology";
           return false;
         }
@@ -759,9 +760,11 @@ bool OppositeLaneBorrowing::buildCorridor()
     drivable_lanes_.push_back(drivable);
   }
   if (opposite_.empty()) {
+    requested_ = false;
     reason_ = "no_continuous_opposite_road";
     return false;
   }
+  requested_ = true;
   return true;
 }
 
@@ -813,16 +816,56 @@ bool OppositeLaneBorrowing::buildPath()
   const double braking_distance = p.campus_agv ? std::max(0.0,
     (current_speed * current_speed - candidate_speed_ * candidate_speed_) /
       (-2.0 * trajectory.min_longitudinal_acc)) : 0.0;
-  const double borrow_start = arc[ego_index] + p.prepare_distance + braking_distance;
-  const double borrow_end = borrow_start + shift_distance;
+  const double earliest_start = arc[ego_index] + p.prepare_distance + braking_distance;
+  double borrow_start = earliest_start;
+  double borrow_end = borrow_start + shift_distance;
+  const double front_offset = vehicle.max_longitudinal_offset_m;
+  const double completion_margin = std::max(p.borrow_completion_margin, p.longitudinal_margin);
+  if (p.campus_agv) {
+    const auto reject_borrow = [&](const char * reason) {
+      reason_ = reason;
+      RCLCPP_WARN_THROTTLE(
+        logger_, *clock_, 1000,
+        "[OPPOSITE_BORROWING] candidate speed=%.2f target_near=%.2f shift_length=%.2f "
+        "borrow_start=%.2f earliest_start=%.2f borrow_end=%.2f front_clearance=%.2f reason=%s",
+        candidate_speed_, object_front, shift_distance, borrow_start, earliest_start, borrow_end,
+        object_front - borrow_end - front_offset, reason_.c_str());
+      return false;
+    };
+    // Place the completed shift before the nearest point of the full obstacle outline.
+    // Floor both endpoints on the reference path so sampling cannot consume the clearance.
+    const double latest_end = object_front - front_offset - completion_margin;
+    const auto end_it = std::upper_bound(arc.begin(), arc.end(), latest_end);
+    if (end_it == arc.begin()) return reject_borrow("borrow_completion_clearance_unavailable");
+    const size_t end_index = static_cast<size_t>(end_it - arc.begin() - 1);
+    const double latest_start = arc[end_index] - shift_distance;
+    const auto start_it = std::upper_bound(arc.begin(), arc.end(), latest_start);
+    if (start_it == arc.begin()) return reject_borrow("borrow_shift_distance_unavailable");
+    const size_t start_index = static_cast<size_t>(start_it - arc.begin() - 1);
+    borrow_start = arc[start_index];
+    borrow_end = arc[end_index];
+    if (borrow_start + 1e-6 < earliest_start) {
+      return reject_borrow("borrow_start_before_minimum_prepare_distance");
+    }
+    if (object_front - borrow_end - front_offset + 1e-6 < completion_margin ||
+        borrow_end - borrow_start + 1e-6 < shift_distance) {
+      return reject_borrow("borrow_completion_clearance_unavailable");
+    }
+    RCLCPP_INFO_THROTTLE(
+      logger_, *clock_, 1000,
+      "[OPPOSITE_BORROWING] candidate speed=%.2f target_near=%.2f shift_length=%.2f "
+      "borrow_start=%.2f borrow_end=%.2f front_clearance=%.2f",
+      candidate_speed_, object_front, shift_distance, borrow_start, borrow_end,
+      object_front - borrow_end - front_offset);
+  }
   const double return_start = object_rear + trainLength() + p.return_distance_after_object;
   const double return_end = std::max(
     return_start + shift_distance,
     object_rear + p.return_end_clearance + p.return_clearance_buffer);
   // Allow a straight settling section for the last trailer before declaring completion.
   const double finish = return_end + postReturnDistance(trainLength(), p, *lc_parameters_);
-  if (borrow_end + data_->parameters.vehicle_info.max_longitudinal_offset_m +
-        p.longitudinal_margin >= object_front || finish >= arc.back()) {
+  if ((!p.campus_agv && borrow_end + front_offset + p.longitudinal_margin >= object_front) ||
+      finish >= arc.back()) {
     reason_ = "insufficient_borrow_or_return_distance";
     RCLCPP_WARN_THROTTLE(
       logger_, *clock_, 1000,

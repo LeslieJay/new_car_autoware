@@ -66,6 +66,7 @@ private:
   BehaviorModuleOutput planOpposite(bool waiting);
   std::unique_ptr<OppositeLaneBorrowing> opposite_;
   bool opposite_selected_{false};
+  bool yielding_{false};
   std::string approval_key_;
 
 protected:

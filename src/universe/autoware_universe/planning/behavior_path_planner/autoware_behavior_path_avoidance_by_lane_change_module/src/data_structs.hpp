@@ -39,6 +39,7 @@ struct OppositeLaneParameters
   double time_resolution{0.5};
   double min_time_gap{3.0};
   double longitudinal_margin{2.0};
+  double borrow_completion_margin{5.0};
   double lateral_margin{0.5};
   double clearance_hold_time{1.0};
   double return_distance_after_object{5.0};

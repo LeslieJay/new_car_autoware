@@ -278,9 +278,17 @@ Parameters under `avoidance_by_lane_change.opposite_lane`:
 
 | Parameter | Default | Meaning |
 |---|---:|---|
+| `borrow_completion_margin` | 5.0 m | Campus AGV: minimum reference-path distance from the vehicle front at completed outbound shift to the nearest point of the target outline; combined with `longitudinal_margin` using the larger value |
 | `return_end_clearance` | 10.0 m | Strict point-to-outline clearance; values below 10 are rejected |
 | `return_clearance_buffer` | 0.2 m | Extra clearance when seeding a new endpoint |
 | `return_completion_buffer` | 1.0 m | Travel allowance for settling and completion confirmation |
+
+For `campus_agv`, the outbound shift ends no later than the obstacle outline's near arc
+minus the configured vehicle front offset and effective completion margin. Its start is
+placed a full speed-dependent shift distance earlier. Both endpoints round toward earlier
+reference-path samples. `prepare_distance` is the minimum approach before the shift begins;
+if it cannot be met, planning tries the next lower candidate speed and then waits/stops if
+none fits. Other profiles retain the existing start at ego arc plus `prepare_distance`.
 
 `max_return_extension_distance` remains measured from the original endpoint, including repeated
 extensions. Unrelated roadside objects outside the relevant lane/trajectory do not trigger an
@@ -288,7 +296,7 @@ extension. Trailer footprints are additionally checked for collisions before com
 
 ### Validation
 
-Run the package build and the three functional tests:
+Run the package build and the functional tests:
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -296,7 +304,7 @@ source install/setup.bash
 colcon build --packages-select autoware_behavior_path_avoidance_by_lane_change_module \
   --symlink-install --cmake-args -DBUILD_TESTING=ON
 ctest --test-dir build/autoware_behavior_path_avoidance_by_lane_change_module \
-  -R '^(test_opposite_lane|test_borrowing_math|test_autoware_behavior_path_avoidance_by_lane_change_module)$' \
+  -R '^(test_lane_intrusion|test_opposite_lane|test_borrowing_math|test_autoware_behavior_path_avoidance_by_lane_change_module)$' \
   --output-on-failure
 ```
 
@@ -305,3 +313,36 @@ negative-x road fixture, a centre beyond the original return endpoint, exact 10 
 larger downstream stop margins, updated outlines with the same UUID, consecutive obstacles,
 rotated roads/footprints, trailer collisions and rejection without modifying committed geometry.
 A fixture based on a recorded shape is not a full rosbag replay or on-vehicle acceptance test.
+
+### Fallback when borrowing is unavailable
+
+Before commitment, missing or ambiguous opposite-road topology releases the borrowing request.
+An existing uncommitted candidate retires through the normal module-success transition,
+clearing its RTC state and returning the upstream path without adding a borrowing stop.
+This lets lower-priority static avoidance run under the unchanged slot policy. Temporary
+safety failures still wait and brake; committed maneuvers retain ownership.
+
+### Forward route lane admission
+
+Before either target-selection branch requests a lane change, the perceived object's unexpanded
+2D polygon must overlap a current route lane by more than `1e-6 m²`. The overlap must project
+ahead of the ego and within the reference path and `attention_distance`. A boundary touch alone
+does not qualify. Invalid object or lane geometry rejects a new request; the existing downstream
+collision stop remains active. Rejections include a throttled object UUID and reason in the
+planner log. Targets that have already committed to a borrow keep the existing safety and
+completion lifecycle.
+
+Run the closed-loop admission acceptance on `hy_1031` with a fresh simulator and ROS domain for
+each iteration:
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+python3 src/byd/obstacle_avoidance_limit_test/scripts/run_lane_admission_acceptance.py \
+  --repeat 3 --domain-base 180 --output-root artifacts/lane_admission_acceptance
+```
+
+The runner stops on the first failure. Each case saves launch and test logs, input settings,
+map and module hashes, a rosbag, state timeline, actual trajectory plot and `verdict.json`.
+The top-level `summary.json` lists every completed iteration. The existing campus scenarios
+remain available through `run_campus_agv_acceptance.py --repeat 3`.

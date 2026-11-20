@@ -20,6 +20,7 @@
 #include "data_structs.hpp"
 
 #include <memory>
+#include <string>
 
 namespace autoware::behavior_path_planner
 {
@@ -63,6 +64,9 @@ private:
 
   std::optional<ObjectData> createObjectData(
     const AvoidancePlanningData & data, const PredictedObject & object) const;
+
+  bool intrudesForwardRouteLane(
+    const PredictedObject & object, std::string * rejection_reason = nullptr) const;
 
   void fillAvoidanceTargetObjects(AvoidancePlanningData & data, AvoidanceDebugData & debug) const;
 

@@ -625,6 +625,21 @@ class DistanceNode(Node):
             if self._call_service(self.pose_service, request, wait_sec=10.0, timeout_sec=5.0):
                 self.get_logger().info("initialized simulator through /api/simulator/set/pose")
 
+        # A pose API response can arrive before simulator odometry starts.
+        # Retry the initial pose here, before a route can be reset by it.
+        for _ in range(5):
+            until = time.monotonic() + 2.0
+            while rclpy.ok() and time.monotonic() < until and not self.actual:
+                rclpy.spin_once(self, timeout_sec=0.1)
+            if self.actual:
+                break
+            pose.header.stamp = self.get_clock().now().to_msg()
+            self.initial_pub.publish(pose)
+        self.setup_pose_ready = bool(self.actual)
+        if not self.setup_pose_ready:
+            self.get_logger().error("simulator odometry unavailable after initial pose")
+            return
+
         if self.route_service.wait_for_service(timeout_sec=10.0):
             request = SetRoutePoints.Request()
             request.header = pose.header
@@ -647,9 +662,7 @@ class DistanceNode(Node):
         # route/control command has been accepted.
         service_available = self.set_autonomous(engage=True)
         if not service_available:
-            self.get_logger().warning("autonomous mode services unavailable; publishing initial pose fallback")
-            pose.header.stamp = self.get_clock().now().to_msg()
-            self.initial_pub.publish(pose)
+            self.get_logger().warning("autonomous mode services unavailable")
 
     def clear(self) -> None:
         self.object_pub.publish(make_delete_all(self.get_clock().now().to_msg(), self.cfg["frame_id"]))
@@ -968,6 +981,7 @@ class DistanceNode(Node):
         self.preflight_s_end_m = None
         self.preflight_speed_max_mps = None
         self.turn_signal_history = []
+        self.setup_pose_ready = False
 
     def scenario_complete(self) -> bool:
         """Optional completion condition for specialized simulator scenarios."""
@@ -998,7 +1012,8 @@ class DistanceNode(Node):
         # INVALID and no obstacle is ever tested.
         deadline = time.monotonic() + max(15.0, float(test["settle_sec"]) + 8.0)
         last_command = 0.0
-        while rclpy.ok() and time.monotonic() < deadline and not self.latest_behavior:
+        while (rclpy.ok() and time.monotonic() < deadline and
+               (not self.latest_behavior or not self.latest_trajectory)):
             rclpy.spin_once(self, timeout_sec=0.05)
             self.publish_speed_limit()
             self.publish_trailer_configuration()
@@ -1015,8 +1030,8 @@ class DistanceNode(Node):
         self.candidate_history = []
         self.trajectory_history = []
         setup_end = time.time()
-        if not self.baseline_path:
-            self.invalid_reason = "ROUTE_OR_BEHAVIOR_PATH_NOT_READY"
+        if not self.baseline_path or not self.latest_trajectory:
+            self.invalid_reason = "ROUTE_OR_PLANNING_TRAJECTORY_NOT_READY"
 
         obstacle_anchor = (float(self.ego["x"]), float(self.ego["y"]))
         if self.lock_mode == "steady_speed_lock":
@@ -1094,6 +1109,8 @@ class DistanceNode(Node):
                 "/perception/object_recognition/detection/objects",
                 "/perception/object_recognition/tracking/objects",
                 "/planning/planning_validator/validation_status",
+                "/planning/cooperate_status/avoidance_by_lane_change_left",
+                "/planning/cooperate_status/avoidance_by_lane_change_right",
                 *["/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/debug/" + name + "/processing_time_ms"
                   for name in ("total_time", "avoidance_by_lane_change", "lane_change_left", "lane_change_right")],
                 "/vehicle/engage",
@@ -1121,7 +1138,7 @@ class DistanceNode(Node):
         deadline = time.monotonic() + float(test["settle_sec"]) + float(test["sample_sec"])
         period = 1.0 / float(test["publish_rate_hz"])
         arrived_since = None
-        while rclpy.ok() and time.monotonic() < deadline:
+        while rclpy.ok() and time.monotonic() < deadline and self.obstacle_active:
             if self.obstacle_active:
                 elapsed = time.time() - self.case_start_epoch
                 self.publish_obstacle(

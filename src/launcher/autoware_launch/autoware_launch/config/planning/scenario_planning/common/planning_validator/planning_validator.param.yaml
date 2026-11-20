@@ -6,7 +6,7 @@
     #  0: publish the trajectory even if it is invalid
     #  1: publish the last validated trajectory
     #  2: publish the last validated trajectory with soft stop
-    default_handling_type: 2
+    default_handling_type: 0
 
     publish_diag: true  # if true, diagnostic msg is published
 
@@ -14,14 +14,14 @@
     # (For example, threshold = 1 means, even if the trajectory is invalid, Diag will not be ERROR if
     #  the next trajectory is valid.)
     # 10 Hz 下允许单帧瞬态异常恢复；连续约 0.2 s 无效才将诊断升级为 ERROR。
-    # 无效轨迹采用上一条有效轨迹受控减速，避免将不可跟踪几何继续传给控制器。
+    # 非法轨迹也直接发布原始轨迹，不替换为历史轨迹或 soft-stop。
     diag_error_count_threshold: 2
     display_on_terminal: true # show error msg on terminal
 
     # if handling type is 2 (use last valid traj with soft stop), the following parameters are used to
     # generate soft stop trajectory
     soft_stop_deceleration: -1.0 # [m/s^2]
-    soft_stop_jerk_lim: 1.0 # [m/s^3]
+    soft_stop_jerk_lim: 0.3 # [m/s^3]
 
     # discard outdated traffic light information and do not use it in validation.
     th_traffic_light_timeout: 0.5 # [s]

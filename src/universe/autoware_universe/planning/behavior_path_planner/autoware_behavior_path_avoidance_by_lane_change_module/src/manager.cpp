@@ -221,6 +221,7 @@ void AvoidanceByLaneChangeModuleManager::init(rclcpp::Node * node)
     o.time_resolution = number("opposite_lane.time_resolution", 0.5);
     o.min_time_gap = number("opposite_lane.min_time_gap", 3.0);
     o.longitudinal_margin = number("opposite_lane.longitudinal_margin", 2.0);
+    o.borrow_completion_margin = number("opposite_lane.borrow_completion_margin", 5.0);
     o.lateral_margin = number("opposite_lane.lateral_margin", 0.5);
     o.clearance_hold_time = number("opposite_lane.clearance_hold_time", 1.0, true);
     o.return_distance_after_object = number("opposite_lane.return_distance_after_object", 5.0);

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "scene.hpp"
+#include "lane_intrusion.hpp"
 
 #include "autoware/behavior_path_planner_common/utils/drivable_area_expansion/static_drivable_area.hpp"
 #include "autoware/behavior_path_planner_common/utils/path_safety_checker/objects_filtering.hpp"
@@ -25,9 +26,12 @@
 #include <autoware/behavior_path_static_obstacle_avoidance_module/data_structs.hpp>
 #include <autoware_lanelet2_extension/utility/utilities.hpp>
 #include <rclcpp/logging.hpp>
+#include <autoware_utils/ros/uuid_helper.hpp>
 #include <tf2/utils.hpp>
 
 #include <boost/geometry/algorithms/centroid.hpp>
+#include <boost/geometry/algorithms/area.hpp>
+#include <boost/geometry/algorithms/is_valid.hpp>
 #include <boost/geometry/strategies/cartesian/centroid_bashein_detmer.hpp>
 
 #include <algorithm>
@@ -187,6 +191,13 @@ std::optional<ObjectData> AvoidanceByLaneChange::nearestAvoidanceTarget() const
     const auto & points = prev_module_output_.path.points;
     std::optional<ObjectData> nearest;
     for (const auto & object : planner_data_->dynamic_object->objects) {
+      std::string rejection_reason;
+      if (!intrudesForwardRouteLane(object, &rejection_reason)) {
+        RCLCPP_INFO_THROTTLE(
+          logger_, clock_, 3000, "avoidance_by_lane_change rejected uuid=%s reason=%s",
+          autoware_utils_uuid::to_hex_string(object.object_id).c_str(), rejection_reason.c_str());
+        continue;
+      }
       const auto label = utils::getHighestProbLabel(object.classification);
       using C = autoware_perception_msgs::msg::ObjectClassification;
       if (label == C::PEDESTRIAN || label == C::BICYCLE || label == C::MOTORCYCLE) continue;
@@ -217,7 +228,26 @@ std::optional<ObjectData> AvoidanceByLaneChange::nearestAvoidanceTarget() const
     }
     if (nearest) return nearest;
   }
+  if (!planner_data_ || !planner_data_->dynamic_object) return std::nullopt;
   for (const auto & target : avoidance_data_.target_objects) {
+    const auto & current_objects = planner_data_->dynamic_object->objects;
+    const auto current = std::find_if(
+      current_objects.begin(), current_objects.end(), [&](const auto & object) {
+        return object.object_id.uuid == target.object.object_id.uuid;
+      });
+    if (current == current_objects.end()) {
+      RCLCPP_INFO_THROTTLE(
+        logger_, clock_, 3000, "avoidance_by_lane_change rejected uuid=%s reason=not_in_current_perception",
+        autoware_utils_uuid::to_hex_string(target.object.object_id).c_str());
+      continue;
+    }
+    std::string rejection_reason;
+    if (!intrudesForwardRouteLane(*current, &rejection_reason)) {
+      RCLCPP_INFO_THROTTLE(
+        logger_, clock_, 3000, "avoidance_by_lane_change rejected uuid=%s reason=%s",
+        autoware_utils_uuid::to_hex_string(target.object.object_id).c_str(), rejection_reason.c_str());
+      continue;
+    }
     const auto type = utils::getHighestProbLabel(target.object.classification);
     const auto param = avoidance_parameters_->object_parameters.find(type);
     if (param != avoidance_parameters_->object_parameters.end() &&
@@ -229,6 +259,68 @@ std::optional<ObjectData> AvoidanceByLaneChange::nearestAvoidanceTarget() const
     }
   }
   return std::nullopt;
+}
+
+bool AvoidanceByLaneChange::intrudesForwardRouteLane(
+  const PredictedObject & object, std::string * rejection_reason) const
+{
+  const auto reject = [&](const char * reason) {
+    if (rejection_reason) *rejection_reason = reason;
+    return false;
+  };
+  const auto & path = prev_module_output_.path.points;
+  if (!planner_data_ || !planner_data_->self_odometry || path.size() < 2) {
+    return reject("missing_reference_path_or_odometry");
+  }
+  const auto lanes = utils::getCurrentLanesFromPath(prev_module_output_.path, planner_data_);
+  if (lanes.empty()) return reject("missing_route_lane_geometry");
+
+  const auto object_polygon = autoware_utils::to_polygon2d(object);
+  if (!boost::geometry::is_valid(object_polygon) ||
+      boost::geometry::area(object_polygon) <= 1e-6) {
+    return reject("invalid_object_polygon");
+  }
+
+  const auto & ego = planner_data_->self_odometry->pose.pose.position;
+  const auto path_length = autoware::motion_utils::calcArcLength(path);
+  const auto ego_to_end = autoware::motion_utils::calcSignedArcLength(
+    path, ego, path.back().point.pose.position);
+  const auto max_forward = std::min(
+    avoidance_parameters_->opposite_lane.attention_distance, ego_to_end);
+  if (max_forward <= 0.0 || path_length <= 0.0) return reject("no_forward_path_coverage");
+
+  bool has_valid_lane = false;
+  bool has_lane_overlap = false;
+  for (const auto & lane : lanes) {
+    const auto lane_polygon = utils::toPolygon2d(lane);
+    if (!boost::geometry::is_valid(lane_polygon) ||
+        boost::geometry::area(lane_polygon) <= 1e-6) continue;
+    has_valid_lane = true;
+    for (const auto & polygon : positiveAreaOverlap(object_polygon, lane_polygon)) {
+      has_lane_overlap = true;
+      double nearest_s = std::numeric_limits<double>::infinity();
+      double furthest_s = -std::numeric_limits<double>::infinity();
+      double nearest_from_start = std::numeric_limits<double>::infinity();
+      double furthest_from_start = -std::numeric_limits<double>::infinity();
+      for (const auto & vertex : polygon.outer()) {
+        geometry_msgs::msg::Point point;
+        point.x = vertex.x();
+        point.y = vertex.y();
+        const auto s = autoware::motion_utils::calcSignedArcLength(path, ego, point);
+        const auto from_start = autoware::motion_utils::calcSignedArcLength(
+          path, path.front().point.pose.position, point);
+        if (!std::isfinite(s) || !std::isfinite(from_start)) continue;
+        nearest_s = std::min(nearest_s, s);
+        furthest_s = std::max(furthest_s, s);
+        nearest_from_start = std::min(nearest_from_start, from_start);
+        furthest_from_start = std::max(furthest_from_start, from_start);
+      }
+      if (furthest_s > 0.0 && nearest_s <= max_forward &&
+          furthest_from_start > 0.0 && nearest_from_start < path_length) return true;
+    }
+  }
+  if (!has_valid_lane) return reject("invalid_route_lane_geometry");
+  return reject(has_lane_overlap ? "outside_forward_path_or_attention" : "outside_route_lane");
 }
 
 AvoidancePlanningData AvoidanceByLaneChange::calcAvoidancePlanningData(

@@ -32,6 +32,8 @@
 
 namespace autoware::behavior_path_planner
 {
+enum class BorrowingRequest { NOT_APPLICABLE, WAITING, READY };
+
 enum class BorrowingPhase { WAITING_APPROVAL, BORROWING, PASSING, RETURNING, STOPPING, COMPLETE };
 
 // An independent planner: it never changes NormalLaneChange's lanes or object filters.
@@ -45,6 +47,11 @@ public:
     const std::shared_ptr<const PlannerData> & data, const BehaviorModuleOutput & upstream,
     const std::optional<ObjectData> & target, bool prefer_same_direction);
   bool requested() const { return requested_; }
+  BorrowingRequest requestState() const
+  {
+    return !requested_ ? BorrowingRequest::NOT_APPLICABLE
+                       : (safe_ ? BorrowingRequest::READY : BorrowingRequest::WAITING);
+  }
   bool ready() const { return safe_; }
   bool committed() const { return committed_; }
   bool complete() const { return phase_ == BorrowingPhase::COMPLETE; }

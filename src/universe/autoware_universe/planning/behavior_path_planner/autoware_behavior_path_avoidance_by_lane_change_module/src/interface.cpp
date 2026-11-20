@@ -50,6 +50,7 @@ AvoidanceByLaneChangeInterface::AvoidanceByLaneChangeInterface(
 
 bool AvoidanceByLaneChangeInterface::isExecutionRequested() const
 {
+  if (yielding_) return false;
   if (opposite_selected_) return opposite_->requested();
   if (getCurrentStatus() == ModuleStatus::RUNNING) return true;
   // isLaneChangeRequired returns an error, not a positive request flag.
@@ -65,6 +66,7 @@ void AvoidanceByLaneChangeInterface::processOnEntry()
 void AvoidanceByLaneChangeInterface::updateRTCStatus(
   const double start_distance, const double finish_distance)
 {
+  if (yielding_) return;
   const auto direction = std::invoke([&]() -> std::string {
     if (opposite_selected_) return opposite_->left() ? "left" : "right";
     const auto dir = module_type_->getDirection();
@@ -80,6 +82,7 @@ void AvoidanceByLaneChangeInterface::updateRTCStatus(
 }
 void AvoidanceByLaneChangeInterface::updateData()
 {
+  if (yielding_) return;
   const bool same_direction_running = getCurrentStatus() == ModuleStatus::RUNNING &&
                                       !opposite_selected_;
   if (same_direction_running) {
@@ -100,6 +103,18 @@ void AvoidanceByLaneChangeInterface::updateData()
     module_type_->specialRequiredCheck() && module_type_->isValidPath() && module_type_->isSafe();
   opposite_->update(planner_data_, getPreviousModuleOutput(),
     avoidance->nearestAvoidanceTarget(), same_direction_safe);
+  if (opposite_selected_ && !opposite_->committed() &&
+      opposite_->requestState() == BorrowingRequest::NOT_APPLICABLE) {
+    // Retire the existing candidate through the normal SUCCESS transition. Merely
+    // clearing requested() does not remove candidates already held by the slot.
+    yielding_ = true;
+    for (const auto & [direction, rtc] : rtc_interface_ptr_map_) {
+      if (rtc) rtc->removeCooperateStatus(uuid_map_.at(direction));
+    }
+    path_candidate_.reset();
+    stop_pose_.reset();
+    return;
+  }
   opposite_selected_ = opposite_->requested() || opposite_->committed();
   const auto key = opposite_selected_ ? opposite_->approvalKey() : std::string{"same_direction"};
   if (!opposite_->committed() && key != approval_key_) {
@@ -149,6 +164,7 @@ void AvoidanceByLaneChangeInterface::updateData()
 bool AvoidanceByLaneChangeInterface::isExecutionReady() const
 {
   // A committed borrowing maneuver retains ownership while its output brakes on safety failures.
+  if (yielding_) return false;
   return opposite_selected_ ? (opposite_->committed() || opposite_->ready())
                             : LaneChangeInterface::isExecutionReady();
 }
@@ -182,21 +198,25 @@ BehaviorModuleOutput AvoidanceByLaneChangeInterface::planOpposite(bool waiting)
 
 BehaviorModuleOutput AvoidanceByLaneChangeInterface::plan()
 {
+  if (yielding_) return getPreviousModuleOutput();
   return opposite_selected_ ? planOpposite(false) : LaneChangeInterface::plan();
 }
 
 BehaviorModuleOutput AvoidanceByLaneChangeInterface::planWaitingApproval()
 {
+  if (yielding_) return getPreviousModuleOutput();
   return opposite_selected_ ? planOpposite(true) : LaneChangeInterface::planWaitingApproval();
 }
 
 CandidateOutput AvoidanceByLaneChangeInterface::planCandidate() const
 {
+  if (yielding_) return {};
   return opposite_selected_ ? opposite_->candidate() : LaneChangeInterface::planCandidate();
 }
 
 bool AvoidanceByLaneChangeInterface::canTransitSuccessState()
 {
+  if (yielding_) return true;
   if (!opposite_selected_) return LaneChangeInterface::canTransitSuccessState();
   return opposite_->complete() || (!opposite_->requested() && !opposite_->committed());
 }
@@ -223,6 +243,7 @@ void AvoidanceByLaneChangeInterface::processOnExit()
 {
   opposite_->reset();
   opposite_selected_ = false;
+  yielding_ = false;
   approval_key_.clear();
   LaneChangeInterface::processOnExit();
 }

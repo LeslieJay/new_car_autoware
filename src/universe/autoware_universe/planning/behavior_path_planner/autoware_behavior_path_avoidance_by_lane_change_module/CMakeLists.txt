@@ -13,6 +13,12 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 )
 
 if(BUILD_TESTING)
+  add_executable(test_lane_intrusion test/test_lane_intrusion.cpp)
+  target_include_directories(test_lane_intrusion PRIVATE src)
+  target_link_libraries(test_lane_intrusion ${PROJECT_NAME})
+  target_compile_options(test_lane_intrusion PRIVATE -UNDEBUG)
+  add_test(NAME test_lane_intrusion COMMAND test_lane_intrusion)
+
   add_executable(test_borrowing_math test/test_borrowing_math.cpp)
   target_include_directories(test_borrowing_math PRIVATE src)
   target_compile_features(test_borrowing_math PRIVATE cxx_std_17)

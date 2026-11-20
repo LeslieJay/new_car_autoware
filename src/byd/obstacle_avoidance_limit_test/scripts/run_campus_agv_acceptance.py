@@ -57,10 +57,17 @@ def main():
     if args.repeat < 1:
         parser.error('--repeat must be positive')
     args.output_root.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, ROS_DOMAIN_ID=str(args.domain), ROS_LOCALHOST_ONLY='1', RMW_IMPLEMENTATION='rmw_fastrtps_cpp')
+    env = dict(os.environ, ROS_LOCALHOST_ONLY='1', RMW_IMPLEMENTATION='rmw_fastrtps_cpp',
+               DIRECT_SIMULATOR_POSE='1')
     records = []
+    run_index = 0
     for scenario in args.scenario or SCENARIOS:
         for iteration in range(1,args.repeat+1):
+            domain = args.domain + run_index
+            run_index += 1
+            if domain > 232:
+                parser.error('ROS domain exceeds 232')
+            env['ROS_DOMAIN_ID'] = str(domain)
             out = args.output_root/f'{scenario}_{iteration}'
             out.mkdir()
             env['ROS_LOG_DIR'] = str(out/'roslog')
@@ -74,7 +81,7 @@ def main():
                             '--scenario',scenario,'--launch-log',str(launch_log),'--output-dir',str(out),
                             '--goal-x',str(args.goal_x)]
             (out/'commands.json').write_text(json.dumps({'launch':command,'test':test_command,
-                                                         'ROS_DOMAIN_ID':args.domain},indent=2))
+                                                         'ROS_DOMAIN_ID':domain},indent=2))
             descendants = {}
             with launch_log.open('w') as log:
                 launch = subprocess.Popen(command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -85,14 +92,15 @@ def main():
                     while launch.poll() is None and time.monotonic()<until:
                         track(launch,descendants)
                         content = launch_log.read_text(errors='replace')
-                        if "Loaded node '/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner'" in content:
+                        if ("Loaded node '/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner'" in content and
+                                "Loaded node '/adapi/node/operation_mode'" in content):
                             ready = True
                             break
                         time.sleep(0.5)
                     if ready:
                         with (out/'test.log').open('w') as test_log:
                             test = subprocess.Popen(test_command,cwd=ROOT,env=env,stdout=test_log,stderr=subprocess.STDOUT,start_new_session=True)
-                            until = time.monotonic()+420
+                            until = time.monotonic()+600
                             while test.poll() is None and time.monotonic()<until:
                                 track(launch,descendants)
                                 track(test,descendants)
