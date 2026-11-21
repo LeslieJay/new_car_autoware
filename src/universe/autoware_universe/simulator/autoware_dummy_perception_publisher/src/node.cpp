@@ -35,6 +35,7 @@
 #include <pcl/filters/voxel_grid_occlusion_estimation.h>
 
 #include <cmath>
+#include <utility>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -157,6 +158,27 @@ void DummyPerceptionPublisherNode::timerCallback()
     return;
   }
 
+  // Retry the same sample when TF arrives after the lookup timeout. Resampling at
+  // now on every retry can perpetually chase a transform that is not available yet.
+  // Bound the in-flight sample age and keep its object poses and header time together.
+  if (pending_frame_) {
+    const double age = (current_time - pending_frame_->stamp).seconds();
+    if (age < 0.0 || age > 1.0) {
+      pending_frame_.reset();
+    }
+  }
+  if (!pending_frame_) {
+    pending_frame_.emplace(PendingFrame{current_time, {}, {}});
+    for (const auto & plugin : movement_plugins_) {
+      const auto objects = plugin->get_objects();
+      pending_frame_->objects.insert(
+        pending_frame_->objects.end(), objects.begin(), objects.end());
+      const auto infos = plugin->move_objects();
+      pending_frame_->infos.insert(pending_frame_->infos.end(), infos.begin(), infos.end());
+    }
+  }
+  current_time = pending_frame_->stamp;
+
   tf2::Transform tf_base_link2map;
   try {
     TransformStamped ros_base_link2map;
@@ -171,16 +193,9 @@ void DummyPerceptionPublisherNode::timerCallback()
   std::vector<size_t> selected_indices{};
   static std::uniform_real_distribution<> detection_successful_random(0.0, 1.0);
 
-  // merge objects and get object infos
-  std::vector<DummyObject> all_objects;
-  std::vector<ObjectInfo> obj_infos;
-
-  for (const auto & plugin : movement_plugins_) {
-    const auto plugin_objects = plugin->get_objects();
-    all_objects.insert(all_objects.end(), plugin_objects.begin(), plugin_objects.end());
-    const auto plugin_infos = plugin->move_objects();
-    obj_infos.insert(obj_infos.end(), plugin_infos.begin(), plugin_infos.end());
-  }
+  auto all_objects = std::move(pending_frame_->objects);
+  auto obj_infos = std::move(pending_frame_->infos);
+  pending_frame_.reset();
 
   for (size_t i = 0; i < all_objects.size(); ++i) {
     if (detection_successful_rate_ >= detection_successful_random(random_generator_)) {
@@ -280,6 +295,12 @@ void DummyPerceptionPublisherNode::timerCallback()
         plugin->delete_object(uuid);
       }
     }
+  }
+
+  // TF waiting and point-cloud generation must not publish an expired sample.
+  const double sample_age = (this->now() - current_time).seconds();
+  if (sample_age < 0.0 || sample_age > 1.0) {
+    return;
   }
 
   // create output header
@@ -390,6 +411,7 @@ void DummyPerceptionPublisherNode::objectCallback(
       break;
     }
     case tier4_simulation_msgs::msg::DummyObject::DELETE: {
+      pending_frame_.reset();
       for (auto & plugin : movement_plugins_) {
         plugin->delete_object(msg->id);
       }
@@ -405,6 +427,7 @@ void DummyPerceptionPublisherNode::objectCallback(
       break;
     }
     case tier4_simulation_msgs::msg::DummyObject::DELETEALL: {
+      pending_frame_.reset();
       for (auto & plugin : movement_plugins_) {
         plugin->clear_objects();
       }

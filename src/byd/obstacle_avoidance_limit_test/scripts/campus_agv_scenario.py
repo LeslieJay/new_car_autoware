@@ -9,13 +9,16 @@ import time
 from pathlib import Path
 
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from autoware_vehicle_msgs.msg import Engage as VehicleEngage, GearCommand
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from autoware_planning_validator.msg import PlanningValidatorStatus
 from tier4_simulation_msgs.msg import DummyObject
-from autoware_adapi_v1_msgs.msg import RouteState
+from autoware_adapi_v1_msgs.msg import RouteState, RouteOption
+from autoware_adapi_v1_msgs.srv import SetRoutePoints
+from geometry_msgs.msg import Pose
 from simple_avoidance_distance_test import DistanceNode, load_yaml
-from dummy_object_utils import make_dummy_object
+from dummy_object_utils import make_dummy_object, yaw_to_quaternion
 from opposite_borrowing_metrics import observe
 
 
@@ -42,6 +45,18 @@ class CampusScenario(DistanceNode):
         self.trigger_pose = None
         self.stopped_since = None
         self.b_spawn_time = None
+        self.b_origin_x = None
+        self.b_stop_time = None
+        self.b_wait_since = None
+        self.waited_for_b = False
+        self.first_b_extension_time = None
+        self.early_b_extension = False
+        self.timeline = []
+        self.extension_events = []
+        self.clearance_samples = {'A': 0, 'B': 0}
+        self.b_perception_samples = 0
+        self.b_perception_ids = set()
+        self.observation_time = params['/**']['ros__parameters']['avoidance_by_lane_change']['opposite_lane']['static_observation_time']
         super().__init__(cfg, 'avoidance_by_lane_change', params, 'start_lock', args.launch_log,
                          'normal', 1.5, [], case_name=args.scenario)
         self.engage_pub = self.create_publisher(VehicleEngage, '/vehicle/engage', 10)
@@ -49,6 +64,59 @@ class CampusScenario(DistanceNode):
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE))
         self.create_timer(0.1, self.keep_motion_enabled)
         self.create_subscription(PlanningValidatorStatus, '/planning/planning_validator/validation_status', self.validation, 10)
+
+    def _call_service(self, client, request, wait_sec=10.0, timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=wait_sec):
+            return False
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
+        response = future.result() if future.done() else None
+        status = getattr(response, 'status', None)
+        success = bool(response is not None and
+                       (getattr(status, 'success', True) if status is not None else
+                        getattr(response, 'success', True)))
+        self.timeline.append(dict(event='service_result', stamp=time.time(),
+                                  service=client.srv_name, success=success,
+                                  code=getattr(status, 'code', None),
+                                  message=getattr(status, 'message', '')))
+        return success
+
+    def publish_setup(self, repeat=3, engage=True):
+        super().publish_setup(repeat, engage)
+        if not self.setup_pose_ready:
+            return
+        # Match the existing lane-admission harness: an API response can precede
+        # mission-planner readiness. Never reset the vehicle pose after route hand-off.
+        if self.route_state != RouteState.SET:
+            goal = self.cfg['goal']
+            request = SetRoutePoints.Request()
+            request.header.frame_id = self.cfg['frame_id']
+            request.option = RouteOption(allow_goal_modification=False)
+            request.goal = Pose()
+            request.goal.position.x = float(goal['x'])
+            request.goal.position.y = float(goal['y'])
+            request.goal.position.z = float(goal.get('z', 0.0))
+            request.goal.orientation = yaw_to_quaternion(float(goal['yaw']))
+            for _ in range(5):
+                request.header.stamp = self.get_clock().now().to_msg()
+                self._call_service(self.route_service, request, wait_sec=5.0, timeout_sec=5.0)
+                for _ in range(20):
+                    rclpy.spin_once(self, timeout_sec=0.1)
+                if self.route_state == RouteState.SET:
+                    break
+        # Use the runner's existing startup budget for actual inputs, not only node loading.
+        # This is before obstacle injection and the unchanged 300 s scenario window.
+        deadline = time.monotonic() + 150.0
+        while (rclpy.ok() and time.monotonic() < deadline and
+               (self.route_state != RouteState.SET or not self.latest_behavior or
+                not self.latest_trajectory)):
+            rclpy.spin_once(self, timeout_sec=0.05)
+            self.publish_speed_limit()
+            self.publish_trailer_configuration()
+            self.publish_drive_gear()
+        ready = self.route_state == RouteState.SET and bool(self.latest_behavior and self.latest_trajectory)
+        self.timeline.append(dict(event='setup_inputs_ready', stamp=time.time(), ready=ready,
+                                  route_state=self.route_state))
 
     def metrics(self, speed, longitudinal, intrusion, shoulder, ox, oy):
         # Campus acceptance uses measured body geometry and the recorded validator stream.
@@ -109,6 +177,10 @@ class CampusScenario(DistanceNode):
                 self.extension_conflict_id = fields['return_extension_conflict']
             if 'planned_return_s' in fields:
                 self.extension = max(self.extension, float(fields['planned_return_s']) - float(fields['original_return_s']))
+            conflict = fields.get('return_extension_conflict', 'none')
+            if conflict != 'none':
+                stamps = re.findall(r'\[(\d{9,}\.\d+)\]', line)
+                self.extension_events.append((conflict, float(stamps[0]) if stamps else None))
 
     def _objects(self, msg):
         super()._objects(msg)
@@ -119,9 +191,13 @@ class CampusScenario(DistanceNode):
                                for o in msg.objects)
         if self.b:
             target = self.b.initial_state.pose_covariance.pose.position
-            self.b_seen |= any(math.hypot(o.kinematics.initial_pose_with_covariance.pose.position.x-target.x,
-                                         o.kinematics.initial_pose_with_covariance.pose.position.y-target.y) < 2.0
-                               for o in msg.objects)
+            matches = [o for o in msg.objects
+                       if math.hypot(o.kinematics.initial_pose_with_covariance.pose.position.x-target.x,
+                                     o.kinematics.initial_pose_with_covariance.pose.position.y-target.y) < 2.0]
+            self.b_perception_ids.update(bytes(o.object_id.uuid).hex() for o in matches)
+            seen = bool(matches)
+            self.b_perception_samples += int(seen)
+            self.b_seen |= seen
 
     def _odom(self, msg):
         super()._odom(msg)
@@ -150,8 +226,21 @@ class CampusScenario(DistanceNode):
             if self.args.scenario == 'pedestrian' and name == 'B' and self.b_spawn_time is not None:
                 stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
                 actual_y += max(0.0, stamp - self.b_spawn_time)
-            obstacle = polygon(op.x, actual_y, angle, -obj.shape.dimensions.x/2,
+            actual_x = op.x
+            if self.args.scenario == 'moving_then_static' and name == 'B':
+                stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+                actual_x = self.b_origin_x - 0.3 * max(0.0, min(stamp, self.b_stop_time or stamp) - self.b_spawn_time)
+                if self.b_stop_time is None:
+                    if self.b_seen and abs(msg.twist.twist.linear.x) < 0.05:
+                        if self.b_wait_since is None:
+                            self.b_wait_since = stamp
+                        if stamp - self.b_wait_since >= 2.0:
+                            self.waited_for_b = True
+                    else:
+                        self.b_wait_since = None
+            obstacle = polygon(actual_x, actual_y, angle, -obj.shape.dimensions.x/2,
                                obj.shape.dimensions.x/2, obj.shape.dimensions.y/2)
+            self.clearance_samples[name] += 1
             self.min_clearance[name] = min(self.min_clearance[name], polygon_distance(body, obstacle))
 
     def publish_obstacle(self, *args, **kwargs):
@@ -174,17 +263,26 @@ class CampusScenario(DistanceNode):
                                       math.pi/2 if scenario == 'pedestrian' else math.pi,
                                       length=0.6 if scenario == 'pedestrian' else 2.0,
                                       width=20.0 if scenario == 'blocked' else 0.6 if scenario == 'pedestrian' else 1.5,
-                                      height=1.7 if scenario == 'pedestrian' else 1.5, velocity=1.0 if scenario == 'pedestrian' else 0.0)
+                                      height=1.7 if scenario == 'pedestrian' else 1.5, velocity=1.0 if scenario == 'pedestrian' else 0.3 if scenario == 'moving_then_static' else 0.0)
             if scenario == 'pedestrian':
                 self.b.classification.label = 7
             elif scenario == 'blocked':
                 self.b.classification.label = 0
             self.trigger_pose = [x, y]
             self.b_spawn_time = self.get_clock().now().nanoseconds / 1e9
+            self.b_origin_x = bx
+            self.timeline.append(dict(event='b_spawn', stamp=self.b_spawn_time))
             self.b.action = DummyObject.ADD
             self.object_pub.publish(self.b)
         elif self.b is not None:
             if scenario != 'pedestrian':
+                if scenario == 'moving_then_static':
+                    now = self.get_clock().now().nanoseconds / 1e9
+                    if self.waited_for_b and self.b_stop_time is None:
+                        self.b_stop_time = now
+                        self.timeline.append(dict(event='b_stop_after_ego_wait', stamp=now))
+                    self.b.initial_state.pose_covariance.pose.position.x = self.b_origin_x - 0.3 * max(0.0, (self.b_stop_time or now) - self.b_spawn_time)
+                    self.b.initial_state.twist_covariance.twist.linear.x = 0.0 if self.b_stop_time else 0.3
                 self.b.header.stamp = self.get_clock().now().to_msg()
                 self.b.action = DummyObject.MODIFY
                 self.object_pub.publish(self.b)
@@ -242,7 +340,7 @@ def recorded_validation(bag_dir, start_stamp):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--scenario', choices=['baseline','gap5','passing','returning','blocked','pedestrian'], required=True)
+    parser.add_argument('--scenario', choices=['baseline','gap5','passing','returning','blocked','pedestrian','moving_then_static'], required=True)
     parser.add_argument('--launch-log', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--sample-sec', type=float, default=300.0)
@@ -255,15 +353,27 @@ def main():
     cfg['obstacle']['lane_yaw'] = math.pi
     cfg['test'].update(sample_sec=args.sample_sec, obstacle_hold_sec=args.sample_sec+120,
                        require_route_arrival=True)
-    params = load_yaml(Path('/home/nvidia/autoware/src/launcher/autoware_launch/autoware_launch/config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/avoidance_by_lane_change/campus_agv.param.yaml'))
+    launch_config = (Path(get_package_share_directory('autoware_launch')) /
+                     'config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner')
+    params = load_yaml(launch_config/'avoidance_by_lane_change/campus_agv.param.yaml')
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    expansion = load_yaml(Path('/home/nvidia/autoware/src/launcher/autoware_launch/autoware_launch/config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/campus_agv_drivable_area_expansion.param.yaml'))
+    expansion = load_yaml(launch_config/'campus_agv_drivable_area_expansion.param.yaml')
     (args.output_dir/'effective_input.json').write_text(json.dumps({'config':cfg,'params':params,'drivable_area_params':expansion},indent=2))
     rclpy.init()
     node = CampusScenario(cfg, params, args)
     try:
         row = node.run_case(1.5,42.0,1.0,'right',args.output_dir/'bag')
         node.read_diagnostics()
+        extensions = [stamp for conflict, stamp in node.extension_events
+                      if conflict in node.b_perception_ids]
+        if extensions:
+            node.early_b_extension = any(stamp is None for stamp in extensions)
+            valid_stamps = [stamp for stamp in extensions if stamp is not None]
+            if valid_stamps:
+                node.first_b_extension_time = min(valid_stamps)
+                confirmed_since = node.b_stop_time if args.scenario == 'moving_then_static' else node.b_spawn_time
+                node.early_b_extension |= confirmed_since is None or node.first_b_extension_time < confirmed_since + node.observation_time
+                node.timeline.append(dict(event='first_b_extension', stamp=node.first_b_extension_time))
         recorded = recorded_validation(args.output_dir/'bag', node.motion_start_stamp)
         node.invalid_count = recorded['non_latency_invalid_count']
         node.validation_samples = recorded['samples']
@@ -284,12 +394,25 @@ def main():
                       validation_samples=node.validation_samples, recorded_validation=recorded,
                       acceptance_policy="safe_avoidance_and_arrival_latency_not_gated",
                       min_body_clearance_m=clearances, boundary_violations=node.boundary_violations,
-                      final_pose=node.latest_pose, final_speed=node.latest_speed)
+                      final_pose=node.latest_pose, final_speed=node.latest_speed, route_state=node.route_state,
+                      first_b_extension_time=node.first_b_extension_time,
+                      early_b_extension=node.early_b_extension, waited_for_b=node.waited_for_b,
+                      clearance_samples=node.clearance_samples, timeline=node.timeline,
+                      b_perception_samples=node.b_perception_samples,
+                      b_perception_ids=sorted(node.b_perception_ids))
         result['passed'] = (bool(row.get('object_seen')) and node.moving and node.validation_samples > 0 and node.invalid_count == 0 and node.boundary_violations == 0 and
                             all(v is None or v > 0 for v in clearances.values()) and
                             (args.scenario == 'baseline' or node.b_seen) and
                             ((not arrived and abs(node.latest_speed)<0.05) if args.scenario == 'blocked' else arrived and node.complete_seen) and
                             (args.scenario not in ['passing','returning'] or node.extension > 0))
+        if args.scenario in ['passing', 'returning', 'moving_then_static']:
+            result['passed'] &= (not node.early_b_extension and node.first_b_extension_time is not None)
+        if args.scenario == 'moving_then_static':
+            result['passed'] &= (node.waited_for_b and node.b_stop_time is not None and
+                                 node.b_perception_samples > 0 and
+                                 all(node.clearance_samples.values()) and
+                                 all(value is not None and value > 0 for value in clearances.values()) and
+                                 node.extension > 0)
         (args.output_dir/'verdict.json').write_text(json.dumps(result,indent=2))
         import matplotlib
         matplotlib.use('Agg')

@@ -65,6 +65,9 @@ ament_auto_add_executable(empty_objects_publisher
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_ros_isolated_pytest_test(tf_retry-test test/test_tf_retry.py TIMEOUT 45)
+
   ament_add_ros_isolated_gtest(signed_distance_function-test
     test/src/test_signed_distance_function.cpp
   )

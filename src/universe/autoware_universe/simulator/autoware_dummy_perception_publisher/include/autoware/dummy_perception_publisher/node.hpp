@@ -39,6 +39,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <memory>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -96,6 +97,13 @@ private:
 class DummyPerceptionPublisherNode : public rclcpp::Node
 {
 private:
+  struct PendingFrame
+  {
+    rclcpp::Time stamp;
+    std::vector<DummyObject> objects;
+    std::vector<ObjectInfo> infos;
+  };
+  std::optional<PendingFrame> pending_frame_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_pub_;
   rclcpp::Publisher<tier4_perception_msgs::msg::DetectedObjectsWithFeature>::SharedPtr
     detected_object_with_feature_pub_;

@@ -323,6 +323,7 @@ void OppositeLaneBorrowing::updateObjectHistory()
 {
   const auto & p = parameters_->opposite_lane;
   if (!p.campus_agv || !data_->dynamic_object) return;
+  const double static_speed_threshold = std::min(p.static_speed_threshold, 0.1);
   const double now = rclcpp::Time(data_->dynamic_object->header.stamp).seconds();
   if (now < last_object_stamp_) object_tracks_.clear();
   last_object_stamp_ = now;
@@ -354,14 +355,18 @@ void OppositeLaneBorrowing::updateObjectHistory()
     used[match] = true;
     if (now <= track.last_seen) continue;
     track.filtered_speed = 0.5 * track.filtered_speed + 0.5 * speed;
-    if (speed > p.static_speed_threshold || track.filtered_speed > p.static_speed_threshold ||
+    if (speed > static_speed_threshold || track.filtered_speed > static_speed_threshold ||
         calc_distance2d(pose, track.stationary_anchor) >
-          p.static_speed_threshold * (now - track.stationary_since) + 0.3) {
+          static_speed_threshold * (now - track.stationary_since) + 0.3) {
       track.stationary_since = now;
       track.stationary_anchor = pose;
     }
+    // A zero reported twist is insufficient when the measured position is still moving.
+    // Keep the association/reset tolerance above, but require stationary evidence without it.
     track.stationary = now - track.stationary_since >= p.static_observation_time &&
-      speed <= p.static_speed_threshold;
+      speed <= static_speed_threshold &&
+      calc_distance2d(pose, track.stationary_anchor) <=
+        static_speed_threshold * (now - track.stationary_since);
     track.pose = pose;
     track.id = id;
     track.last_seen = now;
@@ -1369,7 +1374,9 @@ std::optional<OppositeLaneBorrowing::ReturnConstraint> OppositeLaneBorrowing::re
     [&](const PredictedObject & object, double far, bool in_source, const std::string & reason) {
       const auto motion = objectMotionBound(object, !p.campus_agv);
       const bool extendible =
-        in_source && motion && *motion <= (p.campus_agv ? p.static_speed_threshold : 0.1);
+        in_source && motion &&
+        *motion <= (p.campus_agv ? std::min(p.static_speed_threshold, 0.1) : 0.1) &&
+        (!p.campus_agv || isStaticObject(object));
       const ReturnConstraint constraint{
         autoware_utils_uuid::to_hex_string(object.object_id), reason,
         far + trainLength() + p.longitudinal_margin,
@@ -1537,11 +1544,11 @@ bool OppositeLaneBorrowing::extendReturn()
     [&](const auto & object) {
       return autoware_utils_uuid::to_hex_string(object.object_id) == conflict;
     });
-  // Candidate generation need not wait for static classification; the measured
-  // motion bound still prevents moving objects from driving return-point extension.
+  // Campus extensions require both observed stationarity and a current motion bound.
   const auto motion = obstacle == data_->dynamic_object->objects.end()
     ? std::optional<double>{} : objectMotionBound(*obstacle, !p.campus_agv);
-  if (!motion || *motion > (p.campus_agv ? p.static_speed_threshold : 0.1)) {
+  if (!motion || *motion > (p.campus_agv ? std::min(p.static_speed_threshold, 0.1) : 0.1) ||
+      (p.campus_agv && !isStaticObject(*obstacle))) {
     reason_ = saved_reason + ":secondary_object_not_static";
     return false;
   }

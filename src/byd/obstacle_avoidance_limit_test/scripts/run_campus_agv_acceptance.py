@@ -13,7 +13,7 @@ import time
 import psutil
 
 ROOT = Path(__file__).resolve().parents[4]
-SCENARIOS = ['baseline','gap5','passing','returning','pedestrian','blocked']
+SCENARIOS = ['baseline','gap5','passing','returning','pedestrian','blocked','moving_then_static']
 
 
 def cleanup(process, descendants):

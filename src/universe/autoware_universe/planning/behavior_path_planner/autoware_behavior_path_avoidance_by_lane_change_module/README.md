@@ -191,8 +191,14 @@ limits at the selected speed. A 50 m current-path corridor selector can request 
 without waiting for the static-avoidance module's `avoid_required` flag. Borrowing side and
 approval identity are associated spatially across short tracker ID changes.
 
-Objects observed below 0.4 m/s for one second can trigger return-point extension;
-sustained position changes restart confirmation. Path validation still rejects
+Return-point extension requires confirmed stationary objects, excluding pedestrians, bicycles
+and motorcycles. Campus history uses `min(static_speed_threshold, 0.1)` m/s and the existing
+`static_observation_time` (0.5 s in the campus launch profile). The current translation plus
+rotation motion bound must also satisfy that speed cap. Sustained position changes restart
+confirmation. Static confirmation additionally requires anchor-to-current displacement within
+the speed cap over the observation interval, so a zero reported twist alone is insufficient.
+The existing association/reset tolerance is unchanged; unconfirmed or moving blockers retain the committed geometry with braking until
+a safe candidate becomes available. Initial borrowing target selection is unchanged. Path validation still rejects
 unreachable upstream stops and invalid path geometry.
 
 Campus settings use 1.0 m longitudinal margin, 0.3 m lateral margin, 0.1 m road-boundary
@@ -215,6 +221,25 @@ python3 src/byd/obstacle_avoidance_limit_test/scripts/run_campus_agv_replay.py \
   --bag /home/nvidia/autoware/log/20261105/161119_bag \
   --output-dir /home/nvidia/autoware/log/20261105/campus_agv/replay
 ```
+
+The suite includes `moving_then_static`: a 0.3 m/s secondary obstacle keeps moving until
+the ego has waited stationary for two seconds, then stops. Acceptance requires no extension
+before static confirmation, followed by an actual endpoint extension and route arrival.
+Passing and returning cases also check the first extension timestamp against the observation
+interval. Missing measured clearance samples fail the new scenario.
+
+Campus setup checks actual service response status and retries route setup up to five times
+when the route is not yet SET, following the existing lane-admission harness. It never resets
+the vehicle pose after route hand-off. The existing 150 s startup budget is also used to wait for the actual SET state, behavior
+path and trajectory before preflight. Sampling and preflight timeouts and all acceptance
+checks are unchanged; an unready setup still fails without publishing obstacles.
+
+The dummy perception publisher keeps one in-flight object sample when its timestamped TF
+lookup times out, retrying the same timestamp on the next timer cycle instead of chasing
+`now` indefinitely. Object poses, TF and output headers use that retained sample; frames older
+than one second are discarded. The 0.5 s TF lookup timeout and planner freshness checks remain
+unchanged. `tf_retry-test` covers 0.65 s delayed TF recovery, moving-object timestamp consistency
+and rejection of expired samples.
 
 Each simulator case starts a fresh instance and keeps obstacle_stop and the planning
 validator enabled. Results include commands, effective inputs, bag, measured trajectory

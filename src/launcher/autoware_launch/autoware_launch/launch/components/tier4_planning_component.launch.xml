@@ -62,7 +62,7 @@
       name="behavior_path_planner_dynamic_obstacle_avoidance_module_param_path"
       value="$(var behavior_path_config_path)/autoware_behavior_path_dynamic_obstacle_avoidance_module/dynamic_obstacle_avoidance.param.yaml"
     />
-    <arg name="behavior_path_planner_lane_change_module_param_path" value="$(var behavior_path_config_path)/lane_change/lane_change.param.yaml"/>
+    <arg name="behavior_path_planner_lane_change_module_param_path" value="$(eval &quot;'$(var behavior_path_config_path)/lane_change/campus_agv.param.yaml' if '$(var avoidance_by_lane_change_profile)' == 'campus_agv' else '$(var behavior_path_config_path)/lane_change/lane_change.param.yaml'&quot;)"/>
     <arg name="behavior_path_planner_goal_planner_module_param_path" value="$(var behavior_path_config_path)/goal_planner/goal_planner.param.yaml"/>
     <arg name="behavior_path_planner_start_planner_module_param_path" value="$(var behavior_path_config_path)/start_planner/start_planner.param.yaml"/>
     <arg name="behavior_path_bidirectional_traffic_module_param_path" value="$(var behavior_path_config_path)/autoware_behavior_path_bidirectional_traffic_module/bidirectional_traffic.param.yaml"/>
