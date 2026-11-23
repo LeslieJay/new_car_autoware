@@ -16,7 +16,7 @@ from launch.launch_description_sources import (
     FrontendLaunchDescriptionSource,
     PythonLaunchDescriptionSource,
 )
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -258,12 +258,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "launch_static_obstacle_avoidance",
-                default_value=PythonExpression([
-                    "'false' if '",
-                    LaunchConfiguration("avoidance_by_lane_change_profile"),
-                    "' == 'campus_agv' else 'true'",
-                ]),
-                description="Enable static avoidance; disabled by default for campus_agv",
+                default_value="true",
+                description="Enable static obstacle avoidance",
             ),
             DeclareLaunchArgument(
                 "launch_simple_avoidance",
