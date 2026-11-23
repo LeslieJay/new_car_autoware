@@ -242,6 +242,12 @@ void filterTargetObjects(
   const std::shared_ptr<const PlannerData> & planner_data,
   const std::shared_ptr<AvoidanceParameters> & parameters);
 
+void filterTargetObjects(
+  ObjectDataArray & objects, AvoidancePlanningData & data, const double forward_detection_range,
+  const std::shared_ptr<const PlannerData> & planner_data,
+  const std::shared_ptr<AvoidanceParameters> & parameters,
+  const std::unordered_map<std::string, bool> & static_confirmations);
+
 void updateRoadShoulderDistance(
   AvoidancePlanningData & data, const std::shared_ptr<const PlannerData> & planner_data,
   const std::shared_ptr<AvoidanceParameters> & parameters);

@@ -9,7 +9,7 @@
       enable_opposite_lane_borrowing: true
       opposite_lane:
         attention_distance: 50.0
-        candidate_speeds: [2.0, 1.5, 1.0, 0.5]
+        candidate_speeds: [1.5]
         static_speed_threshold: 1.0
         static_observation_time: 0.5
         max_speed: 2.0
@@ -28,7 +28,7 @@
         data_timeout: 5.0
         max_planning_time_ms: 5000.0
         prepare_distance: 3.0
-        min_shift_distance: 5.0
+        min_shift_distance: 10.0
         max_return_extension_distance: 100.0
         return_extension_step: 1.0
         road_boundary_margin: 0.1

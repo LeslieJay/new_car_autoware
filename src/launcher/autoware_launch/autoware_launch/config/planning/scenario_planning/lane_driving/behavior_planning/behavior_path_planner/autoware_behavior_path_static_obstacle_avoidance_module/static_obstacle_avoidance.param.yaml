@@ -111,6 +111,14 @@
 
       # For target object filtering
       target_filtering:
+        # Confirm forward intruding vehicles before bypassing parking/intent classification.
+        # These settings are read when a static module instance is created.
+        quick_static_obstacle:
+          enabled: true
+          observation_time: 0.2       # [s], distinct perception frames
+          minimum_observations: 3
+          position_tolerance: 0.1     # [m], maximum displacement from the observation anchor
+          maximum_gap: 0.3           # [s], also the maximum age of perception data
         # avoidance target type
         target_type:
           car: true                                     # [-]

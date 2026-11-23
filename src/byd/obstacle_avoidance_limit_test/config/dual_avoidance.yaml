@@ -1,0 +1,56 @@
+# Distances are arclengths on the map centerline; lateral is left-positive.
+map_dir: /home/nvidia/autoware_map/hy_1031
+map_file: hy_1031_lanelet2_map_with_latlon.osm
+vehicle_model: byd_vehicle
+sensor_model: byd_sensor_kit
+route: {lane: '907', start_s: 55.0, goal_s: 145.0}
+speed: 1.0
+repeats: 3
+groups: [A, B, C]
+startup_timeout: 180
+release_after: 15.0
+cases:
+  - {name: empty, kind: empty}
+  - {name: behind, distance: -10.0}
+  - {name: outside_right, distance: 30.0, intrusion: -0.3, side: right}
+  - {name: outside_left, distance: 30.0, intrusion: -0.3, side: left}
+  - {name: right_shallow, distance: 30.0, intrusion: 0.3, side: right}
+  - {name: left_shallow, distance: 30.0, intrusion: 0.3, side: left}
+  - {name: right_deep, distance: 40.0, intrusion: 1.4, side: right}
+  - {name: left_deep, distance: 40.0, intrusion: 1.4, side: left}
+  - {name: center, distance: 40.0, lateral: 0.0}
+  - {name: wide, distance: 40.0, lateral: 0.0, width: 3.6}
+  - {name: near10, distance: 10.0, lateral: 0.0}
+  - {name: near20, distance: 20.0, lateral: 0.0}
+  - {name: truck, distance: 40.0, lateral: 0.0, label: truck, length: 6.0}
+  - {name: unknown, distance: 40.0, lateral: 0.0, label: unknown}
+  - {name: pedestrian, distance: 30.0, lateral: 0.0, label: pedestrian, width: 0.6, length: 0.6}
+  - {name: two_same_side, distance: 30.0, intrusion: 1.0, side: right, secondary: {distance: 42.0, intrusion: 1.0, side: right}}
+  - {name: two_alternating, distance: 30.0, intrusion: 1.0, side: right, secondary: {distance: 45.0, intrusion: 1.0, side: left}}
+  - {name: opposite_static, distance: 35.0, lateral: 0.0, secondary: {distance: 36.0, lateral: 4.5}}
+  - {name: opposite_approach, distance: 35.0, lateral: 0.0, secondary: {distance: 65.0, lateral: 4.5, speed: 1.0, reverse: true}}
+  - {name: blocked_release, distance: 35.0, lateral: 0.0, secondary: {distance: 36.0, lateral: 4.5}, event: release_secondary}
+  - {name: target_disappears, distance: 35.0, lateral: 0.0, event: remove_before_execution}
+  - {name: target_disappears_running, distance: 40.0, lateral: 0.0, event: remove_running}
+  - {name: new_obstacle_running, distance: 35.0, lateral: 0.0, event: add_running, secondary: {distance: 52.0, lateral: 0.0}}
+  - {name: moving_then_static, distance: 25.0, lateral: 0.0, object_speed: 0.5, event: stop_target}
+  - {name: static_then_moving, distance: 35.0, lateral: 0.0, event: move_target}
+  - {name: below_moving_threshold, distance: 25.0, lateral: 0.0, object_speed_threshold_offset: -0.05}
+  - {name: at_moving_threshold, distance: 25.0, lateral: 0.0, object_speed_threshold_offset: 0.0}
+  - {name: above_moving_threshold, distance: 25.0, lateral: 0.0, object_speed_threshold_offset: 0.05}
+  - {name: short_motion, distance: 25.0, lateral: 0.0, object_speed_threshold_offset: 0.1, motion_duration_threshold_offset: -0.1, event: stop_target}
+  - {name: long_motion, distance: 25.0, lateral: 0.0, object_speed_threshold_offset: 0.1, motion_duration_threshold_offset: 0.1, event: stop_target}
+  - {name: slow_center, distance: 40.0, lateral: 0.0, speed: 0.3, lock_mode: steady_speed}
+  - {name: fast_center, distance: 40.0, lateral: 0.0, speed: 2.0, lock_mode: steady_speed}
+  - {name: above_borrow_speed, distance: 40.0, lateral: 0.0, speed: 2.2, lock_mode: steady_speed}
+  - {name: near_goal, distance: 78.0, lateral: 0.0}
+  - name: bend
+    distance: 20.0
+    lateral: 0.0
+    route: {lane: '906', start_s: 245.0, goal_lane: '1338', goal_s: 5.0}
+    route_length_bound: 80.0
+  - {name: same_direction_left, requires: same_direction, applicability: topology_only}
+  - {name: same_direction_right, requires: same_direction, applicability: topology_only}
+  - {name: prohibited_same_direction_change, requires: same_direction, applicability: topology_only}
+  - {name: adjacent_front_rear_parallel, requires: same_direction, applicability: topology_only}
+  - {name: intersection, applicability: unsupported, reason: 'No validated intersection scenario on this map; bend is tested separately.'}

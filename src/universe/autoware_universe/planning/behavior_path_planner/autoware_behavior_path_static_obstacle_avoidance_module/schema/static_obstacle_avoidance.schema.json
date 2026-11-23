@@ -618,6 +618,44 @@
         "target_filtering": {
           "type": "object",
           "properties": {
+            "quick_static_obstacle": {
+              "type": "object",
+              "description": "Startup settings for continuous stationary-object confirmation before parking classification is bypassed.",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "observation_time": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 0.2
+                },
+                "minimum_observations": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "default": 3
+                },
+                "position_tolerance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0.1
+                },
+                "maximum_gap": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 0.3
+                }
+              },
+              "required": [
+                "enabled",
+                "observation_time",
+                "minimum_observations",
+                "position_tolerance",
+                "maximum_gap"
+              ],
+              "additionalProperties": false
+            },
             "target_type": {
               "type": "object",
               "properties": {

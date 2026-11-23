@@ -13,6 +13,7 @@ ament_auto_add_library(${PID_LON_CON_LIB} SHARED
 
 if(BUILD_TESTING)
   set(TEST_LON_SOURCES
+    test/test_steering_tracking_hold.cpp
     test/test_pid.cpp
     test/test_smooth_stop.cpp
     test/test_longitudinal_controller_utils.cpp
@@ -20,6 +21,8 @@ if(BUILD_TESTING)
   set(TEST_LONGITUDINAL_CONTROLLER_EXE test_longitudinal_controller)
   ament_add_ros_isolated_gtest(${TEST_LONGITUDINAL_CONTROLLER_EXE} ${TEST_LON_SOURCES})
   target_link_libraries(${TEST_LONGITUDINAL_CONTROLLER_EXE} ${PID_LON_CON_LIB})
+  target_compile_definitions(${TEST_LONGITUDINAL_CONTROLLER_EXE} PRIVATE
+    TEST_PID_PARAM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/config/autoware_pid_longitudinal_controller.param.yaml")
 endif()
 
 ament_auto_package(

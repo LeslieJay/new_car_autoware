@@ -8,6 +8,7 @@ import re
 import signal
 import subprocess
 import time
+from ament_index_python.packages import get_package_share_directory
 
 from run_campus_agv_acceptance import ROOT, cleanup, track
 
@@ -18,6 +19,9 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--domain', type=int, default=176)
     parser.add_argument('--rate', type=float, default=0.5)
+    parser.add_argument('--map-path', type=Path, default=Path('/home/nvidia/autoware_map/hy_1031'))
+    parser.add_argument('--lanelet-map', default='hy_1031_lanelet2_map_with_latlon.osm')
+    parser.add_argument('--startup-timeout', type=float, default=150.0)
     args = parser.parse_args()
     if args.rate <= 0:
         parser.error('--rate must be positive')
@@ -26,6 +30,7 @@ def main():
                RMW_IMPLEMENTATION='rmw_fastrtps_cpp', ROS_LOG_DIR=str(args.output_dir/'roslog'))
     launch_command = ['ros2','launch','autoware_launch','logging_simulator.launch.xml',
                       'avoidance_by_lane_change_profile:=campus_agv','enable_all_modules_auto_mode:=true',
+                      'map_path:='+str(args.map_path),'lanelet2_map_file:='+args.lanelet_map,
                       'rviz:=false','control:=false','system:=false',
                       'launch_static_obstacle_avoidance:=false','launch_simple_avoidance:=false',
                       'launch_simple_lc_avoidance:=false']
@@ -46,8 +51,9 @@ def main():
     configuration_command = ['ros2','topic','pub','--rate','1','--qos-durability','transient_local',
         '/vehicle/status/trailer_configuration','byd_vehicle_msgs/msg/TrailerConfiguration','{trailer_types: []}']
     (args.output_dir/'commands.json').write_text(json.dumps({'launch':launch_command,'play':play_command,'record':record_command,'empty_trailer_configuration':configuration_command},indent=2))
-    profile = ROOT/'src/launcher/autoware_launch/autoware_launch/config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/avoidance_by_lane_change/campus_agv.param.yaml'
+    profile = Path(get_package_share_directory('autoware_launch'))/'config/planning/scenario_planning/lane_driving/behavior_planning/behavior_path_planner/avoidance_by_lane_change/campus_agv.param.yaml'
     (args.output_dir/'effective_parameters.yaml').write_text(profile.read_text())
+    (args.output_dir/'effective_lane_change_parameters.yaml').write_text((profile.parents[1]/'lane_change/campus_agv.param.yaml').read_text())
     common = profile.parents[1]/'behavior_path_planner.param.yaml'
     (args.output_dir/'effective_behavior_path_parameters.yaml').write_text(common.read_text())
     expansion = profile.parents[1]/'campus_agv_drivable_area_expansion.param.yaml'
@@ -58,7 +64,7 @@ def main():
         launch = subprocess.Popen(launch_command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         player = recorder = configuration = None
         try:
-            until = time.monotonic()+150
+            until = time.monotonic()+args.startup_timeout
             ready = False
             while launch.poll() is None and time.monotonic()<until:
                 track(launch,children)
@@ -81,7 +87,8 @@ def main():
                       'safe_candidates':len(re.findall(r'phase=\w+ safe=1',text)),
                       'committed':bool(re.search(r'phase=(borrowing|passing|returning) safe=1',text)),
                       'reasons':sorted(set(re.findall(r'reason=([^\s]+)',text))),
-                      'candidate_speeds':sorted(set(re.findall(r'candidate_speed=([^\s]+)',text)))}
+                      'candidate_speeds':sorted(set(re.findall(r'candidate_speed=([^\s]+)',text))),
+                      'execution_discontinuity_observed':'reason=execution_discontinuity' in text}
             (args.output_dir/'verdict.json').write_text(json.dumps(result,indent=2))
             print(json.dumps(result,indent=2))
             return 0 if result['committed'] else 1

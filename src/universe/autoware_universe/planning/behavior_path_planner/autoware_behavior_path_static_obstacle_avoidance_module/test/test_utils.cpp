@@ -171,6 +171,35 @@ TEST(TestUtils, parkedVehicleDoesNotDependOnCenterlineDistance)
   EXPECT_TRUE(filtering_utils::isParkedVehicle(object, parameters));
 }
 
+TEST(TestUtils, confirmedIntrudingVehicleSkipsParkingRatioIntentAndLegacyWait)
+{
+  auto parameters = get_parameters();
+  parameters->time_threshold_for_ambiguous_vehicle = 1.5;
+  ObjectData object;
+  object.shiftable_ratio = 0.0;
+  object.stop_time = 0.21;
+  object.behavior = ObjectData::Behavior::MERGING;
+  object.is_parked = false;
+  AvoidancePlanningData data;
+
+  EXPECT_TRUE(
+    filtering_utils::isSatisfiedWithVehicleCondition(object, data, nullptr, parameters, true));
+  EXPECT_FALSE(object.is_ambiguous);
+}
+
+TEST(TestUtils, singleFrameCannotUseQuickAdmissionEvenForAnObviousParkedVehicle)
+{
+  ObjectData object;
+  object.is_parked = true;
+  object.stop_time = 0.0;
+  AvoidancePlanningData data;
+
+  EXPECT_FALSE(
+    filtering_utils::isSatisfiedWithVehicleCondition(
+      object, data, nullptr, get_parameters(), false));
+  EXPECT_EQ(object.info, ObjectInfo::AMBIGUOUS_STOPPED_VEHICLE);
+}
+
 TEST(TestUtils, getObjectBehavior)
 {
   const auto parameters = get_parameters();

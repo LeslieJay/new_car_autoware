@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +61,12 @@ PidLongitudinalController::PidLongitudinalController(
   m_enable_slope_compensation = node.declare_parameter<bool>("enable_slope_compensation");
   m_enable_keep_stopped_until_steer_convergence =
     node.declare_parameter<bool>("enable_keep_stopped_until_steer_convergence");
+  m_steer_convergence_hold_velocity =
+    node.declare_parameter<double>("steer_convergence_hold_velocity", 0.0);
+  if (
+    !std::isfinite(m_steer_convergence_hold_velocity) || m_steer_convergence_hold_velocity < 0.0) {
+    throw std::invalid_argument("steer_convergence_hold_velocity must be finite and nonnegative");
+  }
 
   // parameters for state transition
   {
@@ -424,7 +431,31 @@ trajectory_follower::LongitudinalOutput PidLongitudinalController::run(
   updateControlState(control_data);
 
   // calculate control command
-  const Motion ctrl_cmd = calcCtrlCmd(control_data);
+  Motion ctrl_cmd = calcCtrlCmd(control_data);
+
+  // A velocity-command chassis can keep moving while its steering actuator is not responding.
+  // Keep this opt-in interlock active after a restart has already entered DRIVE.
+  const bool hold_applicable =
+    m_enable_keep_stopped_until_steer_convergence && m_steer_convergence_hold_velocity > 0.0 &&
+    m_control_state == ControlState::DRIVE &&
+    m_current_operation_mode.is_autoware_control_enabled &&
+    std::abs(control_data.current_motion.vel) <= m_steer_convergence_hold_velocity;
+  if (!hold_applicable) {
+    m_steer_tracking_hold = false;
+    m_steer_converged_cycles = 0;
+  } else if (!lateral_sync_data_.is_steer_converged) {
+    m_steer_tracking_hold = true;
+    m_steer_converged_cycles = 0;
+  } else if (m_steer_tracking_hold && ++m_steer_converged_cycles >= 3) {
+    m_steer_tracking_hold = false;
+    m_steer_converged_cycles = 0;
+  }
+  if (m_steer_tracking_hold) {
+    ctrl_cmd.vel = 0.0;
+    ctrl_cmd.acc = std::min(ctrl_cmd.acc, m_stopped_state_params.acc);
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 1000, "Holding low-speed motion until steering feedback converges");
+  }
 
   // create control command
   const auto cmd_msg = createCtrlCmdMsg(ctrl_cmd, control_data.current_motion.vel);

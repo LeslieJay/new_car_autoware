@@ -30,6 +30,8 @@
 #include <boost/geometry/algorithms/buffer.hpp>
 #include <boost/geometry/algorithms/convex_hull.hpp>
 #include <boost/geometry/algorithms/correct.hpp>
+#include <boost/geometry/algorithms/intersection.hpp>
+#include <boost/geometry/algorithms/is_valid.hpp>
 #include <boost/geometry/algorithms/union.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
 
@@ -1136,8 +1138,18 @@ ObjectData::Behavior getObjectBehavior(
 bool isSatisfiedWithVehicleCondition(
   ObjectData & object, const AvoidancePlanningData & data,
   const std::shared_ptr<const PlannerData> & planner_data,
-  const std::shared_ptr<AvoidanceParameters> & parameters)
+  const std::shared_ptr<AvoidanceParameters> & parameters,
+  const std::optional<bool> confirmed_intruding_static = std::nullopt)
 {
+  if (confirmed_intruding_static.has_value()) {
+    // Object confirmation replaces parking/intent classification only. Common filtering,
+    // lateral clearance, path feasibility and safety checks remain in the caller/downstream.
+    object.is_ambiguous = false;
+    object.info =
+      *confirmed_intruding_static ? ObjectInfo::NONE : ObjectInfo::AMBIGUOUS_STOPPED_VEHICLE;
+    return *confirmed_intruding_static;
+  }
+
   if (isNeverAvoidanceTarget(object, data, planner_data, parameters)) {
     return false;
   }
@@ -2231,6 +2243,15 @@ void filterTargetObjects(
   const std::shared_ptr<const PlannerData> & planner_data,
   const std::shared_ptr<AvoidanceParameters> & parameters)
 {
+  filterTargetObjects(objects, data, forward_detection_range, planner_data, parameters, {});
+}
+
+void filterTargetObjects(
+  ObjectDataArray & objects, AvoidancePlanningData & data, const double forward_detection_range,
+  const std::shared_ptr<const PlannerData> & planner_data,
+  const std::shared_ptr<AvoidanceParameters> & parameters,
+  const std::unordered_map<std::string, bool> & static_confirmations)
+{
   if (data.current_lanelets.empty()) {
     return;
   }
@@ -2294,7 +2315,34 @@ void filterTargetObjects(
         continue;
       }
 
-      if (!filtering_utils::isSatisfiedWithVehicleCondition(o, data, planner_data, parameters)) {
+      std::optional<bool> confirmed_intruding_static;
+      const auto confirmation = static_confirmations.find(to_hex_string(o.object.object_id));
+      const auto intrudes_current_lane = [&]() {
+        const auto polygon = autoware_utils::to_polygon2d(o.object);
+        if (!boost::geometry::is_valid(polygon)) {
+          return false;
+        }
+        return std::any_of(
+          data.current_lanelets.begin(), data.current_lanelets.end(), [&](const auto & lane) {
+            const auto lane_polygon = utils::toPolygon2d(lane);
+            if (!boost::geometry::is_valid(lane_polygon)) {
+              return false;
+            }
+            std::vector<Polygon2d> overlap;
+            boost::geometry::intersection(polygon, lane_polygon, overlap);
+            return std::any_of(overlap.begin(), overlap.end(), [](const auto & part) {
+              return boost::geometry::area(part) > 1e-6;
+            });
+          });
+      };
+      if (
+        confirmation != static_confirmations.end() && o.longitudinal > 0.0 &&
+        !o.is_within_intersection && intrudes_current_lane() &&
+        !filtering_utils::isCloseToStopFactor(o, data, planner_data, parameters)) {
+        confirmed_intruding_static = confirmation->second;
+      }
+      if (!filtering_utils::isSatisfiedWithVehicleCondition(
+            o, data, planner_data, parameters, confirmed_intruding_static)) {
         data.other_objects.push_back(o);
         continue;
       }

@@ -36,6 +36,20 @@ void StaticObstacleAvoidanceModuleManager::init(rclcpp::Node * node)
 
   auto p = getParameter(node);
 
+  // Declare startup-only confirmation parameters before the planner installs its parameter
+  // callback. Scene creation during planning must only read parameters, never declare them.
+  const std::string confirmation_ns = "avoidance.target_filtering.quick_static_obstacle.";
+  const auto declare = [node, &confirmation_ns](const std::string & name, auto value) {
+    if (!node->has_parameter(confirmation_ns + name)) {
+      node->declare_parameter(confirmation_ns + name, value);
+    }
+  };
+  declare("enabled", true);
+  declare("observation_time", 0.2);
+  declare("minimum_observations", int64_t{3});
+  declare("position_tolerance", 0.1);
+  declare("maximum_gap", 0.3);
+
   parameters_ = std::make_shared<AvoidanceParameters>(p);
 }
 

@@ -300,6 +300,12 @@
           "type": "number",
           "description": "min value of estimated pitch [rad]",
           "default": "-0.1"
+        },
+        "steer_convergence_hold_velocity": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.0,
+          "description": "Maximum measured speed [m/s] for the opt-in steering tracking hold on velocity-command vehicles. Zero disables the moving hold."
         }
       },
       "required": [
@@ -372,10 +378,14 @@
           "$ref": "#/definitions/autoware_pid_longitudinal_controller"
         }
       },
-      "required": ["ros__parameters"],
+      "required": [
+        "ros__parameters"
+      ],
       "additionalProperties": false
     }
   },
-  "required": ["/**"],
+  "required": [
+    "/**"
+  ],
   "additionalProperties": false
 }

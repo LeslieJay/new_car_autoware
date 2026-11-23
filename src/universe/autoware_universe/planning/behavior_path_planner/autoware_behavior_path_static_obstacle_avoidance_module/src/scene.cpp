@@ -32,6 +32,8 @@
 #include <boost/geometry/algorithms/correct.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -75,6 +77,28 @@ lanelet::BasicLineString3d toLineString3d(const std::vector<Point> & bound)
     bound.begin(), bound.end(), [&](const auto & p) { ret.emplace_back(p.x, p.y, p.z); });
   return ret;
 }
+StaticObjectConfirmation::Parameters confirmationParameters(rclcpp::Node & node)
+{
+  const std::string prefix = "avoidance.target_filtering.quick_static_obstacle.";
+  const auto read = [&node, &prefix](const std::string & name, auto default_value) {
+    using T = decltype(default_value);
+    const auto key = prefix + name;
+    // Scene instances are created while the planner manager mutex is held. Declaring a
+    // parameter here would re-enter the node's parameter callback and deadlock that mutex.
+    return node.has_parameter(key) ? node.get_parameter(key).get_value<T>() : default_value;
+  };
+  StaticObjectConfirmation::Parameters parameters;
+  parameters.enabled = read("enabled", true);
+  parameters.observation_time = read("observation_time", 0.2);
+  const auto observations = read("minimum_observations", std::int64_t{3});
+  if (observations < 2) {
+    throw std::invalid_argument("quick_static_obstacle.minimum_observations must be at least 2");
+  }
+  parameters.minimum_observations = static_cast<std::size_t>(observations);
+  parameters.position_tolerance = read("position_tolerance", 0.1);
+  parameters.maximum_gap = read("maximum_gap", 0.3);
+  return parameters;
+}
 }  // namespace
 
 StaticObstacleAvoidanceModule::StaticObstacleAvoidanceModule(
@@ -83,10 +107,13 @@ StaticObstacleAvoidanceModule::StaticObstacleAvoidanceModule(
   std::unordered_map<std::string, std::shared_ptr<ObjectsOfInterestMarkerInterface>> &
     objects_of_interest_marker_interface_ptr_map,
   const std::shared_ptr<PlanningFactorInterface> & planning_factor_interface)
-: SceneModuleInterface{name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map, planning_factor_interface},  // NOLINT
+: SceneModuleInterface{
+    name, node, rtc_interface_ptr_map, objects_of_interest_marker_interface_ptr_map,
+    planning_factor_interface},  // NOLINT
   helper_{std::make_shared<AvoidanceHelper>(parameters)},
   parameters_{parameters},
-  generator_{parameters}
+  generator_{parameters},
+  static_object_confirmation_{confirmationParameters(node)}
 {
 }
 
@@ -410,7 +437,29 @@ void StaticObstacleAvoidanceModule::fillAvoidanceTargetObjects(
   }
 
   // Filter out the objects to determine the ones to be avoided.
-  filterTargetObjects(objects, data, forward_detection_range, planner_data_, parameters_);
+  std::vector<StaticObjectConfirmation::Observation> observations;
+  const auto stamp = rclcpp::Time(planner_data_->dynamic_object->header.stamp).seconds();
+  for (const auto & object : planner_data_->dynamic_object->objects) {
+    using C = autoware_perception_msgs::msg::ObjectClassification;
+    const auto type = utils::getHighestProbLabel(object.classification);
+    if (type != C::CAR && type != C::TRUCK && type != C::BUS && type != C::TRAILER) {
+      continue;
+    }
+    const auto parameter = parameters_->object_parameters.find(type);
+    if (
+      parameter == parameters_->object_parameters.end() || !parameter->second.is_avoidance_target) {
+      continue;
+    }
+    const auto & position = object.kinematics.initial_pose_with_covariance.pose.position;
+    const auto & velocity = object.kinematics.initial_twist_with_covariance.twist.linear;
+    observations.push_back(
+      {to_hex_string(object.object_id), stamp, position.x, position.y,
+       std::hypot(velocity.x, velocity.y), parameter->second.moving_speed_threshold});
+  }
+  const auto confirmations =
+    static_object_confirmation_.update(observations, clock_->now().seconds());
+  filterTargetObjects(
+    objects, data, forward_detection_range, planner_data_, parameters_, confirmations);
   updateRoadShoulderDistance(data, planner_data_, parameters_);
 
   // debug
@@ -1693,6 +1742,7 @@ void StaticObstacleAvoidanceModule::processOnEntry()
 
 void StaticObstacleAvoidanceModule::processOnExit()
 {
+  static_object_confirmation_.clear();
   initVariables();
   initRTCStatus();
 }

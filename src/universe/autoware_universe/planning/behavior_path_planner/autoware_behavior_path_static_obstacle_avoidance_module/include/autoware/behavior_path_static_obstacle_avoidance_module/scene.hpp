@@ -21,6 +21,7 @@
 #include "autoware/behavior_path_static_obstacle_avoidance_module/data_structs.hpp"
 #include "autoware/behavior_path_static_obstacle_avoidance_module/helper.hpp"
 #include "autoware/behavior_path_static_obstacle_avoidance_module/shift_line_generator.hpp"
+#include "autoware/behavior_path_static_obstacle_avoidance_module/static_object_confirmation.hpp"
 #include "autoware/behavior_path_static_obstacle_avoidance_module/type_alias.hpp"
 
 #include <autoware_utils_geometry/geometry.hpp>
@@ -541,6 +542,8 @@ private:
 
   // TODO(Satoshi OTA) remove this variable.
   mutable ObjectDataArray stopped_objects_;
+
+  mutable StaticObjectConfirmation static_object_confirmation_;
 
   mutable std::unordered_map<std::string, rclcpp::Time> unknown_type_object_first_seen_time_map_;
 

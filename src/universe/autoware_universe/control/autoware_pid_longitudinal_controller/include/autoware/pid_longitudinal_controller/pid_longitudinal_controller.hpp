@@ -145,6 +145,9 @@ private:
   bool m_enable_slope_compensation;
   bool m_enable_large_tracking_error_emergency;
   bool m_enable_keep_stopped_until_steer_convergence;
+  double m_steer_convergence_hold_velocity{0.0};
+  bool m_steer_tracking_hold{false};
+  unsigned int m_steer_converged_cycles{0};
 
   // smooth stop transition
   struct StateTransitionParams

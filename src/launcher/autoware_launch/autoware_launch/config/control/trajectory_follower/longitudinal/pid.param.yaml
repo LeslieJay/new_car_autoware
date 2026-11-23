@@ -10,7 +10,9 @@
     enable_overshoot_emergency: true
     enable_large_tracking_error_emergency: true
     enable_slope_compensation: true
-    enable_keep_stopped_until_steer_convergence: false
+    # Wait for steering at rest and hold low-speed motion when tracking is lost after departure.
+    enable_keep_stopped_until_steer_convergence: true
+    steer_convergence_hold_velocity: 1.1 # [m/s], covers the 1 m/s borrowing candidate
 
     # state transition
     drive_state_stop_dist: 0.01

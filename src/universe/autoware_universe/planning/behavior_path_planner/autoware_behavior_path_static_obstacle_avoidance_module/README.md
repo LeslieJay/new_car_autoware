@@ -26,6 +26,24 @@ If you would like to know the overview rather than the detail, please skip the n
 
 ## Inner workings/Algorithms
 
+### Quick confirmation of intruding stopped vehicles
+
+For CAR, TRUCK, BUS and TRAILER objects in front of the ego vehicle that overlap the current
+route lane and require lateral clearance, static avoidance can replace parking-ratio and
+parking-intent classification with continuous stationary-object confirmation. The default
+confirmation requires at least three distinct perception timestamps over 0.2 seconds, speed
+strictly below the existing class-specific moving-speed threshold, and displacement within
+0.1 m of the observation anchor. Repeated frames do not count. Missing detections, gaps over
+0.3 seconds, stale/future data, position jumps and reported motion reset confirmation.
+
+The startup parameters are under `avoidance.target_filtering.quick_static_obstacle`:
+`enabled`, `observation_time`, `minimum_observations`, `position_tolerance`, and `maximum_gap`
+(also the maximum data age). Restart the planner after changing these settings. Set `enabled`
+to false to restore the original filtering. Intersections and nearby traffic-light/crosswalk
+stop factors retain their original rules. Object classes, detection/goal ranges, required
+lateral clearance, drivable boundaries, path feasibility and safety checks are unchanged.
+This changes admission into planning, not execution approval or lane-change arbitration.
+
 This module mainly has two parts, target filtering and path generation. At first, all objects are filtered by several conditions. In this step, the module checks avoidance feasibility and necessity. After that, this module generates avoidance path outline, which we call **shift line**, based on filtered objects. The shift lines are set into [path shifter](../autoware_behavior_path_planner_common/docs/behavior_path_planner_path_generation_design.md), which is a library for path generation, to create a smooth shift path. Additionally, this module has a feature to check non-target objects so that the ego can avoid target objects safely. This feature receives a generated avoidance path and surrounding objects, and judges the current situation. Lastly, this module updates current ego behavior.
 
 ```plantuml

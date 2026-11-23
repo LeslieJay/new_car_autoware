@@ -282,7 +282,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "log_root",
-                default_value="/home/nvidia/autoware/log",
+                default_value="/mnt/driving_recorder",
                 description="Root directory for launch log output",
             ),
             DeclareLaunchArgument(

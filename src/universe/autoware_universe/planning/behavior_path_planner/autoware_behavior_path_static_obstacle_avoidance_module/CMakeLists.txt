@@ -14,6 +14,9 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 )
 
 if(BUILD_TESTING)
+  ament_add_gtest(test_static_object_confirmation test/test_static_object_confirmation.cpp)
+  target_include_directories(test_static_object_confirmation PRIVATE include)
+
   ament_add_ros_isolated_gmock(test_${PROJECT_NAME}
     test/test_utils.cpp
     test/test_behavior_path_planner_node_interface.cpp

@@ -1,5 +1,10 @@
 # 仿真绕障极限测试
 
+双模块同时启用的闭环对照请使用 [双模块测试说明](README_dual_avoidance.md)：
+`./run_dual_avoidance_test.sh`。该入口使用 `hy_1031`，分别测试 static 单开、
+lane-change avoidance 单开和双开，保存模块状态时间线、实际轨迹和 rosbag。
+下文为旧版单模块极限扫描，默认地图和基线坐标不能直接用于双模块测试。
+
 在 `planning_simulator` 中通过 Python 脚本向 `/simulation/dummy_perception_publisher/object_info` 发布静态障碍物，从路肩边缘逐步侵入车道，测量 `static_obstacle_avoidance` 的极限距离。
 
 ## 前置条件
