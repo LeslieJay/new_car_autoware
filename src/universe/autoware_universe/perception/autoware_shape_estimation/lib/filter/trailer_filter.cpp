@@ -24,7 +24,8 @@ bool TrailerFilter::filter(
   [[maybe_unused]] const geometry_msgs::msg::Pose & pose)
 {
   constexpr float min_width = 1.5;
-  constexpr float max_width = 3.2;
+  // constexpr float max_width = 3.2;
+  constexpr float max_width = 3.8;  // 放宽挂车点云包络宽度阈值至3.8m，兼容大型挂车后视镜、轮拱及斜射点云发散厚度 (原为3.2)
   constexpr float max_length = 25.0;  // maximum Full-TRAILER size in JAPAN(normally upto 18m)
   return utils::filterVehicleBoundingBox(shape, min_width, max_width, max_length);
 }

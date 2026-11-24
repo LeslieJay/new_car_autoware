@@ -2,12 +2,18 @@
   ros__parameters:
     use_corrector: true
     use_filter: true
-    use_vehicle_reference_yaw: false
+    # use_vehicle_reference_yaw: false
+    use_vehicle_reference_yaw: true
     use_vehicle_reference_shape_size: false
     use_boost_bbox_optimizer: false
     fix_filtered_objects_label_to_unknown: true
+    use_concave_footprint: true
+    footprint_resolution: 0.1
+    footprint_connection_radius: 0.5
+    footprint_min_extent: 6.0
+    footprint_min_area_reduction: 0.15
     model_params:
-      use_ml_shape_estimator: false
+      use_ml_shape_estimator: true
       minimum_points: 16
       precision: "fp32"
       batch_size: 32

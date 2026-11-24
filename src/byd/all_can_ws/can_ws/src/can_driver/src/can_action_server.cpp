@@ -199,42 +199,221 @@ void CanActionServer::handle_charge_request(
     const std::shared_ptr<BatteryControl::Request> request,
     std::shared_ptr<BatteryControl::Response> response)
 {
+    std::lock_guard<std::mutex> lock(charge_mutex_);
     int command = request->charging;   // 1 = 开始充电, 0 = 停止充电
     RCLCPP_INFO(this->get_logger(), "收到充电服务请求: charging=%d", command);
 
-    std::vector<struct can_frame> send_frames;
-    struct can_frame charge_frame{};
-    charge_frame.can_id = 0x201;
-    charge_frame.can_dlc = 8;
-    for (int i = 0; i < 8; i++) {
-        charge_frame.data[i] = 0;
-    }
-
     if (command == 1) {
-        // 开始充电：bit5=1, bit0=1 => 0b00100001 = 0x21
-        charge_frame.data[4] = 0b00100001;
-        RCLCPP_INFO(this->get_logger(), "下达开始充电命令 (0x201 data[4]=0x%02x)", charge_frame.data[4]);
+        // 1. 检查是否充满或有充电/电池故障
+        if (is_battery_full_.load(std::memory_order_relaxed)) {
+            RCLCPP_WARN(this->get_logger(), "电池已充满 (SOC>=100%%)，拒绝下发充电帧");
+            response->battery_status = 0;
+            response->charging_status = 0;
+            return;
+        }
+        if (is_charge_fault_.load(std::memory_order_relaxed)) {
+            RCLCPP_ERROR(this->get_logger(), "检测到底盘存在充电/电池故障，拒绝下发充电帧");
+            response->battery_status = 0;
+            response->charging_status = 0;
+            return;
+        }
+
+        // 2. 检查是否已处于充电模式
+        if (is_charging_mode_.load(std::memory_order_relaxed)) {
+            RCLCPP_INFO(this->get_logger(), "底盘当前已处于充电模式，保持充电使能状态");
+            charging_requested_.store(true, std::memory_order_relaxed);
+            struct can_frame hold_frame{};
+            hold_frame.can_id = 0x201;
+            hold_frame.can_dlc = 8;
+            hold_frame.data[4] = 0b00100001; // Bit5=1, Bit0=1
+            send_queue_->setLatestControlFrame(hold_frame);
+            response->battery_status = 1;
+            response->charging_status = 1;
+            return;
+        }
+
+        if (!send_queue_) {
+            RCLCPP_ERROR(this->get_logger(), "send_queue_ 未初始化，无法发送充电CAN帧");
+            response->battery_status = 0;
+            response->charging_status = 0;
+            return;
+        }
+
+        // 标记已收到充电请求
+        charging_requested_.store(true, std::memory_order_relaxed);
+        // 立即覆盖当前控制帧，确保没有任何带速度、转向或使能的旧报文被周期任务发送
+        struct can_frame init_charge_frame{};
+        init_charge_frame.can_id = 0x201;
+        init_charge_frame.can_dlc = 8;
+        init_charge_frame.data[4] = 0b00100001; // Bit5=1, Bit0=1
+        send_queue_->setLatestControlFrame(init_charge_frame);
+        bool entered_charging = false;
+        const int max_retries = 10;
+
+        for (int attempt = 1; attempt <= max_retries; ++attempt) {
+            // 每次下发前检查是否充满或出现故障
+            if (is_battery_full_.load(std::memory_order_relaxed)) {
+                RCLCPP_WARN(this->get_logger(), "检测到电池已充满，终止下发充电帧");
+                break;
+            }
+            if (is_charge_fault_.load(std::memory_order_relaxed)) {
+                RCLCPP_ERROR(this->get_logger(), "检测到充电故障，终止下发充电帧");
+                break;
+            }
+
+            // 下发充电帧 (0x201 data[4] = 0b00100001: Bit5=1, Bit0=1)
+            struct can_frame charge_frame{};
+            charge_frame.can_id = 0x201;
+            charge_frame.can_dlc = 8;
+            charge_frame.data[4] = 0b00100001;
+            charging_requested_.store(true, std::memory_order_relaxed);
+            send_queue_->setLatestControlFrame(charge_frame);
+            send_queue_->push({charge_frame});
+
+            RCLCPP_INFO(this->get_logger(), 
+                        "下发第 %d/%d 次充电帧 (0x201 data[4]=0x%02x)，等待3秒检测是否进入充电模式...", 
+                        attempt, max_retries, charge_frame.data[4]);
+
+            // 间隔三秒监测是否进入充电模式
+            const auto start_wait = std::chrono::steady_clock::now();
+            const auto wait_duration = std::chrono::seconds(3);
+
+            while (rclcpp::ok() && (std::chrono::steady_clock::now() - start_wait < wait_duration)) {
+                if (is_charging_mode_.load(std::memory_order_relaxed)) {
+                    entered_charging = true;
+                    break;
+                }
+                if (is_charge_fault_.load(std::memory_order_relaxed) || 
+                    is_battery_full_.load(std::memory_order_relaxed)) {
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+
+            if (entered_charging) {
+                RCLCPP_INFO(this->get_logger(), "底盘已成功进入充电模式 (第 %d 次尝试成功)!", attempt);
+                break;
+            }
+
+            if (is_charge_fault_.load(std::memory_order_relaxed) || 
+                is_battery_full_.load(std::memory_order_relaxed)) {
+                break;
+            }
+
+            if (attempt < max_retries) {
+                RCLCPP_WARN(this->get_logger(), "第 %d 次下发充电帧后未进入充电模式，间隔3秒后重发...", attempt);
+            }
+        }
+
+        if (entered_charging) {
+            // 底盘已成功进入充电模式，持续保持 charging_requested_ 为 true，维持下发充电帧 (0x201 data[4]=0x21)
+            charging_requested_.store(true, std::memory_order_relaxed);
+            struct can_frame hold_frame{};
+            hold_frame.can_id = 0x201;
+            hold_frame.can_dlc = 8;
+            hold_frame.data[4] = 0b00100001; // Bit5=1, Bit0=1 (持续维系充电使能)
+            send_queue_->setLatestControlFrame(hold_frame);
+            send_queue_->push({hold_frame});
+            RCLCPP_INFO(this->get_logger(), "底盘已进入充电模式，持续保持充电使能帧 (0x201 data[4]=0x21)");
+
+            response->battery_status = 1;
+            response->charging_status = 1;
+        } else {
+            charging_requested_.store(false, std::memory_order_relaxed);
+            // 失败或遇故障/充满，下发停止充电帧
+            struct can_frame stop_frame{};
+            stop_frame.can_id = 0x201;
+            stop_frame.can_dlc = 8;
+            stop_frame.data[4] = 0b00000001;
+            send_queue_->setLatestControlFrame(stop_frame);
+            send_queue_->push({stop_frame});
+
+            response->battery_status = 0;
+            response->charging_status = 0;
+            RCLCPP_ERROR(this->get_logger(), "未能进入充电模式 (已重试10次或检测到充满/故障)，返回不能进入充电模式");
+        }
     } else if (command == 0) {
-        // 停止充电：bit5=0, bit0=1 => 0b00000001 = 0x01
-        charge_frame.data[4] = 0b00000001;
-        RCLCPP_INFO(this->get_logger(), "下达停止充电命令 (0x201 data[4]=0x%02x)", charge_frame.data[4]);
+        RCLCPP_INFO(this->get_logger(), "收到停止充电服务请求 (command=0)");
+        // 1. 立即清除充电请求标志，确保 can_ws 任何地方都不能再下发充电帧
+        charging_requested_.store(false, std::memory_order_relaxed);
+
+        if (!send_queue_) {
+            RCLCPP_ERROR(this->get_logger(), "send_queue_ 未初始化，无法发送停止充电CAN帧");
+            response->battery_status = 0;
+            response->charging_status = 0;
+            return;
+        }
+
+        // 2. 构造停止充电帧 (0x201 data[4] = 0b00000001: Bit5=0, Bit0=1, 速度转向全0, 保持机械抱闸, 断开驱动使能)
+        struct can_frame stop_frame{};
+        stop_frame.can_id = 0x201;
+        stop_frame.can_dlc = 8;
+        stop_frame.data[0] = 0;
+        stop_frame.data[1] = 0;
+        stop_frame.data[2] = 0;
+        stop_frame.data[3] = 0;
+        stop_frame.data[4] = 0b00000001; // Bit5=0停止充电使能，Bit0=1控制器OK保持抱闸
+        stop_frame.data[5] = 0;
+        stop_frame.data[6] = 0;
+        stop_frame.data[7] = 0;
+
+        send_queue_->setLatestControlFrame(stop_frame);
+        send_queue_->push({stop_frame});
+
+        // 3. 确保已经退出了充电模式，如果没有则隔三秒重发，最多十次，等待退出充电模式
+        bool exited_charging = false;
+        const int max_retries = 10;
+
+        for (int attempt = 1; attempt <= max_retries; ++attempt) {
+            // 检查底盘是否已退出充电模式 (0x2A1反馈 is_charging_mode_ == false)
+            if (!is_charging_mode_.load(std::memory_order_relaxed)) {
+                exited_charging = true;
+                RCLCPP_INFO(this->get_logger(), "底盘已确认退出充电模式 (第 %d 次检测成功)!", attempt);
+                break;
+            }
+
+            // 再次下发停止充电帧
+            send_queue_->setLatestControlFrame(stop_frame);
+            send_queue_->push({stop_frame});
+
+            RCLCPP_INFO(this->get_logger(),
+                        "下发第 %d/%d 次停止充电帧 (0x201 data[4]=0x%02x)，等待3秒检测是否退出充电模式...",
+                        attempt, max_retries, stop_frame.data[4]);
+
+            // 间隔三秒监测是否退出充电模式
+            const auto start_wait = std::chrono::steady_clock::now();
+            const auto wait_duration = std::chrono::seconds(3);
+
+            while (rclcpp::ok() && (std::chrono::steady_clock::now() - start_wait < wait_duration)) {
+                if (!is_charging_mode_.load(std::memory_order_relaxed)) {
+                    exited_charging = true;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+
+            if (exited_charging) {
+                RCLCPP_INFO(this->get_logger(), "底盘已成功退出充电模式 (第 %d 次尝试成功)!", attempt);
+                break;
+            }
+
+            if (attempt < max_retries) {
+                RCLCPP_WARN(this->get_logger(), "第 %d 次下发停止充电帧后底盘仍未退出充电模式，间隔3秒后重发...", attempt);
+            }
+        }
+
+        // 4. 等待退出充电模式后，返回给 ROS 平台
+        if (exited_charging || !is_charging_mode_.load(std::memory_order_relaxed)) {
+            response->battery_status = 0;
+            response->charging_status = 0;
+            RCLCPP_INFO(this->get_logger(), "已成功退出充电模式，返回给ROS平台: battery_status=0, charging_status=0");
+        } else {
+            response->battery_status = 1;
+            response->charging_status = 1;
+            RCLCPP_ERROR(this->get_logger(), "未能退出充电模式 (已重试10次)，返回给ROS平台失败状态");
+        }
     } else {
         RCLCPP_ERROR(this->get_logger(), "无效的充电命令: %d", command);
-        // 填充响应字段（根据实际情况赋值，这里简单置0表示失败）
-        response->battery_status = 0;
-        response->charging_status = 0;
-        return;
-    }
-
-    send_frames.push_back(charge_frame);
-    if (send_queue_) {
-        send_queue_->push(send_frames);
-        // 成功：假设发送即成功，设置充电状态为1，电池状态保持不变（此处仅为示例）
-        response->battery_status = 1;    // 1=充电中（需与实际协议一致）
-        response->charging_status = 1;   // 1=成功
-        RCLCPP_INFO(this->get_logger(), "充电CAN帧已成功发送到发送队列");
-    } else {
-        RCLCPP_ERROR(this->get_logger(), "send_queue_ 未初始化，无法发送充电CAN帧");
         response->battery_status = 0;
         response->charging_status = 0;
     }

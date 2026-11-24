@@ -51,8 +51,14 @@ public:
     // 设置即时动作状态（用于connect_success_auto等，线程安全）
     void set_instant_action_state(const ActionStates& action_state);
 
+    // 添加或更新动作状态（用于即时动作如 stop_charge 状态追踪与上报，线程安全）
+    void add_or_update_action_state(const ActionStates& action_state);
+
     // 批量更新 action_status（用于状态机流转，线程安全）
     bool update_action_status(const std::string& from_status, const std::string& to_status);
+
+    // 将所有充电相关动作（start_charge, stop_charge, CHARGE）的状态转化为 FINISHED（线程安全）
+    void finish_charge_actions();
 
     // 检查是否有挂钩动作（线程安全）
     bool has_hook_action();

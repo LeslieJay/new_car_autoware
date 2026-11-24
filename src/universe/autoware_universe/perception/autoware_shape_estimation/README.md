@@ -3,6 +3,7 @@
 ## Purpose
 
 This node estimates refined 3D object shapes from point cloud clusters using object labels. It supports both rule-based algorithms (L-shape fitting, cylinder, convex hull with filtering and correction) and ML-based estimation (PointNet) for vehicles, incorporating reference information from prior detections to improve shape accuracy and orientation estimation.
+该节点利用目标标签，从点云聚类中估计出更精细的 3D 目标形状。对于车辆，它同时支持基于规则的算法（L 形拟合、圆柱体、带有过滤与校正的凸包）和基于机器学习的估计方法（PointNet），并结合先前检测结果的参考信息，以提高形状精度和朝向估计的准确性。
 
 ## Inputs / Outputs
 

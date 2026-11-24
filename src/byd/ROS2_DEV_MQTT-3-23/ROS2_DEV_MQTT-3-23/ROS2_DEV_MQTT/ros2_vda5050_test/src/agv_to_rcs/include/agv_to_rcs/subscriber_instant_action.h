@@ -30,6 +30,7 @@
 
 class OrderListener;
 class AGVDataPublish;
+class RequestChargingClient;
 
 using vda5050_interfaces::msg::AGVInstantActions;
 
@@ -146,6 +147,7 @@ public:
 
     void set_order_listener(std::shared_ptr<OrderListener> order_listener);
     void set_data_publish(std::shared_ptr<AGVDataPublish> data_publish);
+    void set_charging_client(std::shared_ptr<RequestChargingClient> charging_client);
 
     /*****************************************************************************************
     * @brief:      充电相关即时动作锁存查询与管理（支持单次发布防丢失）
@@ -212,6 +214,7 @@ private:
 
     std::shared_ptr<OrderListener> order_listener_;
     std::shared_ptr<AGVDataPublish> data_publish_;
+    std::shared_ptr<RequestChargingClient> request_charging_client_;
     
 };
 # endif

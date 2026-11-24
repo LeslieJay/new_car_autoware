@@ -130,6 +130,9 @@ public:
     ******************************************************************************************/
     void set_driving_fn(std::function<bool()> get_driving_fn);
 
+    void set_force_charging_false(bool force);
+    bool get_force_charging_false() const;
+
     // 定时器是否创建的标识
     bool state_timer_create;
 
@@ -239,6 +242,9 @@ private:
 
     // 上一次的操作模式（用于检测状态变化）
     bool last_operation_mode_;
+
+    // 强制 charging 为 false 标志
+    std::atomic<bool> force_charging_false_{false};
 
 };
 

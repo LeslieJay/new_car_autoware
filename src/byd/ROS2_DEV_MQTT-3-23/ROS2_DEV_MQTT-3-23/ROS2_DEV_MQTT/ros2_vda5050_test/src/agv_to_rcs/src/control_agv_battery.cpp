@@ -66,6 +66,9 @@ bool AGVBatteryControl::control(){
         if(instant_action_listener->has_start_charge_latched() || instant_action_messages.action_type == "start_charge"){
             instant_action_listener->clear_start_charge_latched();
             RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "成功捕获并消费 start_charge 动作指令!");
+            if (agv_data_publish_) {
+                agv_data_publish_->set_force_charging_false(false);
+            }
             break;
         }
 
@@ -183,46 +186,36 @@ bool AGVBatteryControl::control(){
             // 读取instantAction消息或检查锁存，判断是否需要断开充电
             if(instant_action_listener->has_stop_charge_latched() || instant_action_messages.action_type == "stop_charge"){
                 instant_action_listener->clear_stop_charge_latched();
-                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "收到停止充电指令，向服务端发送 stop_charge 请求...");
-                // 调用发送数据的函数，充电模式转换成放电模式
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "收到停止充电指令，向 can_ws 充电服务端发送 stop_charge 请求...");
+                // 调用发送数据的函数，充电模式转换成放电模式 (向服务端发送 charging = 0)
                 auto cancle_future_and_requestid = request_charging_client_->send_request(stop_charge);
-                if (cancle_future_and_requestid.future.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
-                    cancle_future_and_requestid.future.get();
+                // 等待服务端响应（服务端内部做最多10次、每次3秒重发并等待退出充电模式，最长预留40秒）
+                if (cancle_future_and_requestid.future.wait_for(std::chrono::seconds(40)) == std::future_status::ready) {
+                    auto res = cancle_future_and_requestid.future.get();
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "充电服务端返回停止充电响应: battery_status=%d, charging_status=%d",
+                                res->battery_status, res->charging_status);
+                } else {
+                    RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "等待充电服务端停止充电响应超时(40s)!");
                 }
-                battery_messages_ = battery_listener_->get_battery_messages();
-                int stop_times = 0;
-                while(battery_messages_.battery_status != 0)
-                {
-                    stop_times++;
-                    if(stop_times > 10)
-                    {
-                        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "尝试10次未能停止充电!");
-                        flag_finish_ = true;  // 多次尝试失败也标记为完成（失败）
-                        return false;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-                    auto cancle_retry = request_charging_client_->send_request(stop_charge);
-                    cancle_retry.future.wait_for(std::chrono::seconds(2));
+
+                if (battery_listener_) {
                     battery_messages_ = battery_listener_->get_battery_messages();
                 }
 
-
-                // 服务端回复的数据
-                if(battery_messages_.battery_status == 0){
-                    
-                    RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"RCS request to stop charging , automatically disconnected!");
+                // 底盘 0x2A1 中: 3为充电，非3为放电/空闲等退出充电状态
+                if (battery_messages_.battery_status != 3) {
+                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "底盘已成功退出充电模式 (battery_status=%d)!", static_cast<int>(battery_messages_.battery_status));
                     flag_finish_ = true;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000*30)); // 等待30秒，等待epec就绪
+                    if (agv_data_publish_) {
+                        agv_data_publish_->set_force_charging_false(true);
+                        agv_data_publish_->state_timer_callback();
+                    }
                     return true;
-                }
-                // 返回的是其他数据，那么都是异常情况
-                else{
-                    RCLCPP_ERROR(node_->get_logger(),"fail to stop charging!");
-                    flag_finish_ = true;  // 异常情况也标记为完成（失败）
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000*30)); // 等待30秒，等待epec就绪
+                } else {
+                    RCLCPP_ERROR(node_->get_logger(), "未能退出充电模式 (底盘依然反馈 charging=3)!");
+                    flag_finish_ = true;
                     return false;
                 }
-
             }
             // 休眠500ms
             std::this_thread::sleep_for(std::chrono::milliseconds(500));

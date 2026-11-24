@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    # Remap trucks, buses, trailers to CAR
+    remap_vehicle_to_car: false
+
+    # Remap motorcycles, bicycles to CAR
+    remap_twowheeler_to_car: true
+
+    # Remap any other classes (except CAR, PEDESTRIAN) to UNKNOWN
+    fallback_to_unknown: true

@@ -16,6 +16,7 @@
 #include "subscriber_instant_action.h"
 #include "subscriber_order.h"
 #include "publishers_agv_state.h"
+#include "client_request_charging.h"
 
 /*****************************************************************************************
 * @brief:      类的构造函数
@@ -39,6 +40,13 @@ InstantActionsListener::InstantActionsListener(std::shared_ptr<rclcpp::Node> nod
 
     // 初始化接收到消息为false
     receive_new_messages = false;
+
+    // 初始化充电客户端
+    request_charging_client_ = std::make_shared<RequestChargingClient>(node_);
+}
+
+void InstantActionsListener::set_charging_client(std::shared_ptr<RequestChargingClient> charging_client) {
+    request_charging_client_ = charging_client;
 }
 
 
@@ -320,20 +328,171 @@ void InstantActionsListener::instant_action_callback(const AGVInstantActions &ms
         RCLCPP_INFO(node_->get_logger(), "断开连接!");
         break;
 
-    case ActionType::START_CHARGE:
-        
-        RCLCPP_INFO(node_->get_logger(), "开始充电 (已锁存 start_charge 动作，防超时丢失)!");
+    case ActionType::START_CHARGE: {
+        RCLCPP_INFO(node_->get_logger(), "收到开始充电指令 (start_charge)!");
         start_charge_latched_.store(true);
+        stop_charge_latched_.store(false);
+
+        const std::string cur_action_id = msg.actions[0].action_id;
+        const std::string cur_action_type = msg.actions[0].action_type;
+        const std::string cur_action_desc = msg.actions[0].action_description;
+        const std::string cur_blocking_type = msg.actions[0].blocking_type;
+
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
-            latched_charge_action_id_ = msg.actions[0].action_id;
+            latched_charge_action_id_ = cur_action_id;
         }
-        break;
 
-    case ActionType::STOP_CHARGE:
-        RCLCPP_INFO(node_->get_logger(), "结束充电 (已锁存 stop_charge 动作)!");
-        stop_charge_latched_.store(true);
+        // 初始化/更新当前动作状态为 RUNNING 并立即上报一次
+        ActionStates action_state;
+        action_state.action_id = cur_action_id;
+        action_state.action_type = cur_action_type;
+        action_state.action_description = cur_action_desc;
+        action_state.blocking_type = cur_blocking_type;
+        action_state.action_status = "RUNNING";
+
+        if (order_listener_) {
+            order_listener_->add_or_update_action_state(action_state);
+        }
+        if (data_publish_) {
+            data_publish_->state_timer_callback();
+        }
+
+        // 异步向 can_ws 充电服务端发送 start_charge 请求，等待底盘进入充电模式后更新状态
+        std::thread([this, action_state]() mutable {
+            RCLCPP_INFO(node_->get_logger(), "开始向 can_ws 充电服务端发送开始充电请求 (charging=1)...");
+            if (!request_charging_client_) {
+                request_charging_client_ = std::make_shared<RequestChargingClient>(node_);
+            }
+            if (!request_charging_client_->connect_server(5, 1s)) {
+                RCLCPP_ERROR(node_->get_logger(), "连接 can_ws 充电服务端失败，无法启动充电!");
+                action_state.action_status = "FAILED";
+                if (order_listener_) {
+                    order_listener_->add_or_update_action_state(action_state);
+                }
+                if (data_publish_) {
+                    data_publish_->state_timer_callback();
+                }
+                return;
+            }
+
+            auto future_and_id = request_charging_client_->send_request(1);
+            // 服务端内部隔3秒重发，最多10次，预留40秒等待时间
+            auto wait_status = future_and_id.future.wait_for(std::chrono::seconds(40));
+            bool charge_success = false;
+            if (wait_status == std::future_status::ready) {
+                auto response = future_and_id.future.get();
+                RCLCPP_INFO(node_->get_logger(),
+                            "收到 can_ws 充电服务端响应: battery_status=%d, charging_status=%d",
+                            response->battery_status, response->charging_status);
+                if (response->battery_status == 1 && response->charging_status == 1) {
+                    charge_success = true;
+                }
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "等待 can_ws 充电服务端响应超时(40s)!");
+            }
+
+            if (charge_success) {
+                // 开始充电成功，底盘进入充电模式，动作状态保持为 RUNNING，直到收到 stop_charge 才转化为 FINISHED
+                action_state.action_status = "RUNNING";
+                if (order_listener_) {
+                    order_listener_->add_or_update_action_state(action_state);
+                }
+                if (data_publish_) {
+                    data_publish_->set_force_charging_false(false);
+                    data_publish_->state_timer_callback();
+                }
+                RCLCPP_INFO(node_->get_logger(), "✓ 开始充电成功，底盘处于充电模式，上报 state: actionStatus=RUNNING, charging=true");
+            } else {
+                action_state.action_status = "FAILED";
+                if (order_listener_) {
+                    order_listener_->add_or_update_action_state(action_state);
+                }
+                if (data_publish_) {
+                    data_publish_->state_timer_callback();
+                }
+                RCLCPP_ERROR(node_->get_logger(), "✗ 开始充电失败，上报 state: actionStatus=FAILED");
+            }
+        }).detach();
+
         break;
+    }
+
+    case ActionType::STOP_CHARGE: {
+        RCLCPP_INFO(node_->get_logger(), "收到结束充电指令 (stop_charge)!");
+        stop_charge_latched_.store(true);
+        start_charge_latched_.store(false);
+
+        const std::string cur_action_id = msg.actions[0].action_id;
+        const std::string cur_action_type = msg.actions[0].action_type;
+        const std::string cur_action_desc = msg.actions[0].action_description;
+        const std::string cur_blocking_type = msg.actions[0].blocking_type;
+
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            latched_charge_action_id_ = cur_action_id;
+        }
+
+        // 初始化/更新当前动作状态为 RUNNING 并立即上报一次
+        ActionStates action_state;
+        action_state.action_id = cur_action_id;
+        action_state.action_type = cur_action_type;
+        action_state.action_description = cur_action_desc;
+        action_state.blocking_type = cur_blocking_type;
+        action_state.action_status = "RUNNING";
+
+        if (order_listener_) {
+            order_listener_->add_or_update_action_state(action_state);
+        }
+        if (data_publish_) {
+            data_publish_->state_timer_callback();
+        }
+
+        // 异步向 can_ws 充电服务端发送 stop_charge 请求，等待退出充电模式后更新状态
+        std::thread([this, action_state]() mutable {
+            RCLCPP_INFO(node_->get_logger(), "开始向 can_ws 充电服务端发送停止充电请求 (charging=0)...");
+            if (!request_charging_client_) {
+                request_charging_client_ = std::make_shared<RequestChargingClient>(node_);
+            }
+            if (!request_charging_client_->connect_server(5, 1s)) {
+                RCLCPP_ERROR(node_->get_logger(), "连接 can_ws 充电服务端失败，无法停止充电!");
+                action_state.action_status = "FAILED";
+                if (order_listener_) {
+                    order_listener_->add_or_update_action_state(action_state);
+                }
+                if (data_publish_) {
+                    data_publish_->state_timer_callback();
+                }
+                return;
+            }
+
+            auto future_and_id = request_charging_client_->send_request(0);
+            // 服务端内部隔3秒重发，最多10次，预留40秒等待时间
+            auto wait_status = future_and_id.future.wait_for(std::chrono::seconds(40));
+            if (wait_status == std::future_status::ready) {
+                auto response = future_and_id.future.get();
+                RCLCPP_INFO(node_->get_logger(),
+                            "收到 can_ws 充电服务端响应: battery_status=%d, charging_status=%d",
+                            response->battery_status, response->charging_status);
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "等待 can_ws 充电服务端响应超时(40s)!");
+            }
+
+            // 完成退出充电模式，将 state 中的 charging 设为 false，所有充电 actionStatus 转化为 FINISHED 并立即上报
+            action_state.action_status = "FINISHED";
+            if (order_listener_) {
+                order_listener_->add_or_update_action_state(action_state);
+                order_listener_->finish_charge_actions();
+            }
+            if (data_publish_) {
+                data_publish_->set_force_charging_false(true);
+                data_publish_->state_timer_callback();
+            }
+            RCLCPP_INFO(node_->get_logger(), "✓ 停止充电完成，上报 state: charging=false, actionStatus=FINISHED");
+        }).detach();
+
+        break;
+    }
 
     case ActionType::ORDER_FINISHED:
 
@@ -442,8 +601,8 @@ ActionType InstantActionsListener::convertActionTypeOrThrow(const std::string& a
     else if (action_type_str == "agv_online") return ActionType::AGV_ONLINE;
     else if (action_type_str == "heartbeat_ack") return ActionType::HEARTBEAT_ACK;
     else if (action_type_str == "agv_offline") return ActionType::AGV_OFFLINE;
-    else if (action_type_str == "start_charge") return ActionType::START_CHARGE;
-    else if (action_type_str == "stop_charge") return ActionType::STOP_CHARGE;
+    else if (action_type_str == "start_charge" || action_type_str == "START_CHARGE") return ActionType::START_CHARGE;
+    else if (action_type_str == "stop_charge" || action_type_str == "STOP_CHARGE") return ActionType::STOP_CHARGE;
     else if (action_type_str == "order_finished") return ActionType::ORDER_FINISHED;
 
     else if (action_type_str == "cancelOrder") return ActionType::CANCEL_ORDER;

@@ -62,23 +62,28 @@ if(TRT_AVAIL AND CUDA_AVAIL)
   ament_auto_add_library(${PROJECT_NAME}_lib SHARED
     lib/centerpoint_trt.cpp
     lib/detection_class_remapper.cpp
+    lib/ml_package_version.cpp
     lib/utils.cpp
     lib/ros_utils.cpp
-    lib/postprocess/non_maximum_suppression.cpp
     lib/preprocess/pointcloud_densification.cpp
     lib/preprocess/voxel_generator.cpp
   )
 
+  list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_75,code=sm_75")
   list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_86,code=sm_86")
   list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_87,code=sm_87")
   list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_89,code=sm_89")
-  # if(CUDA_VERSION VERSION_LESS "13.0")
-  #   list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_101,code=sm_101")
-  # else()  # CUDA 13.0 renamed SM101 to SM110
-  #   list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_110,code=sm_110")
-  # endif()
-  # list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_120,code=sm_120")
-  # list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_120,code=compute_120")
+  if(CUDA_VERSION VERSION_GREATER_EQUAL "12.8")
+    if(CUDA_VERSION VERSION_LESS "13.0")
+      list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_101,code=sm_101")
+    else()  # CUDA 13.0 renamed SM101 to SM110
+      list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_110,code=sm_110")
+    endif()
+    list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_120,code=sm_120")
+    list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_120,code=compute_120")
+  else()
+    list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_89,code=compute_89")
+  endif()
 
   cuda_add_library(${PROJECT_NAME}_cuda_lib SHARED
     lib/postprocess/circle_nms_kernel.cu
@@ -144,10 +149,9 @@ if(TRT_AVAIL AND CUDA_AVAIL)
     ament_auto_add_gtest(test_ros_utils
       test/test_ros_utils.cpp
     )
-    ament_auto_add_gtest(test_nms
-      test/test_nms.cpp
+    ament_auto_add_gtest(test_ml_package_version
+      test/test_ml_package_version.cpp
     )
-
     # Temporary disabled, tracked by:
     # https://github.com/autowarefoundation/autoware_universe/issues/7724
 #    ament_auto_add_gtest(test_voxel_generator
@@ -200,7 +204,7 @@ else()
   find_package(ament_cmake_auto REQUIRED)
   ament_auto_find_build_dependencies()
 
-  ament_auto_package(
+  autoware_ament_auto_package(
     INSTALL_TO_SHARE
       launch
   )

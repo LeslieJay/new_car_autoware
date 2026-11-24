@@ -70,6 +70,10 @@ rclcpp::Client<UseTrajectory>::FutureAndRequestId LaserSendMultiPose::send_reque
 }
 void LaserSendMultiPose::send_goal(std::vector<Point> goal_points, bool forward)
 {
+    flag_finish = false;
+    flag_aborted = false;
+    flag_canceled = false;
+    flag_driving = false;
     
     if (goal_points.empty()) {
         RCLCPP_ERROR(node_->get_logger(), "LaserSendMultiPose::send_goal: goal_points is empty!");
@@ -227,8 +231,8 @@ void LaserSendMultiPose::result_callback(const GoalHandleACTION::WrappedResult &
         default:
             RCLCPP_ERROR(node_->get_logger(), "Unknown result code!");
             if (is_current) {
-                flag_finish = true;
-                flag_aborted = false;
+                flag_finish = false;
+                flag_aborted = true;
                 flag_canceled = false;
                 flag_driving = false;
             }

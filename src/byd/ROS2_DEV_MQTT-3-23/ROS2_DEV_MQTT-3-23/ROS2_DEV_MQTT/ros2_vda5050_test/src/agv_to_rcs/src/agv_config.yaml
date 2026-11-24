@@ -19,7 +19,7 @@ file_path_prefix: "/home/nvidia/autoware/src/byd/ROS2_DEV_MQTT-3-23/"
 record_batch_size: 100
 version: "v1"
 manufacturer: "BYD"
-serial_number: "qqa0001"
+serial_number: "qaa0002"
 type_specification:
   series_name: "AF"
   agv_kinematic: "DIFE"
@@ -56,6 +56,6 @@ mqtt_broker_host: "agv.byd.com"  # "10.28.25.114"
 mqtt_broker_port: 1883
 mqtt_username: "root"  # MQTT用户名（为空表示不需要认证）
 mqtt_password: "Root1234#$"  # MQTT密码（为空表示不需要认证）
-mqtt_order_topic: "uagv/v1/BYD/qqa0001/order"
-mqtt_instant_action_topic: "uagv/v1/BYD/qqa0001/instantActions"
+mqtt_order_topic: "uagv/v1/BYD/qaa0002/order"
+mqtt_instant_action_topic: "uagv/v1/BYD/qaa0002/instantActions"
 

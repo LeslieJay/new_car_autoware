@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="input_topic" default="/perception/object_recognition/objects"/>
+  <arg name="output_topic" default="/perception/object_recognition/objects_3class"/>
+  <arg name="param_path" default="$(find-pkg-share didrive_object_class_remapper)/config/object_class_remapper.param.yaml"/>
+
+  <node pkg="didrive_object_class_remapper" exec="object_class_remapper_node" name="object_class_remapper" output="screen">
+    <remap from="~/input/objects" to="$(var input_topic)"/>
+    <remap from="~/output/objects" to="$(var output_topic)"/>
+    <param from="$(var param_path)"/>
+  </node>
+</launch>

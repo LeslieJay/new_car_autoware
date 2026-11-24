@@ -186,6 +186,12 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rcl_interfaces::msg::SetParametersResult onCalibrationParameters(
           const std::vector<rclcpp::Parameter> & parameters);
 
+        // 0x401 报文组装与语音状态机管理
+        struct can_frame assemble0x401(const rclcpp::Time & now);
+        bool isVoiceActive(const rclcpp::Time & now);
+        uint8_t selectNextVoiceId(const rclcpp::Time & now);
+        static const char* getVoiceName(uint8_t voice_id);
+
         // engage_调用服务
         void call_engage_service(bool engage);
         void call_engage_service_async(bool engage);
@@ -214,16 +220,30 @@ void pushRecord(const can_frame &frame, double angle, double speed);
         rclcpp::Time last_can_cmd_log_time_{0, 0, RCL_ROS_TIME};
         rclcpp::Time last_voice_frame_time_{0, 0, RCL_ROS_TIME};
         rclcpp::Time last_engage_frame_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time voice_play_start_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time last_voice_finish_time_{0, 0, RCL_ROS_TIME};
+        rclcpp::Time last_patrol_voice_time_{0, 0, RCL_ROS_TIME};
         int voice_frame_period_ms_{3000};  // 默认由 200 改为 3000
+        int min_voice_duration_ms_{2500};  // 任何语音播报最短保护时长，期间绝对不打断
+        int max_voice_duration_ms_{8000};  // 语音播报最大超时保护
+        int voice_post_finish_gap_ms_{300}; // 语音播报完成后的最小静音间隙
         uint8_t last_voice_id_{0};         // 记录上一次下发的语音编号
-        std::mutex voice_mutex_;           // 保证多线程回调下时间戳线程安全
-        std::atomic<bool> is_voice_playing_{false};          // 0x381 BYTE2 bit0: 1为语音播报中
+        uint8_t current_playing_voice_id_{0}; // 当前处于有效播放状态的语音编号
+        std::mutex voice_mutex_;           // 保证多线程回调下语音状态机线程安全
+        std::atomic<bool> is_voice_playing_{false};          // 0x381 BYTE2: 1为语音播报中
+        std::atomic<bool> voice_started_playing_{false};     // 0x381 监测：记录当前语音是否已收到开始播报反馈
+        std::atomic<uint8_t> last_0x381_byte2_{0xFF};        // 记录上一次0x381 Byte2，用于变化检测日志
+        int voice_status_bit_mask_{0x01};                    // 0x381 Byte2 语音状态掩码，协议规定为bit0(0x01)为播报中
         std::atomic<uint8_t> pending_obstacle_voice_{0};     // 障碍物语音编号 (9: 行人, 10: 车辆)
         std::atomic<int64_t> last_obstacle_time_ns_{0};       // 障碍物语音时间戳
         std::atomic<uint8_t> pending_control_voice_{0};      // 控制语音编号 (2: 左转, 3: 右转, 4: 倒车)
         std::atomic<int64_t> last_control_voice_time_ns_{0};  // 控制语音时间戳
-        std::atomic<bool> is_arrived_destination_{false};     // 到达目标点 (5)
+        std::atomic<bool> is_arrived_destination_{false};     // 到达目标点待播报标志 (5)
+        std::atomic<bool> arrival_voice_played_{false};        // 到达目标点语音已播报标志（单次触发保护）
         std::atomic<bool> is_low_battery_{false};             // 低电量报警 (17)
+        std::atomic<bool> left_turn_signal_{false};          // 左转向灯
+        std::atomic<bool> right_turn_signal_{false};         // 右转向灯
+        std::atomic<bool> reverse_light_{false};             // 倒车灯
         int engage_frame_period_ms_{500};
         int control_frame_period_ms_{20};
         int control_command_warn_timeout_ms_{60};

@@ -325,6 +325,9 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
     }
     if (battery_listener_) {
         battery_messages_ = battery_listener_->get_battery_messages();
+        if (battery_messages_.battery_status != 3) {
+            force_charging_false_.store(false);
+        }
     }
     if (velocity_listener_) {
         velocity_messages_ = velocity_listener_->get_velocity_messages();
@@ -401,12 +404,12 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
     order_messages_.action_size = valid_action_size;
     message.action_states.resize(valid_action_size);
     for(size_t i = 0; i < valid_action_size; i++){
-        RCLCPP_INFO(node_->get_logger(),"action数据完成填充，大小 %zu", valid_action_size);
         message.action_states[i].action_id = order_messages_.msg_state.action_states[i].action_id;
         message.action_states[i].action_type = order_messages_.msg_state.action_states[i].action_type;
         message.action_states[i].action_description = order_messages_.msg_state.action_states[i].action_description;
         message.action_states[i].action_status = order_messages_.msg_state.action_states[i].action_status;
     }
+    RCLCPP_INFO(node_->get_logger(),"action数据完成填充，大小 %zu", valid_action_size);
     // 当前位姿
     message.agv_position.x = current_pose_.current_x;
     message.agv_position.y = current_pose_.current_y;
@@ -414,7 +417,7 @@ void AGVDataPublish::state_timer_callback(const std::string& fault_code){
 
     // 电量
     message.battery_state.battery_charge = battery_messages_.battery_level;
-    if (battery_messages_.battery_status == 3){
+    if (!force_charging_false_.load() && battery_messages_.battery_status == 3){
         message.battery_state.charging = 1;
     }
     else{
@@ -715,4 +718,16 @@ void AGVDataPublish::status_timer_callback(){
 ******************************************************************************************/
 void AGVDataPublish::set_driving_fn(std::function<bool()> get_driving_fn){
     get_driving_fn_ = get_driving_fn;
+}
+
+void AGVDataPublish::set_force_charging_false(bool force) {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    force_charging_false_.store(force);
+    if (force) {
+        battery_messages_.battery_status = 2; // 设置为放电/非充电模式
+    }
+}
+
+bool AGVDataPublish::get_force_charging_false() const {
+    return force_charging_false_.load();
 }

@@ -38,7 +38,8 @@ public:
     params.default_width = (params.min_width + params.max_width) * 0.5;
     params.min_length = 5.0;
     params.max_length = 24.0;
-    params.default_length = 8.0;  // Ideally, it should be 12m from average Japanese trailer size.
+    // params.default_length = 8.0;  // Ideally, it should be 12m from average Japanese trailer size.
+    params.default_length = 14.0;  // Adjusted for standard semi-trailers (13m~17m)
     setParams(params);
   }
 

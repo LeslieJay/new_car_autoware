@@ -2,6 +2,58 @@
 Changelog for package autoware_utils_tf
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.11.0 (2026-09-17)
+-------------------
+* feat(autoware_utils_tf): templatize SelfPoseListener on the node type (`#121 <https://github.com/autowarefoundation/autoware_utils/issues/121>`_)
+  * feat(autoware_utils_tf): templatize SelfPoseListener on the node type
+  TransformListenerT already takes the node, buffer and listener types, but SelfPoseListener
+  stayed fixed to rclcpp::Node, so a node on an AgnocastOnly executor could not reach it.
+  wait_for_first_pose() also takes the liveness check as an argument. Its default asks rclcpp,
+  which is the wrong context for such a node: rclcpp::ok() is false from the start there and the
+  wait would return without a pose.
+  Callers are unchanged: SelfPoseListener stays as the rclcpp instantiation and the wait keeps
+  its old behaviour when called with no argument.
+  * chore(autoware_utils_tf): keep the original copyright header
+  ---------
+* Contributors: Koichi Imai
+
+1.10.0 (2026-08-17)
+-------------------
+
+1.9.0 (2026-06-29)
+------------------
+* fix(autoware_utils_tf): delete to call SetCreateTimer in tf2_ros path (`#114 <https://github.com/autowarefoundation/autoware_utils/issues/114>`_)
+  delete to call CreateTimerInterface
+* Contributors: Koichi Imai
+
+1.8.0 (2026-06-10)
+------------------
+* feat(transform_listener): templatize `TransformListener` for both `rclcpp::Node` and `agnocast_wrapper::Node` (`#109 <https://github.com/autowarefoundation/autoware_utils/issues/109>`_)
+  * templatize buffer
+  * define another class
+  * fix to use shared_ptr
+  * templatize TransformListener
+  * style(pre-commit): autofix
+  ---------
+  Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+* Contributors: Koichi Imai
+
+1.7.2 (2026-05-01)
+------------------
+* fix: to be consistent version in all package.xml(s)
+* fix(autoware_utils_tf): update tf2 ros header (`#90 <https://github.com/autowarefoundation/autoware_utils/issues/90>`_)
+  * fix(autoware_utils_tf): update tf2 ros header
+  * style(pre-commit): autofix
+  ---------
+  Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+* Contributors: Daisuke Nishimatsu, github-actions
+
+1.7.0 (2026-03-12)
+------------------
+
+1.6.0 (2026-02-20)
+------------------
+
 1.5.0 (2025-12-30)
 ------------------
 * Replace ament_target_dependencies with target_link_libraries (`#69 <https://github.com/autowarefoundation/autoware_utils/issues/69>`_)

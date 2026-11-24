@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "../src/multi_object_tracker_node.hpp"
-#include "autoware/multi_object_tracker/object_model/shapes.hpp"
-#include "autoware/multi_object_tracker/object_model/types.hpp"
+#include "../src/processor/input_manager.hpp"
 #include "autoware/multi_object_tracker/odometry.hpp"
+#include "autoware/multi_object_tracker/types.hpp"
 #include "autoware/multi_object_tracker/uncertainty/uncertainty_processor.hpp"
 #include "test_bench.hpp"
 #include "test_bench_association.hpp"
@@ -63,12 +63,16 @@ FunctionTimings runIterationsAssociation(
 {
   RosbagWriterHelper writer(write_bag);
 
-  auto processor_config = createProcessorConfig();
-  const auto associator_config = createAssociatorConfig();
+  const auto tracker_configs = createTrackerConfigs();
+  const auto creation_config = createTrackerCreationConfig();
+  const auto association_config = createTrackerAssociationConfig();
+  const auto overlap_config = createTrackerOverlapManagerConfig();
   const auto input_channels_config = createInputChannelsConfig();
 
   auto processor = std::make_unique<autoware::multi_object_tracker::TrackerProcessor>(
-    processor_config, associator_config, input_channels_config);
+    tracker_configs, creation_config, association_config, overlap_config, input_channels_config,
+    rclcpp::get_logger("test_multi_object_tracker"),
+    std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME));
   // TestBenchAssociation by default.
   // Or use TestBenchAssociationLemniscate for more complex association scenarios
   TestBenchAssociation simulator(config);
@@ -77,8 +81,7 @@ FunctionTimings runIterationsAssociation(
   FunctionTimings timings;
   rclcpp::Clock clock;
   rclcpp::Time current_time = rclcpp::Time(clock.now(), RCL_ROS_TIME);
-  std::unordered_map<int, int> direct_assignment;
-  std::unordered_map<int, int> reverse_assignment;
+  autoware::multi_object_tracker::types::AssociationResult association_result;
   if (print_frame_stats) {
     printFrameStatsHeader();
   }
@@ -105,8 +108,7 @@ FunctionTimings runIterationsAssociation(
   }
 
   for (int i = 0; i < num_iterations; ++i) {
-    direct_assignment.clear();
-    reverse_assignment.clear();
+    association_result = autoware::multi_object_tracker::types::AssociationResult();
     // Advance simulation time (10Hz)
     current_time += 100ms;
     auto detections = simulator.generateDetections(current_time);
@@ -116,14 +118,18 @@ FunctionTimings runIterationsAssociation(
 
     // Individual function timing
     timings.predict.times.push_back(
-      measureTimeMs([&]() { processor->predict(current_time, std::nullopt); }));
-    timings.associate.times.push_back(measureTimeMs(
-      [&]() { processor->associate(detections, direct_assignment, reverse_assignment); }));
-    timings.update.times.push_back(
-      measureTimeMs([&]() { processor->update(detections, direct_assignment); }));
+      measureTimeMs([&]() { processor->predictTrackers(current_time); }));
+    timings.associate.times.push_back(
+      measureTimeMs([&]() { association_result = processor->associate(detections); }));
+    timings.update.times.push_back(measureTimeMs([&]() {
+      processor->update(
+        autoware::multi_object_tracker::types::AssociatedObjects{detections, association_result});
+    }));
     timings.prune.times.push_back(measureTimeMs([&]() { processor->prune(current_time); }));
-    timings.spawn.times.push_back(
-      measureTimeMs([&]() { processor->spawn(detections, reverse_assignment); }));
+    timings.spawn.times.push_back(measureTimeMs([&]() {
+      processor->spawn(
+        autoware::multi_object_tracker::types::AssociatedObjects{detections, association_result});
+    }));
 
     const auto total_end = Clock::now();
     auto total_duration =
@@ -151,12 +157,16 @@ FunctionTimings runIterations(
 {
   RosbagWriterHelper writer(write_bag);
 
-  auto processor_config = createProcessorConfig();
-  const auto associator_config = createAssociatorConfig();
+  const auto tracker_configs = createTrackerConfigs();
+  const auto creation_config = createTrackerCreationConfig();
+  const auto association_config = createTrackerAssociationConfig();
+  const auto overlap_config = createTrackerOverlapManagerConfig();
   const auto input_channels_config = createInputChannelsConfig();
 
   auto processor = std::make_unique<autoware::multi_object_tracker::TrackerProcessor>(
-    processor_config, associator_config, input_channels_config);
+    tracker_configs, creation_config, association_config, overlap_config, input_channels_config,
+    rclcpp::get_logger("test_multi_object_tracker"),
+    std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME));
   TestBench simulator(config);
   simulator.initializeObjects();
   // Performance tracking for individual functions
@@ -164,14 +174,12 @@ FunctionTimings runIterations(
 
   rclcpp::Clock clock;
   rclcpp::Time current_time = rclcpp::Time(clock.now(), RCL_ROS_TIME);
-  std::unordered_map<int, int> direct_assignment;
-  std::unordered_map<int, int> reverse_assignment;
+  autoware::multi_object_tracker::types::AssociationResult association_result;
   if (print_frame_stats) {
     printFrameStatsHeader();
   }
   for (int i = 0; i < num_iterations; ++i) {
-    direct_assignment.clear();
-    reverse_assignment.clear();
+    association_result = autoware::multi_object_tracker::types::AssociationResult();
     // Advance simulation time (10Hz)
     current_time += 100ms;
     auto detections = simulator.generateDetections(current_time);
@@ -181,16 +189,20 @@ FunctionTimings runIterations(
 
     // Individual function timing
     timings.predict.times.push_back(
-      measureTimeMs([&]() { processor->predict(current_time, std::nullopt); }));
-    timings.associate.times.push_back(measureTimeMs(
-      [&]() { processor->associate(detections, direct_assignment, reverse_assignment); }));
-    timings.update.times.push_back(
-      measureTimeMs([&]() { processor->update(detections, direct_assignment); }));
+      measureTimeMs([&]() { processor->predictTrackers(current_time); }));
+    timings.associate.times.push_back(
+      measureTimeMs([&]() { association_result = processor->associate(detections); }));
+    timings.update.times.push_back(measureTimeMs([&]() {
+      processor->update(
+        autoware::multi_object_tracker::types::AssociatedObjects{detections, association_result});
+    }));
     int num_trackers0 = processor->getListTracker().size();
     timings.prune.times.push_back(measureTimeMs([&]() { processor->prune(current_time); }));
     int num_trackers1 = processor->getListTracker().size();
-    timings.spawn.times.push_back(
-      measureTimeMs([&]() { processor->spawn(detections, reverse_assignment); }));
+    timings.spawn.times.push_back(measureTimeMs([&]() {
+      processor->spawn(
+        autoware::multi_object_tracker::types::AssociatedObjects{detections, association_result});
+    }));
     int num_trackers2 = processor->getListTracker().size();
 
     int num_pruned = num_trackers0 - num_trackers1;
@@ -255,7 +267,7 @@ void runPerformanceTestWithRosbag(const std::string & rosbag_path, bool write_ba
   // === Setup ===
   rclcpp::init(0, nullptr);
   const auto node = std::make_shared<rclcpp::Node>("multi_object_tracker_test_node");
-  const auto tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
+  const auto tf_buffer = std::make_shared<autoware::agnocast_wrapper::Buffer>(node->get_clock());
   const auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer, node);
   RosbagWriterHelper writer(write_bag);
   RosbagReaderHelper reader(rosbag_path);
@@ -263,14 +275,18 @@ void runPerformanceTestWithRosbag(const std::string & rosbag_path, bool write_ba
   const std::string world_frame_id = "map";      // Assuming map is the world frame ID
   const std::string ego_frame_id = "base_link";  // Assuming base_link is the ego vehicle frame ID
   const auto odometry = std::make_shared<autoware::multi_object_tracker::Odometry>(
-    *node, world_frame_id, ego_frame_id, true);
+    node->get_logger(), node->get_clock(), tf_buffer, world_frame_id, ego_frame_id, true);
 
-  auto processor_config = createProcessorConfig();
-  const auto associator_config = createAssociatorConfig();
-  auto input_channels_config = createInputChannelsConfig();
+  const auto tracker_configs = createTrackerConfigs();
+  const auto creation_config = createTrackerCreationConfig();
+  const auto association_config = createTrackerAssociationConfig();
+  const auto overlap_config = createTrackerOverlapManagerConfig();
+  const auto input_channels_config = createInputChannelsConfig();
 
   auto processor = std::make_unique<autoware::multi_object_tracker::TrackerProcessor>(
-    processor_config, associator_config, input_channels_config);
+    tracker_configs, creation_config, association_config, overlap_config, input_channels_config,
+    rclcpp::get_logger("test_multi_object_tracker"),
+    std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME));
 
   // Create serialization objects
   rclcpp::Serialization<autoware_perception_msgs::msg::DetectedObjects> detection_serialization;
@@ -317,14 +333,14 @@ void runPerformanceTestWithRosbag(const std::string & rosbag_path, bool write_ba
         pose_cov = tf2::transformCovariance(pose_cov, tf_target2objects);
       }
       // Process through tracker
-      processor->predict(msg->header.stamp, std::nullopt);
+      processor->predictTrackers(msg->header.stamp);
 
-      std::unordered_map<int, int> direct_assignment;
-      std::unordered_map<int, int> reverse_assignment;
-      processor->associate(dynamic_objects, direct_assignment, reverse_assignment);
-      processor->update(dynamic_objects, direct_assignment);
+      const auto association_result = processor->associate(dynamic_objects);
+      const autoware::multi_object_tracker::types::AssociatedObjects associated_objects{
+        dynamic_objects, association_result};
+      processor->update(associated_objects);
       processor->prune(msg->header.stamp);
-      processor->spawn(dynamic_objects, reverse_assignment);
+      processor->spawn(associated_objects);
 
       // Get and output results
       rclcpp::Time current_time(msg->header.stamp);
@@ -475,6 +491,295 @@ public:
   MultiObjectTrackerTest() = default;
   ~MultiObjectTrackerTest() override = default;
 };
+
+namespace
+{
+
+constexpr size_t kHighLatencyChannel = 1;
+constexpr size_t kLowLatencyChannel = 0;
+constexpr int32_t kTestStartSec = 2000000000;
+constexpr double kMeasurementInterval = 0.1;
+constexpr double kStaleElapsedTime = 0.6;
+
+std::vector<autoware::multi_object_tracker::types::InputChannel> makeInputManagerChannels()
+{
+  std::vector<autoware::multi_object_tracker::types::InputChannel> channels;
+  channels.reserve(2);
+
+  for (size_t i = 0; i < 2; ++i) {
+    autoware::multi_object_tracker::types::InputChannel channel;
+    channel.index = static_cast<uint>(i);
+    channel.is_enabled = true;
+    channel.long_name = "test_channel_" + std::to_string(i);
+    channel.short_name = "ch" + std::to_string(i);
+    channel.is_spawn_enabled = true;
+    channel.trust_existence_probability = true;
+    channel.trust_extension = true;
+    channel.trust_classification = true;
+    channel.trust_orientation = true;
+    channels.push_back(channel);
+  }
+
+  return channels;
+}
+
+autoware::multi_object_tracker::InputManager makeInputManagerForTriggerTest(
+  const rclcpp::Clock::SharedPtr & clock)
+{
+  autoware::multi_object_tracker::InputManager manager(
+    nullptr, rclcpp::get_logger("test_input_manager"), clock);
+  manager.init(makeInputManagerChannels());
+  return manager;
+}
+
+rclcpp::Time pushEmptyMeasurement(
+  autoware::multi_object_tracker::InputManager & manager, const size_t channel_index,
+  const rclcpp::Time & now, const double latency_sec)
+{
+  autoware::multi_object_tracker::types::DynamicObjectList objects;
+  objects.channel_index = static_cast<uint>(channel_index);
+  const rclcpp::Time measurement_time = now - rclcpp::Duration::from_seconds(latency_sec);
+  objects.header.stamp = static_cast<builtin_interfaces::msg::Time>(measurement_time);
+
+  manager.push(
+    channel_index, objects, autoware::multi_object_tracker::types::AssociationResult{}, now);
+  return measurement_time;
+}
+
+rclcpp::Time advanceTime(const rclcpp::Time & now, const double seconds)
+{
+  return now + rclcpp::Duration::from_seconds(seconds);
+}
+
+rclcpp::Time initializeLatencyStatistics(autoware::multi_object_tracker::InputManager & manager)
+{
+  rclcpp::Time now(kTestStartSec, 0, RCL_ROS_TIME);
+  for (size_t i = 0; i < 20; ++i) {
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+  }
+
+  manager.optimizeChannelTimings(now);
+  return now;
+}
+
+bool hasMeasurementAtOrAfter(
+  const autoware::multi_object_tracker::types::ObjectsWithAssociationList & objects,
+  const size_t channel_index, const rclcpp::Time & timestamp)
+{
+  return std::any_of(objects.begin(), objects.end(), [&](const auto & objects_with_association) {
+    return objects_with_association.objects.channel_index == channel_index &&
+           objects_with_association.getTimestamp() >= timestamp;
+  });
+}
+
+}  // namespace
+
+TEST(InputManagerTargetSelection, SelectsLargestLatencyStreamAfterTimingOptimization)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+
+  initializeLatencyStatistics(manager);
+
+  EXPECT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+}
+
+TEST(InputManagerTargetSelection, FailsOverFromStaleTargetToFreshStream)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  now = advanceTime(now, kStaleElapsedTime);
+  for (size_t i = 0; i < 5; ++i) {
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+  }
+
+  manager.optimizeChannelTimings(now);
+
+  EXPECT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+}
+
+TEST(InputManagerTargetSelection, BatchWindowAdvancesWithFreshStreamAfterTargetDropout)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  now = advanceTime(now, kStaleElapsedTime);
+  rclcpp::Time latest_fresh_measurement(0, 0, RCL_ROS_TIME);
+  for (size_t i = 0; i < 5; ++i) {
+    latest_fresh_measurement = pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+  }
+
+  manager.optimizeChannelTimings(now);
+  autoware::multi_object_tracker::types::ObjectsWithAssociationList objects;
+  manager.getObjects(now, objects);
+
+  EXPECT_TRUE(hasMeasurementAtOrAfter(objects, kLowLatencyChannel, latest_fresh_measurement));
+}
+
+TEST(InputManagerTargetSelection, ExportsRecoveredTargetMeasurementsDuringLatencyRamp)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  // converge the target latency and the export watermark to the steady state
+  for (size_t i = 0; i < 20; ++i) {
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+    autoware::multi_object_tracker::types::ObjectsWithAssociationList objects;
+    manager.getObjects(now, objects);
+  }
+
+  // target dropout: fail over to the low-latency stream, the watermark follows it
+  now = advanceTime(now, kStaleElapsedTime);
+  for (size_t i = 0; i < 5; ++i) {
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+    autoware::multi_object_tracker::types::ObjectsWithAssociationList objects;
+    manager.getObjects(now, objects);
+  }
+  ASSERT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+
+  // recovery: every high-latency measurement is exported while the latency estimate converges
+  for (size_t i = 0; i < 20; ++i) {
+    const rclcpp::Time pushed = pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+    autoware::multi_object_tracker::types::ObjectsWithAssociationList objects;
+    manager.getObjects(now, objects);
+    EXPECT_TRUE(hasMeasurementAtOrAfter(objects, kHighLatencyChannel, pushed))
+      << "high-latency measurement lost at ramp cycle " << i;
+  }
+  EXPECT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+}
+
+TEST(InputManagerTargetSelection, KeepsTargetWithinLatencyHysteresis)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+
+  // both channels have the same latency, so the first one is selected as the target
+  rclcpp::Time now(kTestStartSec, 0, RCL_ROS_TIME);
+  for (size_t i = 0; i < 20; ++i) {
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.30);
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.30);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+  }
+  ASSERT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+
+  // a latency difference smaller than the hysteresis must not flip the target stream
+  for (size_t i = 0; i < 30; ++i) {
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.30);
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.32);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+  }
+  EXPECT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+
+  // a latency difference larger than the hysteresis switches the target stream
+  for (size_t i = 0; i < 100; ++i) {
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.30);
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.60);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+  }
+  EXPECT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+}
+
+TEST(InputManagerTargetSelection, ShiftsTargetLatencyGraduallyOnIncrease)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  // the target latency must not jump to the target stream latency at once, otherwise the batch
+  // window moves backward in time
+  constexpr double max_latency_increase_rate = 0.2;  // [s/s]
+  const double max_latency_step = max_latency_increase_rate * kMeasurementInterval;
+  double previous_latency = manager.getTargetStreamLatency();
+  for (size_t i = 0; i < 20; ++i) {
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+
+    const double latency = manager.getTargetStreamLatency();
+    EXPECT_GE(latency, previous_latency);
+    EXPECT_LE(latency - previous_latency, max_latency_step + 1e-6);
+    previous_latency = latency;
+  }
+
+  // it converges to the latency of the target stream
+  EXPECT_NEAR(manager.getTargetStreamLatency(), 0.5, 1e-2);
+}
+
+TEST(InputManagerTargetSelection, AppliesTargetLatencyDecreaseImmediately)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  for (size_t i = 0; i < 20; ++i) {
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+    now = advanceTime(now, kMeasurementInterval);
+    manager.optimizeChannelTimings(now);
+  }
+  ASSERT_NEAR(manager.getTargetStreamLatency(), 0.5, 1e-2);
+
+  // on a failover to a fresh low latency stream, the batch window recovers without a delay
+  now = advanceTime(now, kStaleElapsedTime);
+  pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+  manager.optimizeChannelTimings(now);
+
+  EXPECT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+  EXPECT_NEAR(manager.getTargetStreamLatency(), 0.05, 1e-2);
+}
+
+TEST(InputManagerTargetSelection, TreatsRateDroppedStreamAsStale)
+{
+  const auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  auto manager = makeInputManagerForTriggerTest(clock);
+  rclcpp::Time now = initializeLatencyStatistics(manager);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  // the target stream gradually drops its rate, which grows its interval statistics
+  double interval = kMeasurementInterval;
+  for (size_t i = 0; i < 60; ++i) {
+    constexpr double interval_growth_rate = 1.02;
+    interval *= interval_growth_rate;
+    now = advanceTime(now, interval);
+    pushEmptyMeasurement(manager, kHighLatencyChannel, now, 0.5);
+  }
+  manager.optimizeChannelTimings(now);
+  ASSERT_EQ(manager.getTargetChannelIdx(), kHighLatencyChannel);
+
+  // the freshness timeout must not be relaxed by the grown interval statistics
+  for (size_t i = 0; i < 5; ++i) {
+    now = advanceTime(now, kMeasurementInterval);
+    pushEmptyMeasurement(manager, kLowLatencyChannel, now, 0.05);
+  }
+  manager.optimizeChannelTimings(now);
+
+  EXPECT_EQ(manager.getTargetChannelIdx(), kLowLatencyChannel);
+}
 
 TEST_F(MultiObjectTrackerTest, DISABLED_PerformanceVsCarCount)
 {

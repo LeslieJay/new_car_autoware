@@ -2,6 +2,43 @@
 Changelog for package autoware_utils_geometry
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.11.0 (2026-09-17)
+-------------------
+
+1.10.0 (2026-08-17)
+-------------------
+* feat(autoware_utils_geometry): improve boost_polygon_utils to guard against degenerate inputs (`#117 <https://github.com/autowarefoundation/autoware_utils/issues/117>`_)
+  * modify to_polygon2d() and expand_polygon() to guard against degenerate input polygons
+  * avoid using std::hypot, guard against division by zero
+  * add safe polygon APIs without changing originals
+  Keep original to_polygon2d() and expand_polygon() behavior unchanged, and add to_polygon2d_safe() / expand_polygon_safe() that guard against degenerate inputs. Move related tests to the safe APIs.
+  ---------
+* Contributors: mkquda
+
+1.9.0 (2026-06-29)
+------------------
+* fix(autoware_utils_geometry): avoid to raise exception if the polygon is empty (`#85 <https://github.com/autowarefoundation/autoware_utils/issues/85>`_)
+  * fix: avoid to raise exception if the number of vertices is zero
+  * test: fix test not to throw exception
+  ---------
+  Co-authored-by: Daisuke Nishimatsu <42202095+wep21@users.noreply.github.com>
+  Co-authored-by: Yutaka Kondo <yutaka.kondo@youtalk.jp>
+* Contributors: Kotaro Uetake
+
+1.8.0 (2026-06-10)
+------------------
+
+1.7.2 (2026-05-01)
+------------------
+* fix: to be consistent version in all package.xml(s)
+* Contributors: github-actions
+
+1.7.0 (2026-03-12)
+------------------
+
+1.6.0 (2026-02-20)
+------------------
+
 1.5.0 (2025-12-30)
 ------------------
 * fix(autoware_utils_geometry): handle floating-point errors in segment collision detection (`#86 <https://github.com/autowarefoundation/autoware_utils/issues/86>`_)

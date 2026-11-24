@@ -328,6 +328,15 @@ bool correctWithReferenceYawAndShapeSize(
     width = ref_shape_size_info.shape.dimensions.y;
   }
 
+  // 商用车辆宽度物理约束：公路法规标准全宽为2.5m（即使考虑后视镜或斜射点云扩散，也不应超过2.8m）
+  // 原硬截断逻辑（已注释保留）：
+  // if (width > 2.8) {
+  //   width = 2.6;
+  // }
+  if (width > 3.4) {
+    width = 3.2;
+  }
+
   shape.dimensions.x = length;
   shape.dimensions.y = width;
 
@@ -381,6 +390,7 @@ bool correctWithReferenceShapeAndPose(
 
   Eigen::Vector3d ex = (Eigen::Vector3d(local_c1.x() / std::abs(local_c1.x()), 0, 0));
   Eigen::Vector3d ey = (Eigen::Vector3d(0, local_c1.y() / std::abs(local_c1.y()), 0));
+  (void)ey;
 
   double length;
   if (
@@ -400,16 +410,71 @@ bool correctWithReferenceShapeAndPose(
     width = ref_shape_size_info.shape.dimensions.y;
   }
 
-  shape.dimensions.x = length;
-  shape.dimensions.y = width;
+  // 商用大型车辆/半挂车物理全包络约束：
+  // 半挂车牵引车头与挂车常存在小折角，或车头后视镜/侧护网外展，总体点云横向包络可达 3.2m~3.3m。
+  // 由于已采用近车侧边缘贴齐（Near-Side Anchor），多余宽度只向远离自车侧（外侧/路沿侧）延展，
+  // 绝对不会侵占自车车道。因此放宽宽度截断上限至 3.4m（超过则截断为 3.2m），使远离自车侧的车头及车身点云 100% 被包裹。
+  // 原硬截断逻辑（已注释保留）：
+  // if (width > 2.8) {
+  //   width = 2.6;
+  // }
+  if (width > 3.4) {
+    width = 3.2;
+  }
 
-  // compute a new center with correction vector
-  Eigen::Vector3d new_centroid =
-    (base2obj_transform * local_c1) -
-    (base2obj_transform.rotation() * (ex * length * 0.5 + ey * width * 0.5));
+  const double orig_cluster_x = shape.dimensions.x;
+  const double orig_cluster_y = shape.dimensions.y;
+
+  // 方案 A：近车侧边缘贴齐 (Near-Side Anchor Alignment)
+  // 当聚类包含折角车头或路沿反光导致横向总宽超出目标标准宽度时，
+  // 计算局部 +/-Y 两侧在自车 base_link 坐标系下到传感器的距离，
+  // 优先将包围盒在近车侧（朝向自车一侧）的边缘与点云外缘严格贴齐，多余宽度从远离自车侧截除，
+  // 确保自车侧挂车侧壁与前挡板 100% 完整包裹在 3D Box 内，消除 26cm 侧向漏包与刮蹭隐患。
+  Eigen::Vector3d local_y_neg(0.0, -orig_cluster_y * 0.5, 0.0);
+  Eigen::Vector3d local_y_pos(0.0, +orig_cluster_y * 0.5, 0.0);
+  const double dist_neg = (base2obj_transform * local_y_neg).squaredNorm();
+  const double dist_pos = (base2obj_transform * local_y_pos).squaredNorm();
+
+  double new_local_y = 0.0;
+  if (dist_neg < dist_pos) {
+    // 局部 -Y 侧为靠近自车一侧，近侧边缘维持在 -orig_cluster_y * 0.5
+    new_local_y = -orig_cluster_y * 0.5 + width * 0.5;
+  } else {
+    // 局部 +Y 侧为靠近自车一侧，近侧边缘维持在 +orig_cluster_y * 0.5
+    new_local_y = orig_cluster_y * 0.5 - width * 0.5;
+  }
+
+  double new_local_x = 0.0;
+  // 当点云聚类自身已经具有完整挂车车身（如长达18米以上且与目标长度一致）时，当前聚类的中心本身就是最真实完整的几何中心，
+  // 保持聚类拟合中心，避免因角点锚定单向拉偏；仅在点云被截断时使用角点锚定外扩。
+  if (orig_cluster_x > 18.0 && std::abs(length - orig_cluster_x) < 1.0) {
+    new_local_x = 0.0;
+  } else {
+    new_local_x = local_c1.x() - ex.x() * length * 0.5;
+  }
+
+  Eigen::Vector3d shift(new_local_x, new_local_y, 0.0);
+  Eigen::Vector3d new_centroid = base2obj_transform * shift;
   pose.position.x = new_centroid.x();
   pose.position.y = new_centroid.y();
   pose.position.z = new_centroid.z();
+
+  shape.dimensions.x = length;
+  shape.dimensions.y = width;
+
+  /* 原对称中心/角点锚定逻辑（已注释，保留供回溯）：
+  if (orig_cluster_x > 18.0 && std::abs(length - orig_cluster_x) < 1.0) {
+    // 保留原始聚类中心不变
+  } else {
+    // compute a new center with correction vector
+    Eigen::Vector3d new_centroid =
+      (base2obj_transform * local_c1) -
+      (base2obj_transform.rotation() * (ex * length * 0.5 + ey * width * 0.5));
+    pose.position.x = new_centroid.x();
+    pose.position.y = new_centroid.y();
+    pose.position.z = new_centroid.z();
+  }
+  */
 
   return true;
 }

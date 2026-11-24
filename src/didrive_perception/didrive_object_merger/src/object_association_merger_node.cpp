@@ -184,18 +184,37 @@ void ObjectAssociationMergerNode::objectsCallback(
     if (direct_assignment.find(object0_idx) !=
         direct_assignment.end()) {  // found and merge
       const auto& object1 = objects1.at(direct_assignment.at(object0_idx));
+      // Helper lambda: 保留胜出方几何姿态与形状，若胜出方缺少速度或协方差则从对方继承
+      auto merge_twist_and_cov = [](const auto & src_geom, const auto & src_motion) {
+        auto out = src_geom;
+        if (!out.kinematics.has_twist && src_motion.kinematics.has_twist) {
+          out.kinematics.has_twist = true;
+          out.kinematics.twist_with_covariance = src_motion.kinematics.twist_with_covariance;
+          out.kinematics.has_twist_covariance = src_motion.kinematics.has_twist_covariance;
+        }
+        if (!out.kinematics.has_position_covariance && src_motion.kinematics.has_position_covariance) {
+          out.kinematics.has_position_covariance = true;
+          out.kinematics.pose_with_covariance.covariance = src_motion.kinematics.pose_with_covariance.covariance;
+        }
+        return out;
+      };
+
       switch (priority_mode_) {
         case PriorityMode::Object0:
-          output_msg.objects.push_back(object0);
+          // output_msg.objects.push_back(object0);
+          output_msg.objects.push_back(merge_twist_and_cov(object0, object1));
           break;
         case PriorityMode::Object1:
-          output_msg.objects.push_back(object1);
+          // output_msg.objects.push_back(object1);
+          output_msg.objects.push_back(merge_twist_and_cov(object1, object0));
           break;
         case PriorityMode::Confidence:
           if (object1.existence_probability <= object0.existence_probability)
-            output_msg.objects.push_back(object0);
+            // output_msg.objects.push_back(object0);
+            output_msg.objects.push_back(merge_twist_and_cov(object0, object1));
           else
-            output_msg.objects.push_back(object1);
+            // output_msg.objects.push_back(object1);
+            output_msg.objects.push_back(merge_twist_and_cov(object1, object0));
           break;
       }
     } else {  // not found

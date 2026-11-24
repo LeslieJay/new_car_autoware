@@ -28,6 +28,8 @@ OrderListener::OrderListener(std::shared_ptr<rclcpp::Node> node):node_(node){
     m_vector_size = 0;
 
     last_order_update_id = -1;
+    msg_state.last_node_id = "";
+    msg_state.last_node_sequence_id = -1;
 
 }
 
@@ -102,12 +104,12 @@ void OrderListener::OrderFinished(){
     // 更新任务状态
     get_order = false;
 
-    // 任务数据清零，防止状态报告用到过时数据
-    released_node_size = 0;
-    msg_state.node_states = {};
+    // 保留已完成任务的节点与边状态，避免状态上报丢失上下文，直到收到新订单由 order_callback 清空
+    // released_node_size = 0;
+    // msg_state.node_states = {};
 
-    released_edge_size = 0;
-    msg_state.edge_states = {};
+    // released_edge_size = 0;
+    // msg_state.edge_states = {};
 
     // 保留 msg_state.action_states 和 msg_state.order_id，以便状态上报保持 FINISHED
     // 直到收到新订单时才由 order_callback 清空
@@ -125,7 +127,7 @@ void OrderListener::OrderFinished(){
     released_goal_trajectory= {};
 
     // msg_state.order_id      = ""; // 保留已完成任务的 order_id
-    // 保留 msg_state.last_node_id 和 msg_state.last_node_sequence_id，供状态上报持续反映当前所在最新节点
+    // 保留已到达终点的 last_node_id 与 last_node_sequence_id，直到收到新订单才重置
     // msg_state.last_node_id  = "";
     // msg_state.last_node_sequence_id = -1; 
 
@@ -148,6 +150,51 @@ void OrderListener::set_instant_action_state(const ActionStates& action_state) {
     msg_state.action_states.clear();
     msg_state.action_states.push_back(action_state);
     released_action_size = 1;
+}
+
+void OrderListener::add_or_update_action_state(const ActionStates& action_state) {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    bool found = false;
+    for (auto & act : msg_state.action_states) {
+        if (act.action_id == action_state.action_id) {
+            act.action_status = action_state.action_status;
+            act.action_type = action_state.action_type;
+            act.action_description = action_state.action_description;
+            act.blocking_type = action_state.blocking_type;
+            found = true;
+            break;
+        }
+    }
+    // 如果是充电类动作 (start_charge / stop_charge / CHARGE)，无论 action_id 是否一致，
+    // 均作为充电生命周期内的状态动作进行更新/替换，杜绝 RCS 重试导致动作列表无限累加膨胀
+    if (!found && (action_state.action_type == "start_charge" ||
+                   action_state.action_type == "stop_charge" ||
+                   action_state.action_type == "CHARGE")) {
+        for (auto & act : msg_state.action_states) {
+            if (act.action_type == "start_charge" ||
+                act.action_type == "stop_charge" ||
+                act.action_type == "CHARGE") {
+                act = action_state;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        msg_state.action_states.push_back(action_state);
+    }
+    released_action_size = msg_state.action_states.size();
+}
+
+void OrderListener::finish_charge_actions() {
+    std::lock_guard<std::recursive_mutex> lock(data_mutex_);
+    for (auto & act : msg_state.action_states) {
+        if (act.action_type == "start_charge" || act.action_type == "stop_charge" || act.action_type == "CHARGE") {
+            act.action_status = "FINISHED";
+            RCLCPP_INFO(node_->get_logger(), "【动作完成】充电动作 (ID: %s, Type: %s) 状态转化为 FINISHED",
+                        act.action_id.c_str(), act.action_type.c_str());
+        }
+    }
 }
 
 bool OrderListener::update_action_status(const std::string& from_status, const std::string& to_status) {
@@ -215,6 +262,12 @@ void OrderListener::order_callback(const AGVOrder &msg){
             OrderFinished();
             msg_state.action_states.clear();
             released_action_size = 0;
+            msg_state.node_states.clear();
+            msg_state.edge_states.clear();
+            released_node_size = 0;
+            released_edge_size = 0;
+            msg_state.last_node_id = "";
+            msg_state.last_node_sequence_id = -1;
         } else if (get_order) {
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_id: %s msg.order_id: %s",msg_state.order_id.c_str(),msg.order_id.c_str());
             RCLCPP_ERROR(rclcpp::get_logger("rclcpp"),"msg_state.order_update_id: %d msg.order_update_id: %d",msg_state.order_update_id,msg.order_update_id);
@@ -457,10 +510,9 @@ void OrderListener::order_callback(const AGVOrder &msg){
 
     last_order_update_id = msg.order_update_id;
 
-    // 更新last_node和last_node_sequence
-    // 最后一个点位判断
-    // msg_state.last_node_id = msg.nodes[0].node_id;
-    // msg_state.last_node_sequence_id = msg.nodes[0].sequence_id;
+    // 新任务或更新到达终点前，last_node_id 必须保持为空
+    msg_state.last_node_id = "";
+    msg_state.last_node_sequence_id = -1;
     msg_state.order_update_id = msg.order_update_id;
     msg_state.order_id = msg.order_id;
 

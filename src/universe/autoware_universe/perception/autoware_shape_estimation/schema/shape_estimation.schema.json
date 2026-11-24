@@ -31,6 +31,31 @@
           "description": "The flag to use boost bbox optimizer",
           "default": "false"
         },
+        "use_concave_footprint": {
+          "type": "boolean",
+          "description": "The flag to enable concave footprint for large obstacles.",
+          "default": "true"
+        },
+        "footprint_resolution": {
+          "type": "number",
+          "description": "Grid resolution for concave footprint in meters.",
+          "default": "0.1"
+        },
+        "footprint_connection_radius": {
+          "type": "number",
+          "description": "Connection dilation radius for footprint in meters.",
+          "default": "0.5"
+        },
+        "footprint_min_extent": {
+          "type": "number",
+          "description": "Minimum extent of object to attempt concave footprint in meters.",
+          "default": "6.0"
+        },
+        "footprint_min_area_reduction": {
+          "type": "number",
+          "description": "Minimum area reduction ratio required to adopt concave footprint.",
+          "default": "0.15"
+        },
         "model_params": {
           "type": "object",
           "description": "Parameters for model configuration.",

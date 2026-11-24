@@ -11,7 +11,11 @@ can_node:
     can1_use: false
 
     txqueuelen: 1000 #发送队列大小
-    voice_frame_period_ms: 200   # 0x401最小发送周期
+    voice_frame_period_ms: 3000   # 0x401语音最小发送周期，3000ms=3秒
+    voice_status_bit_mask: 1      # 0x381 Byte2语音状态掩码，协议规定为bit0(0x01)为播报中
+    min_voice_duration_ms: 2500   # 任何语音播报最短保护时长(ms)，在此期间绝对禁止打断
+    max_voice_duration_ms: 8000   # 语音播报最大超时时长(ms)，超时后自动恢复空闲
+    voice_post_finish_gap_ms: 300 # 语音播报完成后的最小静音间隔(ms)
     engage_frame_period_ms: 500  # 0x301最小发送周期
     control_frame_period_ms: 20  # 0x201固定发送周期，20ms=50Hz
     control_command_warn_timeout_ms: 60   # 连续丢失约3个50Hz控制周期后告警

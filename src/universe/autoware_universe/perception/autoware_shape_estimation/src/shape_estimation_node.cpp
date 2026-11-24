@@ -47,22 +47,42 @@ ShapeEstimationNode::ShapeEstimationNode(const rclcpp::NodeOptions & node_option
   bool use_boost_bbox_optimizer = declare_parameter<bool>("use_boost_bbox_optimizer");
   fix_filtered_objects_label_to_unknown_ =
     declare_parameter<bool>("fix_filtered_objects_label_to_unknown");
+
+  model::ConcaveFootprintParams concave_params;
+  concave_params.use_concave_footprint =
+    declare_parameter<bool>("use_concave_footprint", true);
+  concave_params.footprint_resolution =
+    static_cast<float>(declare_parameter<double>("footprint_resolution", 0.1));
+  concave_params.footprint_connection_radius =
+    static_cast<float>(declare_parameter<double>("footprint_connection_radius", 0.5));
+  concave_params.footprint_min_extent =
+    static_cast<float>(declare_parameter<double>("footprint_min_extent", 6.0));
+  concave_params.footprint_min_area_reduction =
+    static_cast<float>(declare_parameter<double>("footprint_min_area_reduction", 0.15));
+
   RCLCPP_INFO(this->get_logger(), "using boost shape estimation : %d", use_boost_bbox_optimizer);
+  RCLCPP_INFO(this->get_logger(), "using concave footprint : %d", concave_params.use_concave_footprint);
   estimator_ =
-    std::make_unique<ShapeEstimator>(use_corrector, use_filter, use_boost_bbox_optimizer);
+    std::make_unique<ShapeEstimator>(
+      use_corrector, use_filter, use_boost_bbox_optimizer, concave_params);
 
 #ifdef USE_CUDA
   use_ml_shape_estimation_ = declare_parameter<bool>("model_params.use_ml_shape_estimator");
   if (use_ml_shape_estimation_) {
-    std::string model_path = declare_parameter<std::string>("model_path");
-    min_points_ = declare_parameter<int>("model_params.minimum_points");
-    std::string precision = declare_parameter<std::string>("model_params.precision");
-    int batch_size = declare_parameter<int>("model_params.batch_size");
-    tensorrt_shape_estimator_ =
-      std::make_unique<TrtShapeEstimator>(model_path, precision, batch_size);
-    if (this->declare_parameter("model_params.build_only", false)) {
-      RCLCPP_INFO(this->get_logger(), "TensorRT engine is built and shutdown node.");
-      rclcpp::shutdown();
+    std::string model_path = declare_parameter<std::string>("model_path", "");
+    if (model_path.empty()) {
+      use_ml_shape_estimation_ = false;
+      RCLCPP_WARN(this->get_logger(), "model_path is empty. Disabling ml shape estimation.");
+    } else {
+      min_points_ = declare_parameter<int>("model_params.minimum_points");
+      std::string precision = declare_parameter<std::string>("model_params.precision");
+      int batch_size = declare_parameter<int>("model_params.batch_size");
+      tensorrt_shape_estimator_ =
+        std::make_unique<TrtShapeEstimator>(model_path, precision, batch_size);
+      if (this->declare_parameter("model_params.build_only", false)) {
+        RCLCPP_INFO(this->get_logger(), "TensorRT engine is built and shutdown node.");
+        rclcpp::shutdown();
+      }
     }
   }
 #endif

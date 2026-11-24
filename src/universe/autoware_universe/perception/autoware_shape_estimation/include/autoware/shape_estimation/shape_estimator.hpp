@@ -15,6 +15,8 @@
 #ifndef AUTOWARE__SHAPE_ESTIMATION__SHAPE_ESTIMATOR_HPP_
 #define AUTOWARE__SHAPE_ESTIMATION__SHAPE_ESTIMATOR_HPP_
 
+#include "autoware/shape_estimation/model/convex_hull.hpp"
+
 #include <autoware_perception_msgs/msg/object_classification.hpp>
 #include <autoware_perception_msgs/msg/shape.hpp>
 #include <geometry_msgs/msg/pose.hpp>
@@ -67,9 +69,13 @@ private:
   bool use_corrector_;
   bool use_filter_;
   bool use_boost_bbox_optimizer_;
+  model::ConcaveFootprintParams concave_params_{};
 
 public:
   ShapeEstimator(bool use_corrector, bool use_filter, bool use_boost_bbox_optimizer = false);
+  ShapeEstimator(
+    bool use_corrector, bool use_filter, bool use_boost_bbox_optimizer,
+    const model::ConcaveFootprintParams & concave_params);
 
   virtual ~ShapeEstimator() = default;
 

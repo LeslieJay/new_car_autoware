@@ -151,18 +151,17 @@ void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_m
         {
             std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
             if (!order_messages_.goal_x.empty()) {
-                size_t g_idx = (point_index < order_messages_.goal_x.size()) ? point_index : (order_messages_.goal_x.size() - 1);
-                dist = std::hypot(order_messages_.goal_x[g_idx] - cur.current_x, order_messages_.goal_y[g_idx] - cur.current_y);
+                dist = std::hypot(order_messages_.goal_x.back() - cur.current_x, order_messages_.goal_y.back() - cur.current_y);
             }
         }
-        // 如果距离目标点大于 1.5m，说明小车根本还没到达新目标点，此 state=6 是上一任务残留，直接忽略并置为 0
-        if (dist > 1.5) {
+        // 只有当车辆到达了即满足先有的到达判定条件，收到状态6且误差小于1m的时候，才算到达
+        if (dist > 1.0) {
             if (node_) {
                 RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
-                    "收到 /byd/autoware/state: 6，但物理距离目标点 %.2fm (> 1.5m)，判定为上一任务残留状态，忽略！", dist);
+                    "收到 /byd/autoware/state: 6，但物理距离终点目标 %.2fm (> 1.0m)，判定为未到达，忽略！", dist);
             } else {
                 RCLCPP_WARN(rclcpp::get_logger("rclcpp"),
-                    "收到 /byd/autoware/state: 6，但物理距离目标点 %.2fm (> 1.5m)，判定为上一任务残留状态，忽略！", dist);
+                    "收到 /byd/autoware/state: 6，但物理距离终点目标 %.2fm (> 1.0m)，判定为未到达，忽略！", dist);
             }
             current_autoware_state_ = 0;
             return;
@@ -170,13 +169,22 @@ void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_m
 
         current_autoware_state_ = msg->state;
 
-        // 判断当前是否有后续需要执行的设备动作（LOAD / UNLOAD / pick / drop / CHARGE / WAIT 等）
-        bool has_device_action = false;
-        if (order_listener) {
-            has_device_action = order_listener->has_device_action();
-        }
+        // 到达判定满足：收到状态6且误差小于1m，此时更新 last_node_id 为最后一个点的id
         {
             std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+            if (!order_messages_.msg_state.node_states.empty()) {
+                order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
+                order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
+            }
+            if (order_listener) {
+                order_listener->update_last_node_to_final();
+            }
+
+            // 判断当前是否有后续需要执行的设备动作（LOAD / UNLOAD / pick / drop / CHARGE / WAIT 等）
+            bool has_device_action = false;
+            if (order_listener) {
+                has_device_action = order_listener->has_device_action();
+            }
             if (!has_device_action) {
                 for (const auto & act : order_messages_.msg_state.action_states) {
                     if (act.action_type != "order" && act.action_type != "connect_success_auto") {
@@ -186,16 +194,11 @@ void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_m
                 }
             }
 
-            // 仅当该任务没有后续设备动作（如 connect_success_auto 或 无 action 的普通纯导航 order），到达终点后直接将 action_status 变更为 FINISHED，并更新 last_node_id 为终点
+            // 仅当该任务没有后续设备动作（如 connect_success_auto 或 无 action 的普通纯导航 order），到达终点后直接将 action_status 变更为 FINISHED
             if (!has_device_action) {
                 bool finish_changed = false;
                 if (order_listener) {
                     finish_changed = order_listener->update_action_status("", "FINISHED") || finish_changed;
-                    order_listener->update_last_node_to_final();
-                }
-                if (!order_messages_.msg_state.node_states.empty()) {
-                    order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
-                    order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
                 }
                 for (auto & act : order_messages_.msg_state.action_states) {
                     if (act.action_status != "FINISHED") {
@@ -203,11 +206,12 @@ void LaserRunningStateBehaviors::autoware_state_callback(const autoware_system_m
                         finish_changed = true;
                     }
                 }
-                if (finish_changed && agv_data_publish_) {
-                    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【状态跳转】/byd/autoware/state 为 6 且任务无后续设备动作，action_status 切换为 FINISHED，last_node_id 更新为终点: %s",
-                        order_messages_.msg_state.last_node_id.c_str());
-                    agv_data_publish_->state_timer_callback();
-                }
+            }
+
+            if (agv_data_publish_) {
+                RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "【到达判定满足】收到 /byd/autoware/state: 6 且距离误差 %.3fm <= 1.0m，last_node_id 更新为终点: %s 并立即上报",
+                    order_messages_.msg_state.last_node_id.c_str());
+                agv_data_publish_->state_timer_callback();
             }
         }
     } else {
@@ -244,6 +248,17 @@ NodeStatus LaserRunningStateBehaviors::tick()
     flag_pausing = false; // 初始化暂停标志为false
     current_autoware_state_ = 0;
     goal_points_to_driver = {};
+    agv_driver_control->set_flag_finish(false);
+
+    // 新任务启动，到达终点前 last_node_id 必须保持为空
+    {
+        std::lock_guard<std::recursive_mutex> lock(order_messages_mutex_);
+        order_messages_.msg_state.last_node_id = "";
+        order_messages_.msg_state.last_node_sequence_id = -1;
+        if (order_listener) {
+            order_listener->set_msg_state(order_messages_.msg_state);
+        }
+    }
     // tick() 实际上是**“新任务的初始化启动入口”，每个任务从始至终只执行一次**，在任务运行过程中根本不会被反复调用。
     // 关键防误杀逻辑：新订单开始执行时，检测并失效在空闲态残留的历史 cancelOrder
     auto pending_interrupt = instant_action_listener->get_interrupt_order_message();
@@ -542,22 +557,18 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
 
                 // 3. 计算当前位姿到目标点的欧氏距离
                 double dist = 999.0;
-                if (point_index < order_messages_.goal_x.size() && point_index < order_messages_.goal_y.size()) {
-                    double dx = order_messages_.goal_x[point_index] - current_pose_.current_x;
-                    double dy = order_messages_.goal_y[point_index] - current_pose_.current_y;
+                if (!order_messages_.goal_x.empty()) {
+                    size_t target_idx = (point_index < order_messages_.goal_x.size()) ? point_index : (order_messages_.goal_x.size() - 1);
+                    double dx = order_messages_.goal_x[target_idx] - current_pose_.current_x;
+                    double dy = order_messages_.goal_y[target_idx] - current_pose_.current_y;
                     dist = std::hypot(dx, dy);
                 }
 
-                // 4. 到达判定：必须同时满足底层到达信号且当前实际距离在允许容差范围内，防止上一任务残留的 state 6 误判到达
-                double allowed_dev = 1.5;
-                if (point_index < order_messages_.goal_allowed_deviation_xy.size() && order_messages_.goal_allowed_deviation_xy[point_index] > 0.0) {
-                    allowed_dev = std::max(order_messages_.goal_allowed_deviation_xy[point_index] + 0.5, 1.5);
-                }
-                if ((current_autoware_state_ == 6 && dist <= allowed_dev) || agv_driver_control->get_flag_finish())
+                // 4. 到达判定：只有当车辆到达了即满足先有的到达判定条件，收到状态6,并且误差小于1m的时候，才算到达
+                if (current_autoware_state_ == 6 && dist <= 1.0)
                 {
                     RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
-                        "【到达判定】成功到达目标点！收到到达信号 state=%d, flag_finish=%d, dist=%.3fm (容差: %.2fm)",
-                        current_autoware_state_.load(), agv_driver_control->get_flag_finish() ? 1 : 0, dist, allowed_dev);
+                        "【到达判定】成功到达目标点！收到到达信号 state=6, dist=%.3fm <= 1.0m", dist);
                     break;
                 }
 
@@ -625,10 +636,21 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
             }
             // std::cout << "111111111111111111111111111111111111111111111111111111111" << std::endl;
             std::cout<<"point_index:"<<point_index<<"  "<<order_messages_.msg_state.node_states.size()<<std::endl;
-            // 到达目标点附近，更新last_node_id 、last_node_sequence_id，用于上报给rcs，sequence_id标识当前执行到第几个点了，通常和point_index相同，暂时没有想到区别
-            order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states[point_index].node_id;
-            order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states[point_index].sequence_id;
-            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "last_node_id ： %s ", order_messages_.msg_state.node_states[point_index].node_id.c_str());
+            // 只有当车辆真正到达终点（满足状态6且误差小于1m）时才更新为最后一个点的id，之前都一直保持为空
+            if (point_index == static_cast<size_t>(order_messages_.node_size - 1) && current_autoware_state_ == 6) {
+                order_messages_.msg_state.last_node_id = order_messages_.msg_state.node_states.back().node_id;
+                order_messages_.msg_state.last_node_sequence_id = order_messages_.msg_state.node_states.back().sequence_id;
+                if (order_listener) {
+                    order_listener->update_last_node_to_final();
+                }
+            } else {
+                order_messages_.msg_state.last_node_id = "";
+                order_messages_.msg_state.last_node_sequence_id = -1;
+                if (order_listener) {
+                    order_listener->set_msg_state(order_messages_.msg_state);
+                }
+            }
+            RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "last_node_id ： %s ", order_messages_.msg_state.last_node_id.c_str());
             
             // 同步msg_state到order_listener
             order_listener->set_msg_state(order_messages_.msg_state);
@@ -788,10 +810,11 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "已到达订单终点 [Node ID: %s]，完成全路径导航，结算订单并返回空闲状态！",
                     order_messages_.msg_state.last_node_id.c_str());
 
-                // 若是不带动作的订单，确保其合成动作的 action_status 为 FINISHED 并同步上报
-                if (!order_messages_.msg_state.action_states.empty() && 
-                    order_messages_.msg_state.action_states[0].action_type == "order") {
-                    order_messages_.msg_state.action_states[0].action_status = "FINISHED";
+                // 订单全路径导航完成，确保所有动作的 action_status 均更新为 FINISHED 并同步上报
+                for (auto & act : order_messages_.msg_state.action_states) {
+                    if (act.action_status != "FINISHED") {
+                        act.action_status = "FINISHED";
+                    }
                 }
                 if (order_listener) {
                     order_listener->set_msg_state(order_messages_.msg_state);
@@ -801,6 +824,10 @@ void LaserRunningStateBehaviors::OnReceiveOrder(){
                 }
 
                 order_listener->OrderFinished();
+                // 再次确保 OrderFinished() 后的 msg_state 保持终点信息与 FINISHED 状态
+                if (order_listener) {
+                    order_listener->set_msg_state(order_messages_.msg_state);
+                }
                 if_reach_point = true;
                 current_autoware_state_ = 0;
                 break;
@@ -935,6 +962,9 @@ bool LaserRunningStateBehaviors::data_updates(){
         {
             point_index = 0;
             far_point_index = 0;
+            order_messages_.msg_state.last_node_id = "";
+            order_messages_.msg_state.last_node_sequence_id = -1;
+            order_listener->set_msg_state(order_messages_.msg_state);
         }
 
         update_points_type();
@@ -1901,6 +1931,9 @@ bool QRRunningStateBehaviors::data_updates(){
         {
             point_index = 0;
             far_point_index = 0;
+            order_messages_.msg_state.last_node_id = "";
+            order_messages_.msg_state.last_node_sequence_id = -1;
+            order_listener->set_msg_state(order_messages_.msg_state);
         }
 
         update_points_type();

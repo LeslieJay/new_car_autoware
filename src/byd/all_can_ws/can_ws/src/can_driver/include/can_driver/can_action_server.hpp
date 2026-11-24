@@ -6,6 +6,7 @@
 #include "ref_slam_interface/action/ctrl_fork.hpp"
 #include "ref_slam_interface/srv/battery_control.hpp"   // 充电服务接口
 #include <memory>
+#include <mutex>
 
 namespace can_driver
 {
@@ -38,6 +39,7 @@ private:
     void handle_charge_request(
         const std::shared_ptr<ref_slam_interface::srv::BatteryControl::Request> request,
         std::shared_ptr<ref_slam_interface::srv::BatteryControl::Response> response);
+    std::mutex charge_mutex_;
 };
 
 }  // namespace can_driver

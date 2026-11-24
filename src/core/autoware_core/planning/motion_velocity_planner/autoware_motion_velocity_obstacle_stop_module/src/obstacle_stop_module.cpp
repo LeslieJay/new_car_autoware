@@ -320,13 +320,17 @@ VelocityPlanningResult ObstacleStopModule::plan(
   const double max_detection_distance =
     obstacle_filtering_params_.at(StopObstacleClassification::Type::POINTCLOUD)
       .max_detection_distance;
-  std::erase_if(stop_obstacles, [&](const StopObstacle & obstacle) {
-    const double distance_from_bumper =
-      autoware::motion_utils::calcSignedArcLength(
-        raw_trajectory_points, planner_data->current_odometry.pose.pose.position,
-        obstacle.collision_point) - std::abs(x_offset_to_bumper);
-    return distance_from_bumper > max_detection_distance;
-  });
+  stop_obstacles.erase(
+    std::remove_if(
+      stop_obstacles.begin(), stop_obstacles.end(),
+      [&](const StopObstacle & obstacle) {
+        const double distance_from_bumper =
+          autoware::motion_utils::calcSignedArcLength(
+            raw_trajectory_points, planner_data->current_odometry.pose.pose.position,
+            obstacle.collision_point) - std::abs(x_offset_to_bumper);
+        return distance_from_bumper > max_detection_distance;
+      }),
+    stop_obstacles.end());
 
   // 6. plan stop
   const auto stop_point =

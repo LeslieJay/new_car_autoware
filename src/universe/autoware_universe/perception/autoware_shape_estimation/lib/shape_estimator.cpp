@@ -27,9 +27,17 @@ namespace autoware::shape_estimation
 using Label = autoware_perception_msgs::msg::ObjectClassification;
 
 ShapeEstimator::ShapeEstimator(bool use_corrector, bool use_filter, bool use_boost_bbox_optimizer)
+: ShapeEstimator(use_corrector, use_filter, use_boost_bbox_optimizer, model::ConcaveFootprintParams{})
+{
+}
+
+ShapeEstimator::ShapeEstimator(
+  bool use_corrector, bool use_filter, bool use_boost_bbox_optimizer,
+  const model::ConcaveFootprintParams & concave_params)
 : use_corrector_(use_corrector),
   use_filter_(use_filter),
-  use_boost_bbox_optimizer_(use_boost_bbox_optimizer)
+  use_boost_bbox_optimizer_(use_boost_bbox_optimizer),
+  concave_params_(concave_params)
 {
 }
 
@@ -87,7 +95,7 @@ bool ShapeEstimator::estimateOriginalShapeAndPose(
   } else if (label == Label::PEDESTRIAN) {
     model_ptr.reset(new model::CylinderShapeModel());
   } else {
-    model_ptr.reset(new model::ConvexHullShapeModel());
+    model_ptr.reset(new model::ConvexHullShapeModel(concave_params_));
   }
 
   return model_ptr->estimate(cluster, shape_output, pose_output);

@@ -1,4 +1,4 @@
-// Copyright 2024 Tier IV, Inc.
+// Copyright 2024 TIER IV, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,10 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
-//
-// Author: v1.0 Taekjin Lee
-//
+
 #define EIGEN_MPL2_ONLY
 
 #include "autoware/multi_object_tracker/tracker/motion_model/ctrv_motion_model.hpp"
@@ -195,6 +192,23 @@ bool CTRVMotionModel::updateStatePoseHeadVel(
   return ekf_.update(Y, C, R);
 }
 
+bool CTRVMotionModel::flipOrientation()
+{
+  if (!checkInitialized()) return false;
+
+  StateVec X_t;
+  StateMat P_t;
+  ekf_.getX(X_t);
+  ekf_.getP(P_t);
+  X_t(IDX::YAW) = autoware_utils_math::normalize_radian(X_t(IDX::YAW) + M_PI);
+  X_t(IDX::VEL) = -X_t(IDX::VEL);
+  // covariance transform T*P*T^T: negate the VEL cross-covariances
+  P_t.row(IDX::VEL) *= -1.0;
+  P_t.col(IDX::VEL) *= -1.0;
+  ekf_.init(X_t, P_t);
+  return true;
+}
+
 bool CTRVMotionModel::limitStates()
 {
   StateVec X_t;
@@ -326,7 +340,7 @@ bool CTRVMotionModel::getPredictedState(
   // set position
   pose.position.x = X(IDX::X);
   pose.position.y = X(IDX::Y);
-  // do not change z
+  pose.position.z = z_;
 
   // set orientation
   tf2::Quaternion quaternion;

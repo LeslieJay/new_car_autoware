@@ -22,17 +22,30 @@ namespace autoware::shape_estimation
 namespace model
 {
 
+struct ConcaveFootprintParams
+{
+  bool use_concave_footprint{false};
+  float footprint_resolution{0.1f};
+  float footprint_connection_radius{0.5f};
+  float footprint_min_extent{6.0f};
+  float footprint_min_area_reduction{0.15f};
+};
+
 class ConvexHullShapeModel : public ShapeEstimationModelInterface
 {
 public:
-  ConvexHullShapeModel() {}
+  ConvexHullShapeModel() = default;
+  explicit ConvexHullShapeModel(const ConcaveFootprintParams & params) : params_(params) {}
 
-  ~ConvexHullShapeModel() {}
+  ~ConvexHullShapeModel() = default;
 
   bool estimate(
     const pcl::PointCloud<pcl::PointXYZ> & cluster,
     autoware_perception_msgs::msg::Shape & shape_output,
     geometry_msgs::msg::Pose & pose_output) override;
+
+private:
+  ConcaveFootprintParams params_{};
 };
 
 }  // namespace model

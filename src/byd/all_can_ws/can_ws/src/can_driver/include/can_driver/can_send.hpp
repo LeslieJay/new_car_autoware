@@ -20,6 +20,19 @@
 
 namespace can_driver
 {
+// 充电控制与监测相关的全局原子变量
+extern std::atomic<bool> charging_requested_;    // 是否处于充电请求/充电中状态
+extern std::atomic<bool> is_charging_mode_;       // 底盘0x2A1反馈是否已进入充电模式 (Byte5 == 3)
+extern std::atomic<bool> is_battery_full_;        // 电池是否已充满 (SOC >= 100%)
+extern std::atomic<bool> is_charge_fault_;        // 是否存在充电/电池故障
+extern std::atomic<bool> battery_fault_0x2a1_;    // 0x2A1 电池状态反馈故障 (Byte5 == 1)
+extern std::atomic<bool> charger_fault_0x1a1_;    // 0x1A1 充电机故障
+extern std::atomic<bool> bms_fault_0x481_;        // 0x481 BMS故障码/超时
+
+// 语音控制与监测相关的全局原子变量
+extern std::atomic<bool> is_voice_active_;        // 当前是否有语音正在播报中（禁止打断）
+extern std::atomic<uint8_t> active_voice_id_;     // 当前正在播报的语音编号
+
 struct SendOptions
     {
         int timeout_per_frame_ms = 100; // 每帧超时

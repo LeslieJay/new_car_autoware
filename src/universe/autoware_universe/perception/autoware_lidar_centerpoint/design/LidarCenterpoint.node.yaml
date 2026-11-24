@@ -1,0 +1,63 @@
+autoware_system_design_format: 0.3.0
+
+# node information
+name: LidarCenterpoint.node
+
+package:
+  name: autoware_lidar_centerpoint
+  provider: autoware
+
+launch:
+  plugin: autoware::lidar_centerpoint::LidarCenterPointNode
+  executable: autoware_lidar_centerpoint_node
+  node_output: screen
+
+# interfaces
+subscribers:
+  - name: ros_transform
+    message_type: tf2_msgs/msg/TFMessage
+    global: /tf
+  - name: pointcloud
+    message_type: sensor_msgs/msg/PointCloud2
+  - name: pointcloud/cuda
+    message_type: negotiated_interfaces/msg/NegotiatedTopicsInfo
+
+publishers:
+  - name: objects
+    message_type: autoware_perception_msgs/msg/DetectedObjects
+    qos:
+      reliability: reliable
+      durability: transient_local
+
+# parameters
+param_files:
+  - name: common_param_path
+    default: config/centerpoint_common.param.yaml
+    schema: schema/centerpoint_common.schema.json
+  - name: ml_package_param_path
+    default: config/ml_package.param.yaml
+    schema: schema/ml_package.schema.json
+    allow_substs: true
+
+param_values:
+  - name: build_only
+    type: bool
+    default: false
+    description: If true, the node will only build the model and exit.
+  - name: logger_name
+    type: str
+    default: lidar_centerpoint
+    description: The name of the logger for this node.
+  - name: model_path
+    type: str
+    default: $(var data_path)/lidar_centerpoint/base
+    description: The directory containing the model artifacts.
+
+# processes
+processes:
+  - name: detect
+    trigger_conditions:
+      - or:
+          - on_input: pointcloud
+    outcomes:
+      - to_output: objects

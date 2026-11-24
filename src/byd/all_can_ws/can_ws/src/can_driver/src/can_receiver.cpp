@@ -84,7 +84,7 @@ namespace can_driver
         //     "cmd_vel", 1, std::bind(&CanReceiver::keyboard_cmd_callback, this, _1));
 
 
-        node_->declare_parameter("speed_upper_bound", rclcpp::ParameterValue(2000));
+        node_->declare_parameter("speed_upper_bound", rclcpp::ParameterValue(1000));
         node_->get_parameter("speed_upper_bound", speed_upper_bound_);
 
         node_->declare_parameter("wheel_distance", 0.5);
@@ -93,6 +93,10 @@ namespace can_driver
         node_->declare_parameter("engage_service_wait_timeout", 2.0); // 等待服务可用的超时时间
         node_->declare_parameter("engage_service_call_timeout", 5.0); // 调用服务响应的超时时间
         node_->declare_parameter("voice_frame_period_ms", 3000); // 默认 3000
+        node_->declare_parameter("voice_status_bit_mask", 0x01); // 0x381 Byte2 语音状态掩码，协议规定为bit0(0x01)
+        node_->declare_parameter("min_voice_duration_ms", 2500); // 任何语音最短播报保护时长(ms)，期间严禁打断
+        node_->declare_parameter("max_voice_duration_ms", 8000); // 语音超时保护时长(ms)
+        node_->declare_parameter("voice_post_finish_gap_ms", 300); // 语音播报完成后的最小静音间隙(ms)
         node_->declare_parameter("engage_frame_period_ms", 500);
         node_->declare_parameter("control_frame_period_ms", 20);
         node_->declare_parameter("control_command_warn_timeout_ms", 60);
@@ -114,6 +118,10 @@ namespace can_driver
         node_->get_parameter("engage_service_wait_timeout", engage_srv_wait_timeout_);
         node_->get_parameter("engage_service_call_timeout", engage_srv_call_timeout_);
         node_->get_parameter("voice_frame_period_ms", voice_frame_period_ms_);
+        node_->get_parameter("voice_status_bit_mask", voice_status_bit_mask_);
+        node_->get_parameter("min_voice_duration_ms", min_voice_duration_ms_);
+        node_->get_parameter("max_voice_duration_ms", max_voice_duration_ms_);
+        node_->get_parameter("voice_post_finish_gap_ms", voice_post_finish_gap_ms_);
         node_->get_parameter("engage_frame_period_ms", engage_frame_period_ms_);
         node_->get_parameter("control_frame_period_ms", control_frame_period_ms_);
         node_->get_parameter("control_command_warn_timeout_ms", control_command_warn_timeout_ms_);
@@ -134,6 +142,9 @@ namespace can_driver
         node_->get_parameter("steering_command_scale_right", steering_command_scale_right_);
         node_->get_parameter("steering_command_offset", steering_command_offset_);
         voice_frame_period_ms_ = std::max(voice_frame_period_ms_, 0);
+        min_voice_duration_ms_ = std::max(min_voice_duration_ms_, 1000);
+        max_voice_duration_ms_ = std::max(max_voice_duration_ms_, min_voice_duration_ms_);
+        voice_post_finish_gap_ms_ = std::max(voice_post_finish_gap_ms_, 0);
         engage_frame_period_ms_ = std::max(engage_frame_period_ms_, 0);
         control_frame_period_ms_ = std::max(control_frame_period_ms_, 1);
         control_command_warn_timeout_ms_ = std::max(control_command_warn_timeout_ms_, 0);
@@ -312,28 +323,16 @@ namespace can_driver
     }
     void CanReceiver::agv_state_callback(const autoware_system_msgs::msg::AutowareState::ConstSharedPtr msg){
         if (msg->state == 6){
-            is_arrived_destination_.store(true, std::memory_order_relaxed);
-            // 如果当前正在语音播报中，就不下发新的语音帧
-            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
+            // 到达目标点语音仅单次触发播报，防止 state==6 持续上报时无限循环重播饿死倒车等其他语音
+            if (!arrival_voice_played_.load(std::memory_order_relaxed)) {
+                is_arrived_destination_.store(true, std::memory_order_relaxed);
                 const auto now = node_->get_clock()->now();
-                std::lock_guard<std::mutex> lock(voice_mutex_);
-                const bool interval_elapsed =
-                  (now - last_voice_frame_time_).nanoseconds() >=
-                  static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-                if (interval_elapsed || last_voice_id_ != 5) {
-                    std::vector<struct can_frame> send_frames;
-                    struct can_frame v_frame = make_frame(0x401);
-                    v_frame.data[0] |= (1 << 4); // 打开语音播报
-                    v_frame.data[2] = 5;         // 语音到达目标点
-                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                    send_frames.push_back(v_frame);
-                    send_queue_->push(send_frames);
-                    last_voice_frame_time_ = now;
-                    last_voice_id_ = 5;
-                }
+                struct can_frame v_frame = assemble0x401(now);
+                send_queue_->push({v_frame});
             }
         } else {
             is_arrived_destination_.store(false, std::memory_order_relaxed);
+            arrival_voice_played_.store(false, std::memory_order_relaxed);
         }
     }
     
@@ -426,7 +425,7 @@ namespace can_driver
 
         uint8_t voice_id = 0;
         if (person_close) {
-            voice_id = 9;  // 行人靠近语音编号（急停语音，优先级高）
+            voice_id = 10;  // 行人靠近语音编号（急停语音，优先级高）
         } else if (car_close) {
             voice_id = 10; // 车辆靠近报警
         }
@@ -436,24 +435,8 @@ namespace can_driver
         last_obstacle_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
 
         if (voice_id != 0) {
-            // 如果当前正在语音播报中，就不下发新的语音帧
-            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
-                std::lock_guard<std::mutex> lock(voice_mutex_);
-                const bool interval_elapsed =
-                    (now - last_voice_frame_time_).nanoseconds() >=
-                    static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-                if (interval_elapsed || last_voice_id_ != voice_id) {
-                    std::vector<struct can_frame> send_frames;
-                    struct can_frame v_frame = make_frame(0x401);
-                    v_frame.data[0] |= (1 << 4); // 打开语音播报
-                    v_frame.data[2] = voice_id;  // 语音编号
-                    v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                    send_frames.push_back(v_frame);
-                    send_queue_->push(send_frames);
-                    last_voice_frame_time_ = now;
-                    last_voice_id_ = voice_id;
-                }
-            }
+            struct can_frame v_frame = assemble0x401(now);
+            send_queue_->push({v_frame});
         }
     }
     /**
@@ -597,21 +580,73 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 double voltage_V = 56;
                 total_current = power / 56;
             }
-            // 0x381 状态反馈：BYTE2 的 bit0 为 1 表示语音播报中，0 表示空闲
+            // 0x381 状态反馈：根据通信协议，BYTE2 的 bit0 为当前语音播放完成状态 (0: 完成/空闲, 1: 播报中)
             if ((frame.can_id & CAN_SFF_MASK) == 0x381 || frame.can_id == 0x381) {
-                const bool is_playing = (frame.data[2] & 0x01) != 0;
+                const uint8_t byte2 = frame.data[2];
+                // 协议规定 BYTE2 bit0 为当前语音播放完成 (0: 完成/空闲, 1: 播报中)
+                // 兼容配置掩码与bit2，确保任何底盘固件版本均能准确识别
+                const bool is_playing = ((byte2 & 0x01) != 0) || ((byte2 & static_cast<uint8_t>(voice_status_bit_mask_)) != 0);
                 is_voice_playing_.store(is_playing, std::memory_order_relaxed);
+                if (is_playing) {
+                    voice_started_playing_.store(true, std::memory_order_relaxed);
+                }
+                const uint8_t prev_b2 = last_0x381_byte2_.exchange(byte2, std::memory_order_relaxed);
+                if (prev_b2 != byte2) {
+                    RCLCPP_INFO(
+                        node_->get_logger(),
+                        "[0x381 语音反馈] 收到 0x381 Byte2 变更为 0x%02X (bit0=%d[播报中/完成], mask=0x%02X) -> is_voice_playing=%s",
+                        byte2,
+                        (byte2 & 0x01) ? 1 : 0,
+                        static_cast<uint8_t>(voice_status_bit_mask_),
+                        is_playing ? "true【播报中】" : "false【空闲】");
+                }
             }
             std::vector<struct can_frame> send_frames;
             // // 电池帧，用来汇报电池电量，充电放电等。
-            if (frame.can_id == 0x2A1){
+            if ((frame.can_id & CAN_SFF_MASK) == 0x2A1 || frame.can_id == 0x2A1){
                 uint8_t battery = frame.data[4];
                 // 1故障，2放电，3充电
                 uint8_t battery_state = frame.data[5];
+
+                // 充满监测: SOC >= 100%
+                const bool is_full = (battery >= 100);
+                is_battery_full_.store(is_full, std::memory_order_relaxed);
+
+                // 充电模式监测: 3为充电
+                const bool in_charge = (battery_state == 3);
+                is_charging_mode_.store(in_charge, std::memory_order_relaxed);
+
+                // 0x2A1 故障监测: 1为故障 (协议标准定义)
+                const bool has_fault = (battery_state == 1);
+                battery_fault_0x2a1_.store(has_fault, std::memory_order_relaxed);
+                is_charge_fault_.store(has_fault, std::memory_order_relaxed);
+
+                // 如果充满或者出现充电故障，立即终止充电
+                if (is_full || has_fault) {
+                    if (charging_requested_.load(std::memory_order_relaxed) ||
+                        is_charging_mode_.load(std::memory_order_relaxed)) {
+                        charging_requested_.store(false, std::memory_order_relaxed);
+                        struct can_frame stop_frame{};
+                        stop_frame.can_id = 0x201;
+                        stop_frame.can_dlc = 8;
+                        stop_frame.data[0] = 0;
+                        stop_frame.data[1] = 0;
+                        stop_frame.data[2] = 0;
+                        stop_frame.data[3] = 0;
+                        stop_frame.data[4] = 0b00000001; // 停止充电使能(bit5=0)，保持使能全断与抱闸
+                        stop_frame.data[5] = 0;
+                        stop_frame.data[6] = 0;
+                        stop_frame.data[7] = 0;
+                        send_queue_->setLatestControlFrame(stop_frame);
+                        send_queue_->push({stop_frame});
+                        RCLCPP_WARN(node_->get_logger(), "检测到电池充满或0x2A1故障，立即下发停止充电帧 (0x201 data[4]=0x01)");
+                    }
+                }
+
                 // 1. 创建消息对象
                 auto message = ref_slam_interface::msg::BatteryState();
 
-                // 2. 填充数据（假设你已经获取到了这些 float64 变量）
+                // 2. 填充数据
                 message.battery_level     = battery;
                 message.battery_status    = battery_state;
                 message.total_voltage     = 56;
@@ -625,24 +660,17 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
                 // 低电量报警
                 is_low_battery_.store(battery < 30, std::memory_order_relaxed);
                 if (battery < 30){
-                    if (!is_voice_playing_.load(std::memory_order_relaxed)) {
-                        const auto now = node_->get_clock()->now();
-                        std::lock_guard<std::mutex> lock(voice_mutex_);
-                        const bool interval_elapsed =
-                            (now - last_voice_frame_time_).nanoseconds() >=
-                            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-                        if (interval_elapsed || last_voice_id_ != 17) {
-                            struct can_frame v_frame = make_frame(0x401);
-                            v_frame.data[0] |= (1 << 4); // 打开语音播报
-                            v_frame.data[2] = 17;
-                            v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                            send_frames.push_back(v_frame);
-                            send_queue_->push(send_frames);
-                            last_voice_frame_time_ = now;
-                            last_voice_id_ = 17;
-                        }
-                    }
+                    const auto now = node_->get_clock()->now();
+                    struct can_frame v_frame = assemble0x401(now);
+                    send_frames.push_back(v_frame);
                 }
+            }
+
+            // 0x1A1 充电机故障与状态监测 (若整车有1A1报文)
+            if ((frame.can_id & CAN_SFF_MASK) == 0x1A1 || frame.can_id == 0x1A1) {
+                // Byte 4: BIT0 充电时间过长, BIT1 充电机异常; Byte 6: 充电机发送的具体故障
+                const bool charger_err = ((frame.data[4] & 0x03) != 0) || (frame.data[6] != 0);
+                charger_fault_0x1a1_.store(charger_err, std::memory_order_relaxed);
             }
             // 0x181 检测上报小车实际速度和转向
             if (frame.can_id == 0x181)
@@ -808,8 +836,25 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         std::vector<struct can_frame> send_frames;
         struct can_frame frame{};
         
-        double velocity = msg->longitudinal.velocity;  // 这里单位为: m/s
-        velocity = velocity * gear;
+        double raw_velocity = msg->longitudinal.velocity;  // 这里单位为: m/s
+        double velocity = raw_velocity;
+
+        // 如果处于倒挡 (gear == -1)，确保速度为负值；如果 raw_velocity 已经是负值，保留负值
+        if (gear == -1) {
+            if (velocity > 0.0) {
+                velocity = -velocity;
+            }
+        }
+
+        // 倒车状态判断：不管是负速度、倒挡命令还是原话题速度为负，都判定为倒车
+        const bool is_reversing = (velocity < -0.001) || (raw_velocity < -0.001) || (gear == -1);
+
+        // 如果车辆开始移动（不管是前进还是倒车），均说明已脱离到达目标点状态
+        if (std::abs(velocity) > 0.001 || std::abs(raw_velocity) > 0.001 || is_reversing) {
+            is_arrived_destination_.store(false, std::memory_order_relaxed);
+            arrival_voice_played_.store(true, std::memory_order_relaxed);
+        }
+
         double angle = msg->lateral.steering_tire_angle; // 这里单位为: 弧度
         
         if (std::fabs(angle) > max_trailer_angle){
@@ -826,58 +871,35 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
           angle, steering_command_scale_left_, steering_command_scale_right_,
           steering_command_offset_, steering_command_offset_, 6000);
 
-                struct can_frame v_frame = make_frame(0x401);
-        v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-        uint8_t voice_id = 0;
-
-        // --- 其他内容：转向灯、倒车状态（保持原有方式和频率正常写入） ---
-        // 左转, 角度小于500认为微调，非转向
-        if (angle_command < 6001 && angle_command > 500){
-            voice_id = 2;                // 左转语音编号
-            v_frame.data[0] |= (1 << 0); // 左转向灯，第0位设为1
-        }
-        // 右转
-        if (angle_command > -6001 && angle_command < -500){
-            voice_id = 3;                // 右转语音编号
-            v_frame.data[0] |= (1 << 1); // 右转向灯，第1位设为1
-        }
-        if (velocity < 0){
-            voice_id = 4;                // 正在倒车语音编号
-            v_frame.data[3] |= (1 << 1); // 倒车灯/状态
-        }
-
-        pending_control_voice_.store(voice_id, std::memory_order_relaxed);
-        last_control_voice_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
-
-        // --- 语音内容：3秒下发一次 ---
-        // 检查是否有更高优先级的其他语音（例如行人靠近 9、车辆靠近 10）
-        const uint8_t desired_voice = getCurrentDesiredVoiceId();
-        const bool can_send_control_voice = (voice_id != 0 && (desired_voice == 0 || desired_voice == voice_id));
-
-        if (can_send_control_voice) {
-            // 如果当前正在语音播报中，就不下发新的语音帧
-            if (!is_voice_playing_.load(std::memory_order_relaxed)) {
-                std::lock_guard<std::mutex> lock(voice_mutex_);
-                const bool interval_elapsed =
-                  (now - last_voice_frame_time_).nanoseconds() >=
-                  static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-                // 达到3秒间隔，或语音编号切换（例如从直行切换为转向立即响应）
-                if (interval_elapsed || voice_id != last_voice_id_) {
-                    v_frame.data[0] |= (1 << 4); // 打开语音播报
-                    v_frame.data[2] = voice_id;  // 写入语音编号
-                    last_voice_frame_time_ = now;
-                    last_voice_id_ = voice_id;
-                }
-            }
-        } else if (voice_id == 0) {
-            // 直行无转向/倒车时，重置当前控制语音记录
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            if (last_voice_id_ == 2 || last_voice_id_ == 3 || last_voice_id_ == 4) {
-                last_voice_id_ = 0;
+        // 设置灯光与控制语音状态
+        if (is_reversing) {
+            reverse_light_.store(true, std::memory_order_relaxed);
+            left_turn_signal_.store(false, std::memory_order_relaxed);
+            right_turn_signal_.store(false, std::memory_order_relaxed);
+            pending_control_voice_.store(4, std::memory_order_relaxed); // 004 倒车请注意
+            last_control_voice_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
+        } else {
+            reverse_light_.store(false, std::memory_order_relaxed);
+            if (angle_command < 6001 && angle_command > 500) {
+                left_turn_signal_.store(true, std::memory_order_relaxed);
+                right_turn_signal_.store(false, std::memory_order_relaxed);
+                pending_control_voice_.store(2, std::memory_order_relaxed); // 002 左转弯
+                last_control_voice_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
+            } else if (angle_command > -6001 && angle_command < -500) {
+                left_turn_signal_.store(false, std::memory_order_relaxed);
+                right_turn_signal_.store(true, std::memory_order_relaxed);
+                pending_control_voice_.store(3, std::memory_order_relaxed); // 003 右转弯
+                last_control_voice_time_ns_.store(now.nanoseconds(), std::memory_order_relaxed);
+            } else {
+                left_turn_signal_.store(false, std::memory_order_relaxed);
+                right_turn_signal_.store(false, std::memory_order_relaxed);
+                pending_control_voice_.store(0, std::memory_order_relaxed);
             }
         }
 
-        send_frames.push_back(v_frame); // 0x401灯光等其他内容照常按原频率下发
+        // 统一组装 0x401 报文并放入发送队列
+        struct can_frame v_frame = assemble0x401(now);
+        send_frames.push_back(v_frame);
 
         // 默认1 count = 0.001 m/s；正反向比例和零点可独立标定。
         const int16_t speed_limit = static_cast<int16_t>(
@@ -921,6 +943,27 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         // 发送控制can指令
         frame.can_id = 0x201;
         frame.can_dlc = 8;
+        if (charging_requested_.load(std::memory_order_relaxed) ||
+            is_charging_mode_.load(std::memory_order_relaxed)) {
+            // 收到充电请求或处于充电模式中，强制拦截所有控制指令，确保速度转向为0、全部使能断掉、抱闸锁定！
+            frame.data[0] = 0;
+            frame.data[1] = 0;
+            frame.data[2] = 0;
+            frame.data[3] = 0;
+            if (charging_requested_.load(std::memory_order_relaxed) &&
+                !is_battery_full_.load(std::memory_order_relaxed) &&
+                !is_charge_fault_.load(std::memory_order_relaxed)) {
+                frame.data[4] = 0b00100001; // 处于充电请求/充电维系状态，持续保持 Bit5=1
+            } else {
+                frame.data[4] = 0b00000001; // 停止充电、充满或故障，Bit5=0，使能断开保持抱闸
+            }
+            frame.data[5] = 0;
+            frame.data[6] = 0;
+            frame.data[7] = 0;
+            send_queue_->setLatestControlFrame(frame);
+            return;
+        }
+
         frame.data[0] = agv_info_.speed_command & 0xff;
         frame.data[1] = agv_info_.speed_command >> 8;
         frame.data[2] = agv_info_.steer_command & 0xff;
@@ -1200,42 +1243,249 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
         if (age_ms >= control_command_stop_timeout_ms_ &&
             !control_timeout_active_.exchange(true, std::memory_order_relaxed)) {
             can_frame safety_frame{};
-            {
+            const bool is_full = is_battery_full_.load(std::memory_order_relaxed);
+            const bool is_fault = is_charge_fault_.load(std::memory_order_relaxed);
+            const bool req = charging_requested_.load(std::memory_order_relaxed);
+            const bool in_charge = is_charging_mode_.load(std::memory_order_relaxed);
+
+            safety_frame.can_id = 0x201;
+            safety_frame.can_dlc = 8;
+            safety_frame.data[0] = 0;
+            safety_frame.data[1] = 0;
+            safety_frame.data[2] = 0;
+            safety_frame.data[3] = 0;
+            safety_frame.data[5] = 0;
+            safety_frame.data[6] = 0;
+            safety_frame.data[7] = 0;
+
+            if (req && !is_full && !is_fault) {
+                // 处于充电请求/充电维系状态，持续保持 Bit5=1，使能全断，抱闸锁定
+                safety_frame.data[4] = 0b00100001;
+            } else if (req || in_charge) {
+                // 停止充电、充满或故障时，Bit5=0，使能全断，抱闸锁定
+                safety_frame.data[4] = 0b00000001;
+            } else {
                 std::lock_guard<std::mutex> lock(safe_frame_mutex_);
                 safety_frame = safe_frame;
+                if (is_full || is_fault) {
+                    safety_frame.data[4] &= ~(1 << 5);
+                }
             }
             send_queue_->setLatestControlFrame(safety_frame);
         }
     }
 
-    uint8_t CanReceiver::getCurrentDesiredVoiceId() const {
-        const int64_t now_ns = node_->get_clock()->now().nanoseconds();
+    const char* CanReceiver::getVoiceName(uint8_t voice_id)
+    {
+        switch (voice_id) {
+            case 1:  return "无人驾驶请注意";
+            case 2:  return "左转弯";
+            case 3:  return "右转弯";
+            case 4:  return "倒车请注意";
+            case 5:  return "到达目标点";
+            case 6:  return "开始充电";
+            case 7:  return "结束充电";
+            case 8:  return "车辆发生碰撞";
+            case 9:  return "车辆急停";
+            case 10: return "车辆通行请注意避让";
+            case 13: return "挂钩";
+            case 14: return "脱钩";
+            case 17: return "电量低";
+            case 18: return "交通管制中等待前车通过";
+            case 19: return "启动无人驾驶";
+            case 21: return "启动人工驾驶";
+            case 23: return "车辆启动中请注意";
+            case 24: return "需要满充校准电池电量";
+            case 25: return "车辆已偏离行驶轨迹";
+            case 26: return "车辆丢失导航";
+            case 27: return "车辆已断网";
+            case 29: return "滴滴喇叭声";
+            default: return "自定义语音";
+        }
+    }
 
-        // 1. 障碍物（最高优先级：9行人靠近急停，10车辆靠近报警）
-        // 1秒超时保护，防止感知话题中断导致状态滞留
+    bool CanReceiver::isVoiceActive(const rclcpp::Time & now)
+    {
+        if (current_playing_voice_id_ == 0) {
+            return false;
+        }
+        const auto elapsed_ms = (now - voice_play_start_time_).nanoseconds() / 1000000LL;
+        // 1. 最短播报保护时长内，绝对禁止打断，确保语音完整播报
+        if (elapsed_ms < min_voice_duration_ms_) {
+            return true;
+        }
+        // 2. 超时保护时长到期，强制恢复空闲，防止底盘状态异常锁死
+        if (elapsed_ms >= max_voice_duration_ms_) {
+            return false;
+        }
+        // 3. 超出最短保护时长后，依据 0x381 底盘反馈是否仍在播报中
+        if (is_voice_playing_.load(std::memory_order_relaxed)) {
+            return true;
+        }
+        // 4. 底盘反馈已播报完成且已满足最短播放时长
+        return false;
+    }
+
+    uint8_t CanReceiver::selectNextVoiceId(const rclcpp::Time & now)
+    {
+        const int64_t now_ns = now.nanoseconds();
+
+        // 优先级 1: 障碍物（最高优先级：10 车辆靠近避让, 9 行人急停）
         const uint8_t obs_voice = pending_obstacle_voice_.load(std::memory_order_relaxed);
         if (obs_voice != 0 && (now_ns - last_obstacle_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL) {
             return obs_voice;
         }
 
-        // 2. 到达目标点（语音 5）
-        if (is_arrived_destination_.load(std::memory_order_relaxed)) {
+        // 优先级 2: 控制语音中的倒车语音（4 倒车请注意）
+        // 倒车属于车辆主动运动安全警示，倒车状态下倒车语音优先于到达目标点
+        const uint8_t ctrl_voice = pending_control_voice_.load(std::memory_order_relaxed);
+        const bool is_ctrl_voice_valid = (ctrl_voice != 0 &&
+            (now_ns - last_control_voice_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL);
+        if (is_ctrl_voice_valid && ctrl_voice == 4) {
+            return 4;
+        }
+
+        // 优先级 3: 到达目标点 (5) - 单次事件播报
+        if (is_arrived_destination_.load(std::memory_order_relaxed) &&
+            !arrival_voice_played_.load(std::memory_order_relaxed)) {
             return 5;
         }
 
-        // 3. 转向与倒车（语音 2: 左转, 3: 右转, 4: 倒车）
-        // 1秒超时保护
-        const uint8_t ctrl_voice = pending_control_voice_.load(std::memory_order_relaxed);
-        if (ctrl_voice != 0 && (now_ns - last_control_voice_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL) {
+        // 优先级 4: 控制语音中的转向语音（2 左转, 3 右转）
+        if (is_ctrl_voice_valid) {
             return ctrl_voice;
         }
 
-        // 4. 低电量报警（语音 17）
+        // 优先级 5: 低电量报警 (17)
         if (is_low_battery_.load(std::memory_order_relaxed)) {
             return 17;
         }
 
-        return 0; // 无其他语音
+        // 优先级 6: 空闲巡检（1 无人驾驶请注意）
+        if (agv_info_.operate_mode == 1) {
+            const double patrol_elapsed = (now - last_patrol_voice_time_).seconds();
+            if (patrol_elapsed >= 5.0) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+
+    struct can_frame CanReceiver::assemble0x401(const rclcpp::Time & now)
+    {
+        struct can_frame frame = make_frame(0x401);
+
+        // 1. 灯光信号
+        if (left_turn_signal_.load(std::memory_order_relaxed)) {
+            frame.data[0] |= (1 << 0);
+        }
+        if (right_turn_signal_.load(std::memory_order_relaxed)) {
+            frame.data[0] |= (1 << 1);
+        }
+        if (reverse_light_.load(std::memory_order_relaxed)) {
+            frame.data[3] |= (1 << 1); // 倒车灯
+        }
+
+        // 2. 牵引销电机起升/下降状态
+        frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
+
+        // 3. 语音状态机守护：任何语音在播放中严禁打断
+        {
+            std::lock_guard<std::mutex> lock(voice_mutex_);
+            const bool active = isVoiceActive(now);
+
+            if (active) {
+                // 当前语音正在播放：保持语音模块开启，保持当前语音编号，严禁被打断
+                frame.data[0] |= (1 << 4);
+                frame.data[2] = current_playing_voice_id_;
+                is_voice_active_.store(true, std::memory_order_relaxed);
+                active_voice_id_.store(current_playing_voice_id_, std::memory_order_relaxed);
+            } else {
+                // 当前语音已播放完毕或原本空闲
+                if (current_playing_voice_id_ != 0) {
+                    RCLCPP_INFO(
+                        node_->get_logger(),
+                        "[0x401 语音完成] 语音编号 voice_id=%d (%s) 播报已顺利完成，恢复空闲状态",
+                        current_playing_voice_id_, getVoiceName(current_playing_voice_id_));
+                    current_playing_voice_id_ = 0;
+                    last_voice_finish_time_ = now;
+                    voice_started_playing_.store(false, std::memory_order_relaxed);
+                    is_voice_active_.store(false, std::memory_order_relaxed);
+                    active_voice_id_.store(0, std::memory_order_relaxed);
+                }
+
+                // 空闲状态：检查静音缓冲间隔后按优先级选出下一条要播放的语音
+                const int64_t gap_ms = (now - last_voice_finish_time_).nanoseconds() / 1000000LL;
+                if (gap_ms >= voice_post_finish_gap_ms_) {
+                    const uint8_t next_voice = selectNextVoiceId(now);
+                    if (next_voice != 0) {
+                        current_playing_voice_id_ = next_voice;
+                        voice_play_start_time_ = now;
+                        voice_started_playing_.store(false, std::memory_order_relaxed);
+                        if (next_voice == 1) {
+                            last_patrol_voice_time_ = now;
+                        } else if (next_voice == 5) {
+                            // 到达目标点属于单次触发事件语音，一旦触发立即消费并标记已播放
+                            is_arrived_destination_.store(false, std::memory_order_relaxed);
+                            arrival_voice_played_.store(true, std::memory_order_relaxed);
+                        }
+                        frame.data[0] |= (1 << 4);
+                        frame.data[2] = next_voice;
+                        is_voice_active_.store(true, std::memory_order_relaxed);
+                        active_voice_id_.store(next_voice, std::memory_order_relaxed);
+                        RCLCPP_INFO(
+                            node_->get_logger(),
+                            "[0x401 语音触发] 开始播报语音 voice_id=%d (%s)，播放期间任何语音均不能被打断",
+                            next_voice, getVoiceName(next_voice));
+                    } else {
+                        frame.data[0] &= ~(1 << 4);
+                        frame.data[2] = 0;
+                        is_voice_active_.store(false, std::memory_order_relaxed);
+                        active_voice_id_.store(0, std::memory_order_relaxed);
+                    }
+                } else {
+                    frame.data[0] &= ~(1 << 4);
+                    frame.data[2] = 0;
+                    is_voice_active_.store(false, std::memory_order_relaxed);
+                    active_voice_id_.store(0, std::memory_order_relaxed);
+                }
+            }
+        }
+
+        return frame;
+    }
+
+    uint8_t CanReceiver::getCurrentDesiredVoiceId() const {
+        const auto now = node_->get_clock()->now();
+        const int64_t now_ns = now.nanoseconds();
+
+        const uint8_t obs_voice = pending_obstacle_voice_.load(std::memory_order_relaxed);
+        if (obs_voice != 0 && (now_ns - last_obstacle_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL) {
+            return obs_voice;
+        }
+
+        const uint8_t ctrl_voice = pending_control_voice_.load(std::memory_order_relaxed);
+        const bool is_ctrl_voice_valid = (ctrl_voice != 0 &&
+            (now_ns - last_control_voice_time_ns_.load(std::memory_order_relaxed)) < 1000000000LL);
+        if (is_ctrl_voice_valid && ctrl_voice == 4) {
+            return 4;
+        }
+
+        if (is_arrived_destination_.load(std::memory_order_relaxed) &&
+            !arrival_voice_played_.load(std::memory_order_relaxed)) {
+            return 5;
+        }
+
+        if (is_ctrl_voice_valid) {
+            return ctrl_voice;
+        }
+
+        if (is_low_battery_.load(std::memory_order_relaxed)) {
+            return 17;
+        }
+
+        return 0;
     }
 
     bool CanReceiver::hasOtherVoiceToBroadcast() const {
@@ -1243,51 +1493,9 @@ void CanReceiver::pushRecord(const can_frame &frame, double angle, double speed)
     }
 
     void CanReceiver::sendSafetyFrameCallback() {
-        // 1. 如果当前正在语音播报中，就不下发新的语音帧
-        if (is_voice_playing_.load(std::memory_order_relaxed)) {
-            return;
-        }
-
-        // 2. 如果有任何其他语音要播报，就不播报无人驾驶中，优先其他的播报
-        const uint8_t other_voice = getCurrentDesiredVoiceId();
-        if (other_voice != 0) {
-            // 优先播报其他语音
-            const auto now = node_->get_clock()->now();
-            std::lock_guard<std::mutex> lock(voice_mutex_);
-            const bool interval_elapsed =
-                (now - last_voice_frame_time_).nanoseconds() >=
-                static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-            if (interval_elapsed || last_voice_id_ != other_voice) {
-                std::vector<struct can_frame> send_frames;
-                struct can_frame v_frame = make_frame(0x401);
-                v_frame.data[0] |= (1 << 4);   // 打开语音播报
-                v_frame.data[2] = other_voice; // 语音编号
-                v_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-                send_frames.push_back(v_frame);
-                send_queue_->push(send_frames);
-                last_voice_frame_time_ = now;
-                last_voice_id_ = other_voice;
-            }
-            return;
-        }
-
-        // 3. 没有任何其他语音，且不在语音播报中时，才下发“无人驾驶中，请注意避让”（语音编号：1）
         const auto now = node_->get_clock()->now();
-        std::lock_guard<std::mutex> lock(voice_mutex_);
-        const bool interval_elapsed =
-            (now - last_voice_frame_time_).nanoseconds() >=
-            static_cast<int64_t>(voice_frame_period_ms_) * 1000000LL;
-        if (interval_elapsed || last_voice_id_ != 1) {
-            std::vector<struct can_frame> send_frames;
-            struct can_frame voice_frame = make_frame(0x401);
-            voice_frame.data[0] |= (1 << 4); // 打开语音播报
-            voice_frame.data[2] = 1;         // 无人驾驶中，请注意避让
-            voice_frame.data[4] = hook_target_cmd_.load(std::memory_order_relaxed);
-            send_frames.push_back(voice_frame);
-            send_queue_->push(send_frames);
-            last_voice_frame_time_ = now;
-            last_voice_id_ = 1;
-        }
+        struct can_frame voice_frame = assemble0x401(now);
+        send_queue_->push({voice_frame});
     }
 
 
